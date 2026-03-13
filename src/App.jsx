@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
-  "https://huidlqrhqsxechtaqojx.supabase.co",
-  "sb_publishable_2JtGar-T9KEPceRGqia3iA_B34O7CKD"
+  "https://sujdarqrksqwcmtapcjw.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN1amRhcnFya3Nxd2NtdGFwY2p3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNzI1NDgsImV4cCI6MjA4ODc0ODU0OH0.X1UaTAq6zdxwYCoAllUDE_GoTS-TlvgZrK1OWKkc_nM"
 );
 
 const storage = {
@@ -480,10 +480,27 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
   );
 }
 
+// Emails autorisés — seuls ceux-là peuvent entrer
+const ALLOWED_EMAILS = [
+  "anthony.donzel@gmail.com",
+  "harold.grenouilleau@gmail.com",
+];
+
+const emailToUser = email => {
+  if (!email) return null;
+  const lower = email.toLowerCase();
+  if (lower === "anthony.donzel@gmail.com")     return "anthony";
+  if (lower === "harold.grenouilleau@gmail.com") return "harold";
+  return null;
+};
+
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 export default function AmigoCRM() {
-  const [user,    setUser]    = useState(null);
+  const [authUser, setAuthUser] = useState(null); // session Google
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError]   = useState("");
+  const [user,    setUser]    = useState(null);   // "anthony" | "harold"
   const [projId,  setProjId]  = useState("makeup");
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
@@ -498,6 +515,42 @@ export default function AmigoCRM() {
   const KEY = "amigo-v9";
   const pollRef  = useRef(null);
   const prevLen  = useRef(0);
+
+  // ── Auth Google ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setAuthUser(session?.user || null);
+      if (session?.user) setUser(emailToUser(session.user.email));
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const u = session?.user || null;
+      if (u && !ALLOWED_EMAILS.includes(u.email?.toLowerCase())) {
+        supabase.auth.signOut();
+        setAuthError("Accès non autorisé. Contacte Anthony.");
+        return;
+      }
+      setAuthUser(u);
+      if (u) setUser(emailToUser(u.email));
+      else setUser(null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const signInWithGoogle = async () => {
+    setAuthError("");
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    if (error) setAuthError(error.message);
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setAuthUser(null);
+    setUser(null);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -563,24 +616,35 @@ export default function AmigoCRM() {
     await save({...data, orders:data.orders.map(o=>o.id===oid?{...o,...fields}:o)});
   };
 
-  if (loading) return <div style={{minHeight:"100vh",background:"#080a0f",display:"flex",alignItems:"center",justifyContent:"center"}}><p style={{color:"#374151",fontSize:13}}>Chargement…</p></div>;
+  if (authLoading || (authUser && loading)) return (
+    <div style={{minHeight:"100vh",background:"#080a0f",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <p style={{color:"#374151",fontSize:13}}>Chargement…</p>
+    </div>
+  );
 
-  if (!user) return (
+  if (!authUser) return (
     <div style={{minHeight:"100vh",background:"#080a0f",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans','Helvetica Neue',sans-serif"}}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap');*{box-sizing:border-box;margin:0;padding:0}.b{transition:all .15s}.b:hover{transform:translateY(-3px)}`}</style>
-      <div style={{textAlign:"center"}}>
-        <div style={{width:52,height:52,borderRadius:14,background:"linear-gradient(135deg,#2563eb,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,fontWeight:800,color:"white",margin:"0 auto 14px"}}>A</div>
-        <p style={{fontSize:26,fontWeight:600,color:"#f1f5f9",marginBottom:5}}>amigo CRM</p>
-        <p style={{fontSize:12,color:"#4b5563",marginBottom:36}}>Espace partagé · Anthony & Harold</p>
-        <div style={{display:"flex",gap:14,justifyContent:"center"}}>
-          {Object.entries(USERS).map(([id,u])=>(
-            <button key={id} onClick={()=>setUser(id)} className="b"
-              style={{padding:"22px 30px",background:"#0b0d16",border:`1px solid ${u.color}25`,borderRadius:14,cursor:"pointer",minWidth:140}}>
-              <div style={{width:46,height:46,borderRadius:"50%",background:`linear-gradient(135deg,${u.color}70,${u.color})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:800,color:"white",margin:"0 auto 10px"}}>{u.avatar}</div>
-              <p style={{fontSize:14,fontWeight:600,color:"#f1f5f9"}}>{u.label}</p>
-            </button>
-          ))}
-        </div>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap');*{box-sizing:border-box;margin:0;padding:0}`}</style>
+      <div style={{textAlign:"center",maxWidth:360,padding:"0 20px"}}>
+        <div style={{width:56,height:56,borderRadius:16,background:"linear-gradient(135deg,#2563eb,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,fontWeight:800,color:"white",margin:"0 auto 16px"}}>A</div>
+        <p style={{fontSize:28,fontWeight:600,color:"#f1f5f9",marginBottom:6,letterSpacing:"-.3px"}}>amigo CRM</p>
+        <p style={{fontSize:12,color:"#374151",marginBottom:40}}>Espace privé · Anthony & Harold</p>
+
+        <button onClick={signInWithGoogle}
+          style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,width:"100%",padding:"13px 20px",background:"white",border:"none",borderRadius:10,cursor:"pointer",fontSize:14,fontWeight:500,color:"#1f2937",boxShadow:"0 2px 12px #00000040",transition:"all .15s"}}
+          onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"}
+          onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+          <svg width="18" height="18" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+          </svg>
+          Se connecter avec Google
+        </button>
+
+        {authError && <p style={{fontSize:11,color:"#ef4444",marginTop:12}}>{authError}</p>}
+        <p style={{fontSize:10,color:"#1f2937",marginTop:20}}>Accès réservé aux membres autorisés</p>
       </div>
     </div>
   );
@@ -653,7 +717,7 @@ export default function AmigoCRM() {
               {u.avatar}
             </div>
           ))}
-          <button onClick={()=>setUser(null)} className="btn" style={{fontSize:10,color:"#2d3748",background:"none",border:"none",cursor:"pointer"}}>←</button>
+          <button onClick={signOut} className="btn" style={{fontSize:10,color:"#2d3748",background:"none",border:"none",cursor:"pointer"}} title="Se déconnecter">← Quitter</button>
         </div>
       </nav>
 
