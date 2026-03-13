@@ -377,6 +377,7 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
   const isVin = projId === "vin";
   const [status,    setStatus]    = useState(prospect.status);
   const [assigned,  setAssigned]  = useState(prospect.assignedTo||"");
+  const [expandedEmail, setExpandedEmail] = useState(null);
   const [note,      setNote]      = useState(prospect.note||"");
   const [editNote,  setEditNote]  = useState(false);
   const [tab,       setTab]       = useState("infos"); // infos | emails | commandes
@@ -412,7 +413,7 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
     if (ok) { setSent(true); setReplyTo(null); setReplyBody(""); }
   };
 
-  const TABS = [["infos","📋 Infos"],["emails",`✉️ Emails${myEmails.length>0?` (${myEmails.length})`:""}`],["commandes",`📦 Commandes${myOrders.length>0?` (${myOrders.length})`:""}`]];
+  const TABS = [["infos","📋 Infos"],["emails",`✉️ Emails${myEmails.length>0?` (${myEmails.length})`:""}`],["docs","📎 Docs"],["commandes",`📦 Commandes${myOrders.length>0?` (${myOrders.length})`:""}`]];
 
   return (
     <ModalWrap title={prospect.name} onClose={onClose} wide>
@@ -501,46 +502,131 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
         {myEmails.map(email=>{
           const isOut = email.folder==="Envoyés";
           const isReply = replyTo?.id===email.id;
+          const isExpanded = expandedEmail===email.id;
           return (
-            <div key={email.id} style={{marginBottom:10,borderRadius:9,border:`1px solid ${isOut?"#22c55e22":"#1a2035"}`,overflow:"hidden"}}>
-              {/* Header email */}
-              <div style={{padding:"8px 12px",background:isOut?"#22c55e08":"#0b0d16",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div>
-                  <p style={{fontSize:11,fontWeight:600,color:"#f1f5f9",marginBottom:2}}>{email.subject||"(sans objet)"}</p>
+            <div key={email.id} style={{marginBottom:10,borderRadius:9,border:`1px solid ${isExpanded?(isOut?"#22c55e55":"#3b82f655"):(isOut?"#22c55e22":"#1a2035")}`,overflow:"hidden",transition:"border .15s"}}>
+              {/* Header email — clic pour ouvrir */}
+              <div onClick={()=>setExpandedEmail(isExpanded?null:email.id)}
+                style={{padding:"10px 12px",background:isOut?"#22c55e08":"#0b0d16",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}
+                onMouseEnter={e=>e.currentTarget.style.background=isOut?"#22c55e12":"#0f1520"}
+                onMouseLeave={e=>e.currentTarget.style.background=isOut?"#22c55e08":"#0b0d16"}>
+                <div style={{flex:1,minWidth:0}}>
+                  <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{email.subject||"(sans objet)"}</p>
                   <p style={{fontSize:10,color:"#4b5563"}}>{isOut?`→ ${email.to}`:`← ${email.from}`}</p>
                 </div>
-                <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-                  <span style={{fontSize:10,color:"#2d3748"}}>{email.timestamp?new Date(email.timestamp).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}):""}</span>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,marginLeft:8}}>
+                  <span style={{fontSize:10,color:"#4b5563"}}>{email.timestamp?new Date(email.timestamp).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}):""}</span>
                   <span style={{fontSize:9,padding:"2px 6px",borderRadius:3,background:isOut?"#22c55e15":"#3b82f615",color:isOut?"#4ade80":"#60a5fa",fontWeight:600}}>{email.folder}</span>
-                  {!isOut&&prospect.email&&<button onClick={()=>{setReplyTo(email);setReplyBody("");}}
-                    style={{fontSize:10,padding:"3px 8px",borderRadius:5,background:`${P.color}18`,border:`1px solid ${P.color}28`,color:P.color,cursor:"pointer",fontWeight:600}}>↩ Répondre</button>}
+                  <span style={{fontSize:12,color:"#4b5563",transition:"transform .15s",display:"inline-block",transform:isExpanded?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
                 </div>
               </div>
-              {/* Contenu */}
-              <div style={{padding:"8px 12px",background:"#080a0f"}}>
-                <p style={{fontSize:11,color:"#6b7280",lineHeight:1.6}}>{email.snippet}</p>
-              </div>
-              {/* Zone réponse */}
-              {isReply&&<div style={{padding:"10px 12px",background:"#0b0d16",borderTop:"1px solid #0d1020"}}>
-                <p style={{fontSize:10,color:"#4b5563",marginBottom:6,fontWeight:600}}>↩ Répondre à {email.from}</p>
-                <textarea value={replyBody} onChange={e=>setReplyBody(e.target.value)}
-                  placeholder="Votre réponse..."
-                  style={{width:"100%",padding:"8px",borderRadius:6,fontSize:11,resize:"none",height:80,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",lineHeight:1.6,marginBottom:8}}/>
-                {sent&&<p style={{fontSize:11,color:"#4ade80",marginBottom:6}}>✅ Réponse envoyée !</p>}
-                <div style={{display:"flex",gap:8}}>
-                  <button onClick={handleReply} disabled={sending||!replyBody.trim()}
-                    style={{padding:"6px 14px",background:`linear-gradient(135deg,${P.color},${P.color}aa)`,border:"none",borderRadius:6,color:"white",fontSize:11,fontWeight:600,cursor:"pointer",opacity:sending?0.6:1}}>
-                    {sending?"Envoi…":"📤 Envoyer"}
-                  </button>
-                  <button onClick={()=>setReplyTo(null)} style={{padding:"6px 10px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:6,color:"#6b7280",fontSize:11,cursor:"pointer"}}>Annuler</button>
+              {/* Contenu expandé */}
+              {isExpanded&&<>
+                <div style={{padding:"12px 14px",background:"#06080d",borderTop:"1px solid #0d1020"}}>
+                  <p style={{fontSize:12,color:"#cbd5e1",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{email.snippet}</p>
+                  <p style={{fontSize:10,color:"#2d3748",marginTop:10,fontStyle:"italic"}}>Aperçu du contenu · ouvre Gmail pour voir le message complet</p>
                 </div>
-              </div>}
+                {/* Zone réponse */}
+                <div style={{padding:"10px 12px",background:"#0b0d16",borderTop:"1px solid #0d1020",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  {!isReply
+                    ? <button onClick={e=>{e.stopPropagation();setReplyTo(email);setReplyBody("");}}
+                        style={{padding:"6px 14px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:6,color:P.color,fontSize:11,fontWeight:600,cursor:"pointer"}}>↩ Répondre</button>
+                    : <div style={{width:"100%"}}>
+                        <p style={{fontSize:10,color:"#4b5563",marginBottom:6,fontWeight:600}}>↩ Répondre à {email.from}</p>
+                        <textarea value={replyBody} onChange={e=>setReplyBody(e.target.value)}
+                          placeholder="Votre réponse..."
+                          style={{width:"100%",padding:"8px",borderRadius:6,fontSize:11,resize:"none",height:90,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",lineHeight:1.6,marginBottom:8}}/>
+                        {sent&&<p style={{fontSize:11,color:"#4ade80",marginBottom:6}}>✅ Réponse envoyée !</p>}
+                        <div style={{display:"flex",gap:8}}>
+                          <button onClick={handleReply} disabled={sending||!replyBody.trim()}
+                            style={{padding:"6px 14px",background:`linear-gradient(135deg,${P.color},${P.color}aa)`,border:"none",borderRadius:6,color:"white",fontSize:11,fontWeight:600,cursor:"pointer",opacity:sending?0.6:1}}>
+                            {sending?"Envoi…":"📤 Envoyer"}
+                          </button>
+                          <button onClick={()=>setReplyTo(null)} style={{padding:"6px 10px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:6,color:"#6b7280",fontSize:11,cursor:"pointer"}}>Annuler</button>
+                        </div>
+                      </div>
+                  }
+                </div>
+              </>}
             </div>
           );
         })}
       </>}
 
       {/* ── COMMANDES ── */}
+      {tab==="docs"&&(()=>{
+        const [docs, setDocs] = useState(prospect.docs||[]);
+        const [dragging, setDragging] = useState(false);
+        const [uploading, setUploading] = useState(false);
+
+        const uploadFile = async (file) => {
+          setUploading(true);
+          try {
+            const path = `${prospect.id}/${Date.now()}_${file.name}`;
+            const { error } = await supabase.storage.from("amigo-docs").upload(path, file);
+            if (error) throw error;
+            const { data: urlData } = supabase.storage.from("amigo-docs").getPublicUrl(path);
+            const newDoc = { id: "doc"+uid(), name: file.name, path, url: urlData.publicUrl, size: file.size, date: new Date().toLocaleDateString("fr-FR"), uploadedBy: "Anthony" };
+            const updated = [...docs, newDoc];
+            setDocs(updated);
+            onUpdate(prospect.id, { docs: updated });
+          } catch(e) { alert("Erreur upload : " + e.message); }
+          setUploading(false);
+        };
+
+        const deleteDoc = async (doc) => {
+          if (!confirm(`Supprimer "${doc.name}" ?`)) return;
+          await supabase.storage.from("amigo-docs").remove([doc.path]);
+          const updated = docs.filter(d=>d.id!==doc.id);
+          setDocs(updated);
+          onUpdate(prospect.id, { docs: updated });
+        };
+
+        const fmt_size = b => b>1024*1024?`${(b/1024/1024).toFixed(1)}Mo`:b>1024?`${(b/1024).toFixed(0)}Ko`:`${b}o`;
+        const FILE_ICON = name => name.endsWith(".pdf")?"📄":name.match(/\.(xlsx?|csv)/)?"📊":name.match(/\.(jpe?g|png|gif|webp)/)?"🖼️":name.match(/\.(docx?)/)?"📝":"📎";
+
+        return (
+          <div>
+            {/* Zone drag & drop */}
+            <div
+              onDragOver={e=>{e.preventDefault();setDragging(true);}}
+              onDragLeave={()=>setDragging(false)}
+              onDrop={e=>{e.preventDefault();setDragging(false);const f=e.dataTransfer.files[0];if(f)uploadFile(f);}}
+              onClick={()=>document.getElementById(`file-input-${prospect.id}`)?.click()}
+              style={{border:`2px dashed ${dragging?P.color:"#1a2035"}`,borderRadius:10,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:dragging?`${P.color}08`:"transparent",transition:"all .15s",marginBottom:14}}>
+              <input id={`file-input-${prospect.id}`} type="file" style={{display:"none"}} onChange={e=>{if(e.target.files[0])uploadFile(e.target.files[0]);e.target.value="";}}/>
+              {uploading
+                ? <p style={{fontSize:12,color:P.color}}>⏳ Envoi en cours…</p>
+                : <>
+                    <p style={{fontSize:22,marginBottom:6}}>📎</p>
+                    <p style={{fontSize:12,color:"#4b5563",marginBottom:2}}>Glisse un fichier ici ou clique pour parcourir</p>
+                    <p style={{fontSize:10,color:"#2d3748"}}>PDF, Excel, Word, images — max 50Mo</p>
+                  </>
+              }
+            </div>
+
+            {/* Liste des documents */}
+            {docs.length===0
+              ? <p style={{fontSize:11,color:"#2d3748",textAlign:"center",padding:"10px 0",fontStyle:"italic"}}>Aucun document attaché.</p>
+              : docs.map(doc=>(
+                <div key={doc.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"#0b0d16",borderRadius:8,border:"1px solid #0f1520",marginBottom:6}}>
+                  <span style={{fontSize:20,flexShrink:0}}>{FILE_ICON(doc.name)}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{doc.name}</p>
+                    <p style={{fontSize:10,color:"#4b5563"}}>{doc.date} · {fmt_size(doc.size)} · {doc.uploadedBy}</p>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexShrink:0}}>
+                    <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                      style={{padding:"4px 10px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:5,color:P.color,fontSize:10,fontWeight:600,textDecoration:"none"}}>⬇️ Ouvrir</a>
+                    <button onClick={()=>deleteDoc(doc)} style={{padding:"4px 8px",background:"#ef444415",border:"1px solid #ef444425",borderRadius:5,color:"#f87171",fontSize:10,cursor:"pointer"}}>✕</button>
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        );
+      })()}
+
       {tab==="commandes"&&<>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
           <p style={{fontSize:10,color:"#4b5563",textTransform:"uppercase",fontWeight:600}}>📦 Commandes ({myOrders.length})</p>
@@ -689,13 +775,23 @@ export default function AmigoCRM() {
   const [authUser, setAuthUser] = useState(null); // session Google
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError]   = useState("");
-  const [user,    setUser]    = useState(null);   // "anthony" | "harold"
+  const [user,    setUser]    = useState(null);
   const [projId,  setProjId]  = useState("makeup");
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastSync,setLastSync]= useState(null);
   const [notif,   setNotif]   = useState(null);
   const [view,    setView]    = useState("kanban");
+  const [theme,   setTheme]   = useState(()=>localStorage.getItem("amigo-theme")||"dark");
+
+  const THEMES = {
+    dark:  { label:"🌑 Dark",  filter:"none" },
+    dim:   { label:"🌓 Dim",   filter:"brightness(1.15) contrast(0.92)" },
+    warm:  { label:"🌅 Warm",  filter:"sepia(0.25) brightness(1.08) contrast(0.95)" },
+    light: { label:"☀️ Light", filter:"invert(1) hue-rotate(180deg)" },
+  };
+
+  const switchTheme = (t) => { setTheme(t); localStorage.setItem("amigo-theme",t); };
 
   const [showAddProspect, setShowAddProspect] = useState(false);
   const [showAddOrder,    setShowAddOrder]    = useState(undefined);
@@ -1070,15 +1166,10 @@ export default function AmigoCRM() {
       const token = await getGToken();
       if (!token) { setGmailLoading(false); return; }
       const domain = prospect.email?.split("@")[1]?.toLowerCase();
-      const pname = prospect.name?.toLowerCase();
-      const prod = prospect.producteur?.toLowerCase();
-      const parts = [
-        domain?`from:${domain} OR to:${domain}`:"",
-        pname&&pname.length>4?`"${pname}"`:"",
-        prod&&prod.length>4?`"${prod}"`:"",
-      ].filter(Boolean);
-      if (!parts.length) { setGmailLoading(false); return; }
-      const query = parts.join(" OR ");
+      const emailAddr = prospect.email?.toLowerCase();
+      if (!domain && !emailAddr) { setGmailLoading(false); return; }
+      // Uniquement par adresse email / domaine — pas par nom
+      const query = `from:${domain} OR to:${domain}`;
       const res = await fetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&q=${encodeURIComponent(query)}`,
         { headers: { Authorization: `Bearer ${token}` } }
@@ -1152,7 +1243,7 @@ export default function AmigoCRM() {
   const pipeline = prospects.reduce((s,p)=>s+p.valeur,0);
 
   return (
-    <div style={{minHeight:"100vh",background:"#080a0f",color:"#e2e8f0",fontFamily:"'DM Sans','Helvetica Neue',sans-serif",display:"flex",flexDirection:"column"}}>
+    <div style={{minHeight:"100vh",background:"#080a0f",color:"#e2e8f0",fontFamily:"'DM Sans','Helvetica Neue',sans-serif",display:"flex",flexDirection:"column",filter:THEMES[theme]?.filter||"none"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}
@@ -1210,7 +1301,15 @@ export default function AmigoCRM() {
               {u.avatar}
             </div>
           ))}
-          <button onClick={signOut} className="btn" style={{fontSize:10,color:"#2d3748",background:"none",border:"none",cursor:"pointer"}} title="Se déconnecter">← Quitter</button>
+          <button onClick={signOut} className="btn" style={{fontSize:11,color:"#94a3b8",background:"#0b0d16",border:"1px solid #1a2035",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontWeight:500}} title="Se déconnecter">← Quitter</button>
+          <div style={{display:"flex",background:"#0b0d16",borderRadius:6,padding:2,border:"1px solid #0f1520",gap:1}}>
+            {Object.entries(THEMES).map(([k,v])=>(
+              <button key={k} onClick={()=>switchTheme(k)} title={v.label}
+                style={{padding:"3px 7px",borderRadius:4,fontSize:10,cursor:"pointer",background:theme===k?"#ffffff15":"transparent",border:"none",color:theme===k?"#f1f5f9":"#3d4f6b",fontWeight:theme===k?600:400}}>
+                {v.label.split(" ")[0]}
+              </button>
+            ))}
+          </div>
         </div>
       </nav>
 
