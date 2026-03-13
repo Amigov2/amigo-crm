@@ -552,6 +552,68 @@ export default function AmigoCRM() {
     setUser(null);
   };
 
+  // ── Import XLS ────────────────────────────────────────────────────────────
+  const importXLS = async (file) => {
+    if (!file || !data) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
+        const wb = XLSX.read(e.target.result, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+        const clean = s => String(s||"").trim();
+        const cleanEmail = s => { const m = clean(s).replace("mailto:",""); return m.includes("@")?m:""; };
+
+        const mapped = rows
+          .filter(r => clean(r["NOM"]) || clean(r["PRODUCTEUR"]))
+          .map((r) => {
+            const nom = clean(r["NOM"]);
+            const prod = clean(r["PRODUCTEUR"]);
+            const prixMagasin = parseFloat(r["PRIX MAGASIN France"])||0;
+            const prixProd = parseFloat(r["PRIX PROD"])||0;
+            return {
+              id: "xls" + uid(),
+              name:             nom || prod,
+              geo:              "France 🇫🇷",
+              sub:              clean(r["CERTIFICAT"]).split(" ").slice(-2).join(" ") || "",
+              contact:          clean(r["CONTACT"]),
+              email:            cleanEmail(r["Mail "]),
+              phone:            "",
+              valeur:           prixMagasin ? Math.round(prixMagasin * 12 * 50) : 0,
+              note:             clean(r["Observation "]),
+              tags:             [clean(r["TYPE"]), clean(r["CEPAGE"])].filter(Boolean).slice(0,2),
+              type:             clean(r["TYPE"]),
+              producteur:       prod,
+              cepage:           clean(r["CEPAGE"]),
+              appellation:      clean(r["CERTIFICAT"]),
+              millesime:        r["ANNÉE"] ? String(Math.round(parseFloat(r["ANNÉE"]))||"") : "",
+              certificat:       clean(r["CERTIFICAT"]).split(" ")[0] || "",
+              alcool:           "",
+              bio:              ["OUI","Oui","oui"].includes(clean(r["BIO"])),
+              incoterm:         "FOB",
+              prixProducteur:   prixProd ? String(prixProd) : "",
+              prixMagasinFr:    prixMagasin ? String(prixMagasin) : "",
+              prixVenteBresil:  "",
+              prixMercadoLivre: "",
+              minCommande:      "6",
+              status:           PROJECTS.vin.statuses[0],
+              assignedTo:       null, lastEditBy: user, lastEditAt: Date.now(), _proj: "vin",
+            };
+          });
+
+        const nd = { ...data, vin: [...data.vin, ...mapped] };
+        await save(nd);
+        alert(`✅ ${mapped.length} fournisseur(s) importé(s) !`);
+      } catch(err) {
+        console.error(err);
+        alert("❌ Erreur import : " + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
   const load = useCallback(async () => {
     try {
       const r = await storage.get(KEY);
@@ -763,6 +825,12 @@ export default function AmigoCRM() {
                 style={{padding:"8px 13px",background:"#22c55e15",border:"1px solid #22c55e28",borderRadius:8,color:"#4ade80",fontSize:12,fontWeight:600,cursor:"pointer"}}>
                 + {projId==="print3d"?"Devis / Commande":"Commande"}
               </button>
+              {projId==="vin" && (
+                <label className="btn" style={{padding:"8px 13px",background:"#f59e0b15",border:"1px solid #f59e0b28",borderRadius:8,color:"#fbbf24",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+                  📥 Importer XLS
+                  <input type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={e=>{if(e.target.files[0])importXLS(e.target.files[0]);e.target.value="";}}/>
+                </label>
+              )}
             </div>
 
             {/* KANBAN */}
