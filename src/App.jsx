@@ -566,8 +566,14 @@ export default function AmigoCRM() {
         const clean = s => String(s||"").trim();
         const cleanEmail = s => { const m = clean(s).replace("mailto:",""); return m.includes("@")?m:""; };
 
+        const existing = new Set(data.vin.map(v => `${v.name}|${v.producteur}`.toLowerCase().trim()));
+
         const mapped = rows
           .filter(r => clean(r["NOM"]) || clean(r["PRODUCTEUR"]))
+          .filter(r => {
+            const key = `${clean(r["NOM"])||clean(r["PRODUCTEUR"])}|${clean(r["PRODUCTEUR"])}`.toLowerCase();
+            return !existing.has(key);
+          })
           .map((r) => {
             const nom = clean(r["NOM"]);
             const prod = clean(r["PRODUCTEUR"]);
@@ -605,7 +611,8 @@ export default function AmigoCRM() {
 
         const nd = { ...data, vin: [...data.vin, ...mapped] };
         await save(nd);
-        alert(`✅ ${mapped.length} fournisseur(s) importé(s) !`);
+        const skipped = rows.filter(r => clean(r["NOM"]) || clean(r["PRODUCTEUR"])).length - mapped.length;
+        alert(`✅ ${mapped.length} fournisseur(s) importé(s)${skipped>0?` · ${skipped} doublon(s) ignoré(s)`:""}!`);
       } catch(err) {
         console.error(err);
         alert("❌ Erreur import : " + err.message);
