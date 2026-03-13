@@ -372,13 +372,18 @@ function WineFinancePanel({ prospect }) {
   );
 }
 
-function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder, onEmail }) {
+function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder, onEmail, gmailThreads, onSendEmail, onScanForProspect }) {
   const P = PROJECTS[projId];
   const isVin = projId === "vin";
   const [status,    setStatus]    = useState(prospect.status);
   const [assigned,  setAssigned]  = useState(prospect.assignedTo||"");
   const [note,      setNote]      = useState(prospect.note||"");
   const [editNote,  setEditNote]  = useState(false);
+  const [tab,       setTab]       = useState("infos"); // infos | emails | commandes
+  const [replyTo,   setReplyTo]   = useState(null);
+  const [replyBody, setReplyBody] = useState("");
+  const [sending,   setSending]   = useState(false);
+  const [sent,      setSent]      = useState(false);
 
   const save = (field, val) => {
     if (field==="status") setStatus(val);
@@ -389,73 +394,154 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
   const myOrders = orders.filter(o=>o.prospectId===prospect.id);
   const col = P.statusColors[status]||"#6b7280";
 
+  // Emails liés à ce prospect
+  const myEmails = (gmailThreads||[]).filter(t =>
+    t.prospect?.id === prospect.id ||
+    (prospect.email && (t.from?.includes(prospect.email.split("@")[1]||"__") || t.to?.includes(prospect.email.split("@")[1]||"__")))
+  ).sort((a,b) => b.timestamp - a.timestamp);
+
+  const handleReply = async () => {
+    if (!replyBody.trim() || !replyTo) return;
+    setSending(true);
+    const ok = await onSendEmail({
+      to: prospect.email,
+      subject: `Re: ${replyTo.subject||""}`,
+      body: replyBody + `\n\n---\nDe : ${replyTo.from}\n${replyTo.snippet}`,
+    });
+    setSending(false);
+    if (ok) { setSent(true); setReplyTo(null); setReplyBody(""); }
+  };
+
+  const TABS = [["infos","📋 Infos"],["emails",`✉️ Emails${myEmails.length>0?` (${myEmails.length})`:""}`],["commandes",`📦 Commandes${myOrders.length>0?` (${myOrders.length})`:""}`]];
+
   return (
     <ModalWrap title={prospect.name} onClose={onClose} wide>
-      {/* Infos produit vin */}
-      {isVin && prospect.cepage && (
-        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,padding:"8px 10px",background:"#0b0d16",borderRadius:8,border:"1px solid #8b5cf620"}}>
-          {[
-            {ic:"🍇",v:prospect.type},
-            {ic:"🌿",v:prospect.cepage},
-            {ic:"📍",v:prospect.appellation},
-            {ic:"📅",v:prospect.millesime},
-            {ic:"🏷",v:prospect.certificat},
-            {ic:"🧪",v:prospect.alcool?`${prospect.alcool}°`:""},
-            {ic:"🚚",v:prospect.incoterm},
-            {ic:"📦",v:prospect.minCommande?`Min. ${prospect.minCommande} cs`:""},
-            ...(prospect.bio?[{ic:"🌱",v:"Bio"}]:[]),
-          ].filter(x=>x.v).map(x=>(
-            <span key={x.v} style={{fontSize:10,padding:"2px 7px",borderRadius:4,background:"#8b5cf615",color:"#a78bfa",fontWeight:600,display:"flex",alignItems:"center",gap:3}}>
-              {x.ic} {x.v}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* Onglets */}
+      <div style={{display:"flex",gap:4,marginBottom:14,background:"#080a0f",borderRadius:7,padding:3,border:"1px solid #0f1520"}}>
+        {TABS.map(([v,l])=>(
+          <button key={v} onClick={()=>setTab(v)} className="btn"
+            style={{flex:1,padding:"5px 8px",borderRadius:5,fontSize:11,fontWeight:600,background:tab===v?`${P.color}18`:"transparent",color:tab===v?P.color:"#4b5563",border:tab===v?`1px solid ${P.color}28`:"1px solid transparent",cursor:"pointer",transition:"all .12s"}}>
+            {l}
+          </button>
+        ))}
+      </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-        <div>
-          <p style={{fontSize:10,color:"#4b5563",textTransform:"uppercase",fontWeight:600,marginBottom:6}}>Contact</p>
-          {prospect.contact && <p style={{fontSize:12,fontWeight:600,color:"#e2e8f0",marginBottom:2}}>{prospect.contact}</p>}
-          {prospect.email && <p style={{fontSize:11,color:"#3b82f6",marginBottom:1,cursor:"pointer"}} onClick={()=>onEmail&&onEmail(prospect)}>{prospect.email} ✉️</p>}
-          {prospect.phone   && <p style={{fontSize:11,color:"#6b7280",marginBottom:4}}>{prospect.phone}</p>}
-          {prospect.geo     && <p style={{fontSize:11,color:"#4b5563"}}>{prospect.geo} {prospect.sub}</p>}
-          {isVin && prospect.prixMagasinFr && <p style={{fontSize:10,color:"#4b5563",marginTop:5}}>Prix magasin France : <strong style={{color:"#f1f5f9"}}>€{prospect.prixMagasinFr}/btl</strong></p>}
-          <div style={{marginTop:7}}>{(prospect.tags||[]).map(t=>(
-            <span key={t} style={{fontSize:10,padding:"2px 7px",borderRadius:4,background:`${P.color}15`,color:P.color,border:`1px solid ${P.color}22`,marginRight:4,fontWeight:600}}>{t}</span>
-          ))}</div>
-        </div>
-        <div>
-          <Field label="Statut" value={status} onChange={v=>save("status",v)} options={P.statuses}/>
-          <Field label="Assigné à" value={assigned} onChange={v=>save("assignedTo",v)}
-            options={["", ...Object.keys(USERS)]}/>
-          <div style={{marginTop:6,padding:"7px 10px",background:`${col}10`,borderRadius:6,border:`1px solid ${col}20`,display:"inline-flex",alignItems:"center",gap:5}}>
-            <span style={{width:7,height:7,borderRadius:"50%",background:col,display:"inline-block"}}/>
-            <span style={{fontSize:11,fontWeight:600,color:col}}>{status}</span>
+      {/* ── INFOS ── */}
+      {tab==="infos"&&<>
+        {isVin && prospect.cepage && (
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,padding:"8px 10px",background:"#0b0d16",borderRadius:8,border:"1px solid #8b5cf620"}}>
+            {[
+              {ic:"🍇",v:prospect.type},{ic:"🌿",v:prospect.cepage},{ic:"📍",v:prospect.appellation},
+              {ic:"📅",v:prospect.millesime},{ic:"🏷",v:prospect.certificat},{ic:"🧪",v:prospect.alcool?`${prospect.alcool}°`:""},
+              {ic:"🚚",v:prospect.incoterm},{ic:"📦",v:prospect.minCommande?`Min. ${prospect.minCommande} cs`:""},
+              ...(prospect.bio?[{ic:"🌱",v:"Bio"}]:[]),
+            ].filter(x=>x.v).map(x=>(
+              <span key={x.v} style={{fontSize:10,padding:"2px 7px",borderRadius:4,background:"#8b5cf615",color:"#a78bfa",fontWeight:600,display:"flex",alignItems:"center",gap:3}}>{x.ic} {x.v}</span>
+            ))}
+          </div>
+        )}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+          <div>
+            <p style={{fontSize:10,color:"#4b5563",textTransform:"uppercase",fontWeight:600,marginBottom:6}}>Contact</p>
+            {prospect.contact && <p style={{fontSize:12,fontWeight:600,color:"#e2e8f0",marginBottom:2}}>{prospect.contact}</p>}
+            {prospect.email && <p style={{fontSize:11,color:"#3b82f6",marginBottom:1,cursor:"pointer"}} onClick={()=>onEmail&&onEmail(prospect)}>{prospect.email} ✉️</p>}
+            {prospect.phone   && <p style={{fontSize:11,color:"#6b7280",marginBottom:4}}>{prospect.phone}</p>}
+            {prospect.geo     && <p style={{fontSize:11,color:"#4b5563"}}>{prospect.geo} {prospect.sub}</p>}
+            {isVin && prospect.prixMagasinFr && <p style={{fontSize:10,color:"#4b5563",marginTop:5}}>Prix magasin France : <strong style={{color:"#f1f5f9"}}>€{prospect.prixMagasinFr}/btl</strong></p>}
+            <div style={{marginTop:7}}>{(prospect.tags||[]).map(t=>(
+              <span key={t} style={{fontSize:10,padding:"2px 7px",borderRadius:4,background:`${P.color}15`,color:P.color,border:`1px solid ${P.color}22`,marginRight:4,fontWeight:600}}>{t}</span>
+            ))}</div>
+          </div>
+          <div>
+            <Field label="Statut" value={status} onChange={v=>save("status",v)} options={P.statuses}/>
+            <Field label="Assigné à" value={assigned} onChange={v=>save("assignedTo",v)} options={["", ...Object.keys(USERS)]}/>
+            <div style={{marginTop:6,padding:"7px 10px",background:`${col}10`,borderRadius:6,border:`1px solid ${col}20`,display:"inline-flex",alignItems:"center",gap:5}}>
+              <span style={{width:7,height:7,borderRadius:"50%",background:col,display:"inline-block"}}/>
+              <span style={{fontSize:11,fontWeight:600,color:col}}>{status}</span>
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* Panneau financier vin */}
-      {isVin && <WineFinancePanel prospect={prospect}/>}
-
-      <div style={{padding:"10px 12px",background:"#080a0f",borderRadius:8,border:"1px solid #0d1020",marginBottom:12}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-          <p style={{fontSize:10,color:"#4b5563",fontWeight:600}}>📝 NOTE PARTAGÉE</p>
-          {!editNote
-            ? <button onClick={()=>setEditNote(true)} style={{fontSize:10,color:P.color,background:"none",border:"none",cursor:"pointer",fontWeight:600}}>Modifier</button>
-            : <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>{onUpdate(prospect.id,{note});setEditNote(false);}} style={{fontSize:10,color:"#4ade80",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>✓ OK</button>
-                <button onClick={()=>setEditNote(false)} style={{fontSize:10,color:"#4b5563",background:"none",border:"none",cursor:"pointer"}}>Annuler</button>
-              </div>
+        {isVin && <WineFinancePanel prospect={prospect}/>}
+        <div style={{padding:"10px 12px",background:"#080a0f",borderRadius:8,border:"1px solid #0d1020"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+            <p style={{fontSize:10,color:"#4b5563",fontWeight:600}}>📝 NOTE PARTAGÉE</p>
+            {!editNote
+              ? <button onClick={()=>setEditNote(true)} style={{fontSize:10,color:P.color,background:"none",border:"none",cursor:"pointer",fontWeight:600}}>Modifier</button>
+              : <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>{onUpdate(prospect.id,{note});setEditNote(false);}} style={{fontSize:10,color:"#4ade80",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>✓ OK</button>
+                  <button onClick={()=>setEditNote(false)} style={{fontSize:10,color:"#4b5563",background:"none",border:"none",cursor:"pointer"}}>Annuler</button>
+                </div>
+            }
+          </div>
+          {editNote
+            ? <textarea value={note} onChange={e=>setNote(e.target.value)} style={{width:"100%",padding:"7px",borderRadius:6,fontSize:11,resize:"none",height:70,lineHeight:1.6,outline:"none",background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"}}/>
+            : <p style={{fontSize:11,color:"#6b7280",lineHeight:1.6}}>{note||"Aucune note."}</p>
           }
         </div>
-        {editNote
-          ? <textarea value={note} onChange={e=>setNote(e.target.value)} style={{width:"100%",padding:"7px",borderRadius:6,fontSize:11,resize:"none",height:70,lineHeight:1.6,outline:"none",background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"}}/>
-          : <p style={{fontSize:11,color:"#6b7280",lineHeight:1.6}}>{note||"Aucune note."}</p>
-        }
-      </div>
+      </>}
 
-      <div>
+      {/* ── EMAILS ── */}
+      {tab==="emails"&&<>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <button onClick={()=>onScanForProspect&&onScanForProspect(prospect)} style={{padding:"6px 12px",background:"#3b82f618",border:"1px solid #3b82f628",borderRadius:6,color:"#60a5fa",fontSize:11,fontWeight:600,cursor:"pointer"}}>🔍 Scanner mes emails</button>
+            {myEmails.length>0&&<span style={{fontSize:10,color:"#4b5563"}}>{myEmails.length} email{myEmails.length>1?"s":""} trouvé{myEmails.length>1?"s":""}</span>}
+          </div>
+          <button onClick={()=>onEmail&&onEmail(prospect)} style={{padding:"6px 12px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:6,color:P.color,fontSize:11,fontWeight:600,cursor:"pointer"}}>✉️ Nouvel email</button>
+        </div>
+
+        {myEmails.length===0&&(
+          <div style={{textAlign:"center",padding:"30px 20px",color:"#2d3748"}}>
+            <p style={{fontSize:28,marginBottom:8}}>📭</p>
+            <p style={{fontSize:12,color:"#4b5563"}}>Aucun email trouvé pour ce contact.</p>
+            <p style={{fontSize:11,color:"#2d3748",marginTop:4}}>Clique sur "Scanner mes emails" pour charger les échanges avec {prospect.name}.</p>
+          </div>
+        )}
+
+        {myEmails.map(email=>{
+          const isOut = email.folder==="Envoyés";
+          const isReply = replyTo?.id===email.id;
+          return (
+            <div key={email.id} style={{marginBottom:10,borderRadius:9,border:`1px solid ${isOut?"#22c55e22":"#1a2035"}`,overflow:"hidden"}}>
+              {/* Header email */}
+              <div style={{padding:"8px 12px",background:isOut?"#22c55e08":"#0b0d16",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <p style={{fontSize:11,fontWeight:600,color:"#f1f5f9",marginBottom:2}}>{email.subject||"(sans objet)"}</p>
+                  <p style={{fontSize:10,color:"#4b5563"}}>{isOut?`→ ${email.to}`:`← ${email.from}`}</p>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                  <span style={{fontSize:10,color:"#2d3748"}}>{email.timestamp?new Date(email.timestamp).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}):""}</span>
+                  <span style={{fontSize:9,padding:"2px 6px",borderRadius:3,background:isOut?"#22c55e15":"#3b82f615",color:isOut?"#4ade80":"#60a5fa",fontWeight:600}}>{email.folder}</span>
+                  {!isOut&&prospect.email&&<button onClick={()=>{setReplyTo(email);setReplyBody("");}}
+                    style={{fontSize:10,padding:"3px 8px",borderRadius:5,background:`${P.color}18`,border:`1px solid ${P.color}28`,color:P.color,cursor:"pointer",fontWeight:600}}>↩ Répondre</button>}
+                </div>
+              </div>
+              {/* Contenu */}
+              <div style={{padding:"8px 12px",background:"#080a0f"}}>
+                <p style={{fontSize:11,color:"#6b7280",lineHeight:1.6}}>{email.snippet}</p>
+              </div>
+              {/* Zone réponse */}
+              {isReply&&<div style={{padding:"10px 12px",background:"#0b0d16",borderTop:"1px solid #0d1020"}}>
+                <p style={{fontSize:10,color:"#4b5563",marginBottom:6,fontWeight:600}}>↩ Répondre à {email.from}</p>
+                <textarea value={replyBody} onChange={e=>setReplyBody(e.target.value)}
+                  placeholder="Votre réponse..."
+                  style={{width:"100%",padding:"8px",borderRadius:6,fontSize:11,resize:"none",height:80,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",lineHeight:1.6,marginBottom:8}}/>
+                {sent&&<p style={{fontSize:11,color:"#4ade80",marginBottom:6}}>✅ Réponse envoyée !</p>}
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={handleReply} disabled={sending||!replyBody.trim()}
+                    style={{padding:"6px 14px",background:`linear-gradient(135deg,${P.color},${P.color}aa)`,border:"none",borderRadius:6,color:"white",fontSize:11,fontWeight:600,cursor:"pointer",opacity:sending?0.6:1}}>
+                    {sending?"Envoi…":"📤 Envoyer"}
+                  </button>
+                  <button onClick={()=>setReplyTo(null)} style={{padding:"6px 10px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:6,color:"#6b7280",fontSize:11,cursor:"pointer"}}>Annuler</button>
+                </div>
+              </div>}
+            </div>
+          );
+        })}
+      </>}
+
+      {/* ── COMMANDES ── */}
+      {tab==="commandes"&&<>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
           <p style={{fontSize:10,color:"#4b5563",textTransform:"uppercase",fontWeight:600}}>📦 Commandes ({myOrders.length})</p>
           <button onClick={()=>onAddOrder(prospect)} style={{fontSize:10,color:"#22c55e",background:"#22c55e10",border:"1px solid #22c55e22",padding:"3px 9px",borderRadius:5,cursor:"pointer",fontWeight:600}}>+ Ajouter</button>
@@ -475,7 +561,7 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
             </div>
           ))
         }
-      </div>
+      </>}
     </ModalWrap>
   );
 }
@@ -978,6 +1064,51 @@ export default function AmigoCRM() {
     await save({...data, events:(data.events||[]).filter(e=>e.id!==eid)});
   };
 
+  const scanForProspect = async (prospect) => {
+    setGmailLoading(true);
+    try {
+      const token = await getGToken();
+      if (!token) { setGmailLoading(false); return; }
+      const domain = prospect.email?.split("@")[1]?.toLowerCase();
+      const pname = prospect.name?.toLowerCase();
+      const prod = prospect.producteur?.toLowerCase();
+      const parts = [
+        domain?`from:${domain} OR to:${domain}`:"",
+        pname&&pname.length>4?`"${pname}"`:"",
+        prod&&prod.length>4?`"${prod}"`:"",
+      ].filter(Boolean);
+      if (!parts.length) { setGmailLoading(false); return; }
+      const query = parts.join(" OR ");
+      const res = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&q=${encodeURIComponent(query)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const d = await res.json();
+      if (!d.messages) { setGmailLoading(false); return; }
+      const threads = await Promise.all(
+        d.messages.map(async m => {
+          const r = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          const msg = await r.json();
+          const headers = msg.payload?.headers||[];
+          const get = n => headers.find(h=>h.name===n)?.value||"";
+          const from=get("From"), to=get("To"), subject=get("Subject"), date=get("Date");
+          const snippet=msg.snippet||"";
+          const labelIds=msg.labelIds||[];
+          const folder=labelIds.includes("SENT")?"Envoyés":labelIds.includes("DRAFT")?"Brouillons":labelIds.includes("INBOX")?"Reçus":"Autre";
+          const timestamp=msg.internalDate?parseInt(msg.internalDate):0;
+          return { id:m.id, from, to, subject, date, timestamp, prospect, proj:prospect._proj||projId, folder, snippet };
+        })
+      );
+      const existingIds = new Set(gmailThreads.map(t=>t.id));
+      const fresh = threads.filter(t=>!existingIds.has(t.id));
+      setGmailThreads(prev=>[...prev,...fresh].sort((a,b)=>b.timestamp-a.timestamp));
+    } catch(e) { console.error(e); }
+    setGmailLoading(false);
+  };
+
   if (authLoading || (authUser && loading)) return (
     <div style={{minHeight:"100vh",background:"#080a0f",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <p style={{color:"#374151",fontSize:13}}>Chargement…</p>
@@ -1060,7 +1191,7 @@ export default function AmigoCRM() {
         </div>
 
         <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
-          {[["kanban","Kanban"],["commandes","Commandes"],["finance","Finance"],["agenda","Agenda"],["emails","Emails"],["activite","Activité"]].map(([v,l])=>(
+          {[["kanban","Kanban"],["commandes","Commandes"],["finance","Finance"],["agenda","Agenda"],["activite","Activité"]].map(([v,l])=>(
             <button key={v} onClick={()=>setView(v)} className="btn"
               style={{padding:"4px 11px",borderRadius:5,fontSize:12,fontWeight:500,background:view===v?`${accent}18`:"transparent",color:view===v?accent:"#94a3b8",border:view===v?`1px solid ${accent}22`:"1px solid transparent",cursor:"pointer"}}>
               {l}
@@ -1510,7 +1641,7 @@ export default function AmigoCRM() {
       {/* ══ MODALS ══ */}
       {showAddProspect&&<AddProspectModal projId={projId} onAdd={addProspect} onClose={()=>setShowAddProspect(false)}/>}
       {showAddOrder!==undefined&&<AddOrderModal projId={projId} prospects={prospects} preselect={showAddOrder} onAdd={addOrder} onClose={()=>setShowAddOrder(undefined)}/>}
-      {detailProspect&&<ProspectModal prospect={detailProspect} projId={projId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}}/>}
+      {detailProspect&&<ProspectModal prospect={detailProspect} projId={projId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} onSendEmail={sendGmail} onScanForProspect={scanForProspect}/>}
       {showAddEvent&&<AddEventModal onAdd={createCalEvent} onClose={()=>setShowAddEvent(null)} preDate={showAddEvent==="new"?null:showAddEvent} currentUser={user}/>}
       {showEmailModal&&<EmailModal prospect={showEmailModal} projId={projId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail}/>}
     </div>
