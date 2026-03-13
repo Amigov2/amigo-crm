@@ -372,7 +372,7 @@ function WineFinancePanel({ prospect }) {
   );
 }
 
-function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder }) {
+function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder, onEmail }) {
   const P = PROJECTS[projId];
   const isVin = projId === "vin";
   const [status,    setStatus]    = useState(prospect.status);
@@ -416,7 +416,7 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
         <div>
           <p style={{fontSize:10,color:"#4b5563",textTransform:"uppercase",fontWeight:600,marginBottom:6}}>Contact</p>
           {prospect.contact && <p style={{fontSize:12,fontWeight:600,color:"#e2e8f0",marginBottom:2}}>{prospect.contact}</p>}
-          {prospect.email   && <p style={{fontSize:11,color:"#3b82f6",marginBottom:1}}>{prospect.email}</p>}
+          {prospect.email && <p style={{fontSize:11,color:"#3b82f6",marginBottom:1,cursor:"pointer"}} onClick={()=>onEmail&&onEmail(prospect)}>{prospect.email} ✉️</p>}
           {prospect.phone   && <p style={{fontSize:11,color:"#6b7280",marginBottom:4}}>{prospect.phone}</p>}
           {prospect.geo     && <p style={{fontSize:11,color:"#4b5563"}}>{prospect.geo} {prospect.sub}</p>}
           {isVin && prospect.prixMagasinFr && <p style={{fontSize:10,color:"#4b5563",marginTop:5}}>Prix magasin France : <strong style={{color:"#f1f5f9"}}>€{prospect.prixMagasinFr}/btl</strong></p>}
@@ -494,6 +494,109 @@ const emailToUser = email => {
   return null;
 };
 
+function AddEventModal({ onAdd, onClose, preDate, currentUser }) {
+  const [title,   setTitle]   = useState("");
+  const [date,    setDate]    = useState(preDate && preDate!=="new" ? preDate : today());
+  const [time,    setTime]    = useState("");
+  const [proj,    setProj]    = useState("makeup");
+  const [note,    setNote]    = useState("");
+
+  const submit = () => {
+    if (!title.trim() || !date) return;
+    onAdd({ title, date, time, proj, note, createdBy: currentUser });
+  };
+
+  const PROJ_OPTIONS = [
+    {v:"makeup",  l:"💄 Carnaval Gall"},
+    {v:"vin",     l:"🍷 Import Vin"},
+    {v:"print3d", l:"🖨️ Impression 3D"},
+    {v:"perso",   l:"📅 Personnel"},
+    {v:"autre",   l:"🗓 Autre"},
+  ];
+  const PROJ_COLORS = {"makeup":"#ec4899","vin":"#8b5cf6","print3d":"#14b8a6","perso":"#f59e0b","autre":"#6b7280"};
+  const accent = PROJ_COLORS[proj]||"#3b82f6";
+
+  return (
+    <ModalWrap title="📅 Nouvel événement" onClose={onClose}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+        <div style={{gridColumn:"span 2"}}>
+          <Field label="Titre *" value={title} onChange={setTitle} placeholder="Appel Château Margaux, Démo CRM..."/>
+        </div>
+        <Field label="Date *" value={date} onChange={setDate} type="date"/>
+        <Field label="Heure (optionnel)" value={time} onChange={setTime} placeholder="14:30"/>
+        <div style={{gridColumn:"span 2",marginBottom:11}}>
+          <p style={{fontSize:10,color:"#4b5563",marginBottom:6,fontWeight:600,textTransform:"uppercase",letterSpacing:".4px"}}>Projet</p>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {PROJ_OPTIONS.map(o=>(
+              <button key={o.v} onClick={()=>setProj(o.v)}
+                style={{padding:"5px 11px",borderRadius:6,fontSize:11,fontWeight:600,cursor:"pointer",background:proj===o.v?`${PROJ_COLORS[o.v]}20`:"#080a0f",border:`1px solid ${proj===o.v?PROJ_COLORS[o.v]:"#0f1520"}`,color:proj===o.v?PROJ_COLORS[o.v]:"#4b5563",transition:"all .12s"}}>
+                {o.l}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{gridColumn:"span 2",marginBottom:12}}>
+          <p style={{fontSize:10,color:"#4b5563",marginBottom:4,fontWeight:600,textTransform:"uppercase",letterSpacing:".4px"}}>Note</p>
+          <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Contexte, lien de visio..."
+            style={{width:"100%",padding:"8px 9px",borderRadius:7,fontSize:12,resize:"none",height:55,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",lineHeight:1.6}}/>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={submit} style={{flex:1,padding:"9px",background:`linear-gradient(135deg,${accent},${accent}aa)`,border:"none",borderRadius:7,color:"white",fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ Ajouter</button>
+        <button onClick={onClose} style={{padding:"9px 14px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:7,color:"#6b7280",fontSize:12,cursor:"pointer"}}>Annuler</button>
+      </div>
+    </ModalWrap>
+  );
+}
+
+function EmailModal({ prospect, projId, onClose, onSend }) {
+  const P = PROJECTS[projId];
+  const [to,      setTo]      = useState(prospect.email||"");
+  const [subject, setSubject] = useState(projId==="makeup"?"Package Formation Carnaval Rio 2026 — Partenariat":"Partenariat import vins — Rio de Janeiro");
+  const [body,    setBody]    = useState(
+    projId==="makeup"
+    ? `Bonjour,\n\nJe me permets de vous contacter au sujet d'un partenariat exclusif pour votre école de maquillage.\n\nNous proposons un package immersif "Carnaval Rio" développé avec Madame Gall — 5 jours de formation terrain à Rio de Janeiro en février, hébergement Ipanema inclus.\n\nTarif : 3 500€/élève · Groupes 6-10 personnes.\n\nSeriez-vous disponible pour en discuter ?\n\nCordialement,\nAnthony`
+    : `Bonjour,\n\nJe suis importateur de vins basé à Rio de Janeiro et je développe un réseau de distribution premium au Brésil.\n\nJe serais ravi de discuter d'un partenariat avec ${prospect.name}.\n\nCordialement,\nAnthony`
+  );
+  const [sending, setSending] = useState(false);
+  const [sent,    setSent]    = useState(false);
+
+  const handleSend = async () => {
+    if (!to) return;
+    setSending(true);
+    const ok = await onSend({ to, subject, body });
+    setSending(false);
+    if (ok) setSent(true);
+  };
+
+  if (sent) return (
+    <ModalWrap title="✅ Email envoyé" onClose={onClose}>
+      <p style={{fontSize:12,color:"#4ade80",textAlign:"center",padding:"20px 0"}}>Email envoyé à {to} avec succès !</p>
+      <p style={{fontSize:11,color:"#4b5563",textAlign:"center",marginBottom:16}}>Il apparaît dans ton dossier "Envoyés" Gmail.</p>
+      <button onClick={onClose} style={{width:"100%",padding:"9px",background:"#22c55e15",border:"1px solid #22c55e28",borderRadius:7,color:"#4ade80",fontSize:13,fontWeight:600,cursor:"pointer"}}>Fermer</button>
+    </ModalWrap>
+  );
+
+  return (
+    <ModalWrap title={`✉️ Email — ${prospect.name}`} onClose={onClose} wide>
+      <Field label="À" value={to} onChange={setTo} placeholder="email@domaine.com"/>
+      <Field label="Objet" value={subject} onChange={setSubject} placeholder="Objet..."/>
+      <div style={{marginBottom:12}}>
+        <p style={{fontSize:10,color:"#4b5563",marginBottom:4,fontWeight:600,textTransform:"uppercase",letterSpacing:".4px"}}>Message</p>
+        <textarea value={body} onChange={e=>setBody(e.target.value)}
+          style={{width:"100%",padding:"9px",borderRadius:7,fontSize:12,resize:"vertical",height:200,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",lineHeight:1.7}}/>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={handleSend} disabled={sending||!to}
+          style={{flex:1,padding:"9px",background:`linear-gradient(135deg,${P.color},${P.color}aa)`,border:"none",borderRadius:7,color:"white",fontSize:13,fontWeight:600,cursor:"pointer",opacity:sending?0.6:1}}>
+          {sending?"Envoi…":"📤 Envoyer via Gmail"}
+        </button>
+        <button onClick={onClose} style={{padding:"9px 14px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:7,color:"#6b7280",fontSize:12,cursor:"pointer"}}>Annuler</button>
+      </div>
+    </ModalWrap>
+  );
+}
+
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 export default function AmigoCRM() {
@@ -511,6 +614,7 @@ export default function AmigoCRM() {
   const [showAddProspect, setShowAddProspect] = useState(false);
   const [showAddOrder,    setShowAddOrder]    = useState(undefined);
   const [detailProspect,  setDetailProspect]  = useState(null);
+  const [showAddEvent,    setShowAddEvent]    = useState(null); // null | "new" | "YYYY-MM-DD"
 
   const KEY = "amigo-v9";
   const pollRef  = useRef(null);
@@ -541,7 +645,11 @@ export default function AmigoCRM() {
     setAuthError("");
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin },
+      options: {
+        redirectTo: window.location.origin,
+        scopes: "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.compose",
+        queryParams: { access_type: "offline", prompt: "consent" },
+      },
     });
     if (error) setAuthError(error.message);
   };
@@ -551,6 +659,71 @@ export default function AmigoCRM() {
     setAuthUser(null);
     setUser(null);
   };
+
+  // ── Google API helpers ────────────────────────────────────────────────────
+  const getGToken = async () => {
+    const { data } = await supabase.auth.getSession();
+    return data?.session?.provider_token || null;
+  };
+
+  const [calEvents,    setCalEvents]    = useState([]);
+  const [calLoading,   setCalLoading]   = useState(false);
+  const [calMonth,     setCalMonth]     = useState(new Date().getMonth());
+  const [calYear,      setCalYear]      = useState(new Date().getFullYear());
+  const [showEmailModal, setShowEmailModal] = useState(null); // prospect
+
+  const loadCalendar = async (month, year) => {
+    setCalLoading(true);
+    try {
+      const token = await getGToken();
+      if (!token) { setCalLoading(false); return; }
+      const start = new Date(year, month, 1).toISOString();
+      const end   = new Date(year, month+1, 0, 23, 59).toISOString();
+      const res = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${start}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const d = await res.json();
+      setCalEvents(d.items || []);
+    } catch(e) { console.error(e); }
+    setCalLoading(false);
+  };
+
+  const createCalEvent = async (ev) => {
+    try {
+      const token = await getGToken();
+      if (!token) return;
+      const body = {
+        summary: ev.title,
+        description: ev.note || "",
+        start: ev.time ? { dateTime: `${ev.date}T${ev.time}:00`, timeZone: "America/Sao_Paulo" } : { date: ev.date },
+        end:   ev.time ? { dateTime: `${ev.date}T${ev.time}:00`, timeZone: "America/Sao_Paulo" } : { date: ev.date },
+      };
+      await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      await loadCalendar(calMonth, calYear);
+    } catch(e) { console.error(e); }
+  };
+
+  const sendGmail = async ({ to, subject, body }) => {
+    try {
+      const token = await getGToken();
+      if (!token) return false;
+      const email = [`To: ${to}`, `Subject: ${subject}`, "Content-Type: text/plain; charset=utf-8", "", body].join("\n");
+      const encoded = btoa(unescape(encodeURIComponent(email))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+      const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ raw: encoded }),
+      });
+      return res.ok;
+    } catch(e) { console.error(e); return false; }
+  };
+
+  useEffect(() => { if (authUser && view==="agenda") loadCalendar(calMonth, calYear); }, [view, calMonth, calYear, authUser]);
 
   // ── Import XLS ────────────────────────────────────────────────────────────
   const importXLS = async (file) => {
@@ -685,6 +858,20 @@ export default function AmigoCRM() {
     await save({...data, orders:data.orders.map(o=>o.id===oid?{...o,...fields}:o)});
   };
 
+  const addEvent = async (ev) => {
+    if (!data) return;
+    const events = [...(data.events||[]), {...ev, id:"ev"+uid(), createdBy:user, createdAt:Date.now()}];
+    let nd = {...data, events};
+    nd = addAct(nd, user, ev.title, `événement ${ev.date}`);
+    setShowAddEvent(null);
+    await save(nd);
+  };
+
+  const deleteEvent = async (eid) => {
+    if (!data) return;
+    await save({...data, events:(data.events||[]).filter(e=>e.id!==eid)});
+  };
+
   if (authLoading || (authUser && loading)) return (
     <div style={{minHeight:"100vh",background:"#080a0f",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <p style={{color:"#374151",fontSize:13}}>Chargement…</p>
@@ -767,7 +954,7 @@ export default function AmigoCRM() {
         </div>
 
         <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
-          {[["kanban","Kanban"],["commandes","Commandes"],["finance","Finance"],["activite","Activité"]].map(([v,l])=>(
+          {[["kanban","Kanban"],["commandes","Commandes"],["finance","Finance"],["agenda","Agenda"],["activite","Activité"]].map(([v,l])=>(
             <button key={v} onClick={()=>setView(v)} className="btn"
               style={{padding:"4px 11px",borderRadius:5,fontSize:11,fontWeight:500,background:view===v?`${accent}18`:"transparent",color:view===v?accent:"#3d4f6b",border:view===v?`1px solid ${accent}22`:"1px solid transparent",cursor:"pointer"}}>
               {l}
@@ -968,6 +1155,122 @@ export default function AmigoCRM() {
           </div>
         )}
 
+        {/* ══ AGENDA ══ */}
+        {view==="agenda"&&(()=>{
+          const todayStr = today();
+          const nowDate = new Date();
+          const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+          const firstDay = (new Date(calYear, calMonth, 1).getDay()+6)%7;
+          const MONTH_NAMES = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+          const PROJ_COLORS = {"makeup":"#ec4899","vin":"#8b5cf6","print3d":"#14b8a6","perso":"#f59e0b","autre":"#6b7280"};
+
+          const getEventsForDay = (dateStr) => calEvents.filter(ev => {
+            const start = ev.start?.date || ev.start?.dateTime?.slice(0,10);
+            return start === dateStr;
+          });
+
+          const formatTime = ev => {
+            if (ev.start?.date) return "";
+            const t = new Date(ev.start?.dateTime);
+            return `${String(t.getHours()).padStart(2,"0")}:${String(t.getMinutes()).padStart(2,"0")}`;
+          };
+
+          const isPrivate = ev => ev.visibility === "private" || ev.summary === undefined;
+          const todayEvents = getEventsForDay(todayStr);
+
+          return (
+            <div className="fade">
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <button onClick={()=>{if(calMonth===0){setCalYear(y=>y-1);setCalMonth(11);}else setCalMonth(m=>m-1);}} className="btn"
+                    style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:6,color:"#6b7280",fontSize:16,padding:"3px 11px",cursor:"pointer"}}>‹</button>
+                  <p style={{fontSize:16,fontWeight:600,color:"#f1f5f9",minWidth:170,textAlign:"center"}}>{MONTH_NAMES[calMonth]} {calYear}</p>
+                  <button onClick={()=>{if(calMonth===11){setCalYear(y=>y+1);setCalMonth(0);}else setCalMonth(m=>m+1);}} className="btn"
+                    style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:6,color:"#6b7280",fontSize:16,padding:"3px 11px",cursor:"pointer"}}>›</button>
+                  <button onClick={()=>{setCalMonth(nowDate.getMonth());setCalYear(nowDate.getFullYear());}} className="btn"
+                    style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:6,color:"#4b5563",fontSize:11,padding:"4px 9px",cursor:"pointer"}}>Aujourd'hui</button>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  {todayEvents.length>0&&<span style={{fontSize:11,background:"#ef444420",color:"#f87171",padding:"3px 9px",borderRadius:5,fontWeight:600}}>🔔 {todayEvents.length} aujourd'hui</span>}
+                  {calLoading&&<span style={{fontSize:10,color:"#4b5563"}}>Sync…</span>}
+                  <button onClick={()=>setShowAddEvent("new")} className="btn"
+                    style={{padding:"7px 13px",background:"#3b82f618",border:"1px solid #3b82f628",borderRadius:7,color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Événement</button>
+                </div>
+              </div>
+
+              {/* Grid */}
+              <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,overflow:"hidden",marginBottom:14}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",borderBottom:"1px solid #0d1020"}}>
+                  {["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"].map(d=>(
+                    <div key={d} style={{padding:"8px 0",textAlign:"center",fontSize:10,color:"#3d4f6b",fontWeight:600,letterSpacing:".4px"}}>{d}</div>
+                  ))}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+                  {Array.from({length:firstDay}).map((_,i)=>(
+                    <div key={"e"+i} style={{minHeight:86,borderRight:"1px solid #080a0f",borderBottom:"1px solid #080a0f",background:"#08080808"}}/>
+                  ))}
+                  {Array.from({length:daysInMonth}).map((_,i)=>{
+                    const day=i+1;
+                    const dateStr=`${calYear}-${String(calMonth+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+                    const dayEvs=getEventsForDay(dateStr);
+                    const isToday=dateStr===todayStr;
+                    const isPast=dateStr<todayStr;
+                    return (
+                      <div key={day} onClick={()=>setShowAddEvent(dateStr)}
+                        style={{minHeight:86,borderRight:"1px solid #080a0f",borderBottom:"1px solid #080a0f",padding:"6px 6px",cursor:"pointer",background:isToday?"#1a203580":"transparent",transition:"background .12s"}}
+                        onMouseEnter={e=>!isToday&&(e.currentTarget.style.background="#0b0d1690")}
+                        onMouseLeave={e=>!isToday&&(e.currentTarget.style.background="transparent")}>
+                        <span style={{fontSize:11,fontWeight:isToday?700:400,color:isToday?"#60a5fa":isPast?"#2d3748":"#9ca3af",width:22,height:22,borderRadius:"50%",background:isToday?"#3b82f625":"transparent",display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:3}}>{day}</span>
+                        {dayEvs.slice(0,3).map(ev=>{
+                          const priv=isPrivate(ev);
+                          const time=formatTime(ev);
+                          return (
+                            <div key={ev.id} onClick={e=>e.stopPropagation()}
+                              style={{fontSize:9,padding:"2px 5px",borderRadius:3,background:priv?"#1a2035":"#3b82f620",color:priv?"#4b5563":"#93c5fd",fontWeight:600,marginBottom:2,lineHeight:1.3,borderLeft:`2px solid ${priv?"#2d3748":"#3b82f6"}`,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
+                              {priv?"🔒 Occupé":`${time?time+" ":""}${ev.summary||"Sans titre"}`}
+                            </div>
+                          );
+                        })}
+                        {dayEvs.length>3&&<p style={{fontSize:9,color:"#4b5563"}}>+{dayEvs.length-3}</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Event list */}
+              <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,overflow:"hidden"}}>
+                <div style={{padding:"9px 14px",borderBottom:"1px solid #0d1020",display:"flex",justifyContent:"space-between"}}>
+                  <p style={{fontSize:11,fontWeight:600,color:"#f1f5f9"}}>Événements — {MONTH_NAMES[calMonth]}</p>
+                  <p style={{fontSize:10,color:"#4b5563"}}>{calEvents.length} événement{calEvents.length!==1?"s":""}</p>
+                </div>
+                {calEvents.length===0&&!calLoading
+                  ? <p style={{fontSize:12,color:"#2d3748",textAlign:"center",padding:"24px"}}>Aucun événement ce mois-ci.</p>
+                  : [...calEvents].sort((a,b)=>(a.start?.date||a.start?.dateTime||"").localeCompare(b.start?.date||b.start?.dateTime||"")).map(ev=>{
+                    const priv=isPrivate(ev);
+                    const start=ev.start?.date||ev.start?.dateTime?.slice(0,10);
+                    const time=formatTime(ev);
+                    const isToday=start===todayStr;
+                    return (
+                      <div key={ev.id} style={{padding:"9px 14px",borderBottom:"1px solid #080a0f",display:"flex",alignItems:"center",gap:10}}>
+                        <div style={{width:3,height:36,borderRadius:2,background:priv?"#2d3748":"#3b82f6",flexShrink:0}}/>
+                        <div style={{flex:1}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                            <p style={{fontSize:12,fontWeight:600,color:priv?"#4b5563":"#f1f5f9"}}>{priv?"🔒 Occupé":ev.summary||"Sans titre"}</p>
+                            {isToday&&<span style={{fontSize:9,background:"#ef444420",color:"#f87171",padding:"1px 5px",borderRadius:3,fontWeight:600}}>AUJOURD'HUI</span>}
+                          </div>
+                          <span style={{fontSize:10,color:"#4b5563"}}>{start}{time?` · ${time}`:""}</span>
+                          {!priv&&ev.description&&<span style={{fontSize:10,color:"#374151",marginLeft:8}}>— {ev.description}</span>}
+                        </div>
+                      </div>
+                    );
+                  })
+                }
+              </div>
+            </div>
+          );
+        })()}
+
         {/* ══ ACTIVITÉ ══ */}
         {view==="activite"&&(
           <div className="fade">
@@ -1014,7 +1317,9 @@ export default function AmigoCRM() {
       {/* ══ MODALS ══ */}
       {showAddProspect&&<AddProspectModal projId={projId} onAdd={addProspect} onClose={()=>setShowAddProspect(false)}/>}
       {showAddOrder!==undefined&&<AddOrderModal projId={projId} prospects={prospects} preselect={showAddOrder} onAdd={addOrder} onClose={()=>setShowAddOrder(undefined)}/>}
-      {detailProspect&&<ProspectModal prospect={detailProspect} projId={projId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}}/>}
+      {detailProspect&&<ProspectModal prospect={detailProspect} projId={projId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}}/>}
+      {showAddEvent&&<AddEventModal onAdd={createCalEvent} onClose={()=>setShowAddEvent(null)} preDate={showAddEvent==="new"?null:showAddEvent} currentUser={user}/>}
+      {showEmailModal&&<EmailModal prospect={showEmailModal} projId={projId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail}/>}
     </div>
   );
 }
