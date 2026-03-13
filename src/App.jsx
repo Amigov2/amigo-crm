@@ -55,12 +55,12 @@ const INIT_DATA = {
     { id:"m6", name:"CFA Beauté Nantes", geo:"Nantes 🇫🇷", sub:"Centre", contact:"Thierry Morel", email:"t.morel@cfa-beaute-nantes.fr", phone:"+33 2 40 48 62 10", valeur:12000, tags:["Public"], status:"À contacter", assignedTo:null, lastEditBy:null, lastEditAt:null, note:"Budget limité. Priorité basse." },
   ],
   vin: [
-    { id:"v1", name:"Domaine Leflaive", geo:"France 🇫🇷", sub:"Bourgogne", contact:"Marie Leflaive", email:"m.leflaive@domaine-leflaive.fr", phone:"+33 3 80 21 30 74", valeur:85000, tags:["Bio","Chardonnay"], status:"À contacter", assignedTo:null, lastEditBy:null, lastEditAt:null, note:"Leader Puligny-Montrachet." },
-    { id:"v2", name:"Bodegas Torres", geo:"Espagne 🇪🇸", sub:"Penedès", contact:"Carlos Torres", email:"c.torres@torres.es", phone:"+34 93 817 74 00", valeur:120000, tags:["Volume","Tempranillo"], status:"À contacter", assignedTo:null, lastEditBy:null, lastEditAt:null, note:"Très réactif. Déjà actif au Brésil." },
-    { id:"v3", name:"Antinori Marchesi", geo:"Italie 🇮🇹", sub:"Toscane", contact:"Piero Antinori", email:"p.antinori@antinori.it", phone:"+39 055 23595", valeur:200000, tags:["Barolo","Prestige"], status:"À contacter", assignedTo:null, lastEditBy:null, lastEditAt:null, note:"Fort potentiel prestige RJ." },
-    { id:"v4", name:"Concha y Toro", geo:"Chili 🇨🇱", sub:"Valle Central", contact:"Sofia Morales", email:"s.morales@conchaytoro.cl", phone:"+56 2 2476 5000", valeur:60000, tags:["Rapport Q/P"], status:"À contacter", assignedTo:null, lastEditBy:null, lastEditAt:null, note:"Excellent Q/P. Déjà au Brésil." },
-    { id:"v5", name:"Penfolds Estate", geo:"Australie 🇦🇺", sub:"Barossa Valley", contact:"James Halliday", email:"j.halliday@penfolds.com", phone:"+61 8 8568 9408", valeur:95000, tags:["Shiraz","Grange"], status:"À contacter", assignedTo:null, lastEditBy:null, lastEditAt:null, note:"Aucun distributeur RJ — fenêtre ouverte." },
-    { id:"v6", name:"Château Margaux", geo:"France 🇫🇷", sub:"Bordeaux", contact:"Albéric Bichot", email:"contact@chateau-margaux.com", phone:"+33 5 57 88 83 83", valeur:350000, tags:["Grand Cru"], status:"À contacter", assignedTo:null, lastEditBy:null, lastEditAt:null, note:"Via allocations. Introduction requise." },
+    { id:"v1", name:"Domaine Leflaive", geo:"France 🇫🇷", sub:"Bourgogne", contact:"Marie Leflaive", email:"m.leflaive@domaine-leflaive.fr", phone:"+33 3 80 21 30 74", valeur:85000, tags:["Bio","Chardonnay"], status:"À contacter", assignedTo:null, lastEditBy:null, lastEditAt:null, note:"Leader Puligny-Montrachet.", type:"Blanc", producteur:"Domaine Leflaive", cepage:"Chardonnay", appellation:"Puligny-Montrachet AOC", millesime:"2022", bio:true, certificat:"AOC", alcool:"13", incoterm:"FOB", prixProducteur:"320", prixMagasinFr:"85", prixVenteBresil:"", prixMercadoLivre:"", minCommande:"6" },
+    { id:"v2", name:"Bodegas Torres", geo:"Espagne 🇪🇸", sub:"Penedès", contact:"Carlos Torres", email:"c.torres@torres.es", phone:"+34 93 817 74 00", valeur:120000, tags:["Volume","Tempranillo"], status:"À contacter", assignedTo:null, lastEditBy:null, lastEditAt:null, note:"Très réactif. Déjà actif au Brésil.", type:"Rouge", producteur:"Bodegas Torres", cepage:"Tempranillo", appellation:"Penedès DO", millesime:"2021", bio:false, certificat:"DO", alcool:"14", incoterm:"CIF", prixProducteur:"180", prixMagasinFr:"45", prixVenteBresil:"", prixMercadoLivre:"", minCommande:"12" },
+    { id:"v3", name:"Antinori Marchesi", geo:"Italie 🇮🇹", sub:"Toscane", contact:"Piero Antinori", email:"p.antinori@antinori.it", phone:"+39 055 23595", valeur:200000, tags:["Barolo","Prestige"], status:"À contacter", assignedTo:null, lastEditBy:null, lastEditAt:null, note:"Fort potentiel prestige RJ.", type:"Rouge", producteur:"Marchesi Antinori", cepage:"Sangiovese", appellation:"Chianti Classico DOCG", millesime:"2020", bio:false, certificat:"DOCG", alcool:"14.5", incoterm:"FOB", prixProducteur:"420", prixMagasinFr:"110", prixVenteBresil:"", prixMercadoLivre:"", minCommande:"6" },
+    { id:"v4", name:"Concha y Toro", geo:"Chili 🇨🇱", sub:"Valle Central", contact:"Sofia Morales", email:"s.morales@conchaytoro.cl", phone:"+56 2 2476 5000", valeur:60000, tags:["Rapport Q/P"], status:"À contacter", assignedTo:null, lastEditBy:null, lastEditAt:null, note:"Excellent Q/P. Déjà au Brésil.", type:"Rouge", producteur:"Concha y Toro", cepage:"Cabernet Sauvignon", appellation:"Valle Central DO", millesime:"2022", bio:false, certificat:"DO", alcool:"13.5", incoterm:"CIF", prixProducteur:"95", prixMagasinFr:"22", prixVenteBresil:"", prixMercadoLivre:"", minCommande:"24" },
+    { id:"v5", name:"Penfolds Estate", geo:"Australie 🇦🇺", sub:"Barossa Valley", contact:"James Halliday", email:"j.halliday@penfolds.com", phone:"+61 8 8568 9408", valeur:95000, tags:["Shiraz","Grange"], status:"À contacter", assignedTo:null, lastEditBy:null, lastEditAt:null, note:"Aucun distributeur RJ — fenêtre ouverte.", type:"Rouge", producteur:"Penfolds", cepage:"Shiraz", appellation:"Barossa Valley GI", millesime:"2021", bio:false, certificat:"GI", alcool:"14.5", incoterm:"FOB", prixProducteur:"280", prixMagasinFr:"72", prixVenteBresil:"", prixMercadoLivre:"", minCommande:"6" },
+    { id:"v6", name:"Château Margaux", geo:"France 🇫🇷", sub:"Bordeaux", contact:"Albéric Bichot", email:"contact@chateau-margaux.com", phone:"+33 5 57 88 83 83", valeur:350000, tags:["Grand Cru"], status:"À contacter", assignedTo:null, lastEditBy:null, lastEditAt:null, note:"Via allocations. Introduction requise.", type:"Rouge", producteur:"Château Margaux", cepage:"Cabernet Sauvignon", appellation:"Margaux AOC", millesime:"2019", bio:false, certificat:"AOC / 1er Grand Cru", alcool:"13", incoterm:"DDP", prixProducteur:"1800", prixMagasinFr:"650", prixVenteBresil:"", prixMercadoLivre:"", minCommande:"1" },
   ],
   print3d: [],
   orders: [],
@@ -159,40 +159,103 @@ function Field({ label, value, onChange, placeholder, type, options }) {
 
 function AddProspectModal({ projId, onAdd, onClose }) {
   const P = PROJECTS[projId];
-  const [name,    setName]    = useState("");
-  const [geo,     setGeo]     = useState(projId==="print3d"?"Rio de Janeiro 🇧🇷":"France 🇫🇷");
-  const [sub,     setSub]     = useState("");
-  const [contact, setContact] = useState("");
-  const [email,   setEmail]   = useState("");
-  const [phone,   setPhone]   = useState("");
-  const [valeur,  setValeur]  = useState("");
-  const [note,    setNote]    = useState("");
-  const [tag1,    setTag1]    = useState("");
-  const [tag2,    setTag2]    = useState("");
+  const isVin = projId === "vin";
+  const [name,             setName]             = useState("");
+  const [geo,              setGeo]              = useState(projId==="print3d"?"Rio de Janeiro 🇧🇷":"France 🇫🇷");
+  const [sub,              setSub]              = useState("");
+  const [contact,          setContact]          = useState("");
+  const [email,            setEmail]            = useState("");
+  const [phone,            setPhone]            = useState("");
+  const [valeur,           setValeur]           = useState("");
+  const [note,             setNote]             = useState("");
+  const [tag1,             setTag1]             = useState("");
+  const [tag2,             setTag2]             = useState("");
+  // Champs vin
+  const [type,             setType]             = useState("Rouge");
+  const [producteur,       setProducteur]       = useState("");
+  const [cepage,           setCepage]           = useState("");
+  const [appellation,      setAppellation]      = useState("");
+  const [millesime,        setMillesime]        = useState("");
+  const [certificat,       setCertificat]       = useState("");
+  const [alcool,           setAlcool]           = useState("");
+  const [bio,              setBio]              = useState(false);
+  const [incoterm,         setIncoterm]         = useState("FOB");
+  const [prixProducteur,   setPrixProducteur]   = useState("");
+  const [prixMagasinFr,    setPrixMagasinFr]    = useState("");
+  const [prixVenteBresil,  setPrixVenteBresil]  = useState("");
+  const [prixMercadoLivre, setPrixMercadoLivre] = useState("");
+  const [minCommande,      setMinCommande]      = useState("6");
 
   const submit = () => {
     if (!name.trim()) return;
     onAdd({ id: projId.slice(0,2)+uid(), name, geo, sub, contact, email, phone,
       valeur: parseInt(valeur)||0, note, tags:[tag1,tag2].filter(Boolean),
-      status: P.statuses[0], assignedTo:null, lastEditBy:null, lastEditAt:null });
+      status: P.statuses[0], assignedTo:null, lastEditBy:null, lastEditAt:null,
+      ...(isVin && { type, producteur, cepage, appellation, millesime, certificat, alcool, bio,
+        incoterm, prixProducteur, prixMagasinFr, prixVenteBresil, prixMercadoLivre, minCommande }) });
   };
 
   return (
-    <ModalWrap title={`➕ Nouveau — ${P.label}`} onClose={onClose}>
+    <ModalWrap title={`➕ Nouveau — ${P.label}`} onClose={onClose} wide={isVin}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
-        <div style={{gridColumn:"span 2"}}><Field label="Nom *" value={name} onChange={setName} placeholder={projId==="print3d"?"Studio Durand Architecture...":"Académie du Maquillage..."}/></div>
-        <Field label="Ville / Pays" value={geo} onChange={setGeo} placeholder="Paris 🇫🇷"/>
-        <Field label="Secteur / Détail" value={sub} onChange={setSub} placeholder={projId==="print3d"?"Architecture":"8ème arr."}/>
-        <Field label="Contact" value={contact} onChange={setContact} placeholder="Prénom Nom"/>
-        <Field label="Email" value={email} onChange={setEmail} placeholder="contact@..."/>
-        <Field label="Téléphone" value={phone} onChange={setPhone} placeholder="+33 1 ..."/>
-        <Field label="Valeur estimée (€)" value={valeur} onChange={setValeur} placeholder="15000"/>
-        <Field label="Tag 1" value={tag1} onChange={setTag1} placeholder={projId==="print3d"?"Architecture":"Artistique"}/>
-        <Field label="Tag 2" value={tag2} onChange={setTag2} placeholder={projId==="print3d"?"Sur mesure":"Scénique"}/>
+        <div style={{gridColumn:"span 2"}}><Field label="Nom domaine / château *" value={name} onChange={setName} placeholder={isVin?"Château Pichon Baron...":projId==="print3d"?"Studio Durand Architecture...":"Académie du Maquillage..."}/></div>
+        <Field label="Pays / Région" value={geo} onChange={setGeo} placeholder="France 🇫🇷"/>
+        <Field label={isVin?"Sous-région / Appellation zone":"Secteur / Détail"} value={sub} onChange={setSub} placeholder={isVin?"Bordeaux, Bourgogne...":"8ème arr."}/>
+
+        {isVin && <>
+          <Field label="Type" value={type} onChange={setType} options={["Rouge","Blanc","Rosé","Pétillant","Mousseux","Orange"]}/>
+          <Field label="Nom producteur" value={producteur} onChange={setProducteur} placeholder="Famille Martin..."/>
+          <Field label="Cépage(s)" value={cepage} onChange={setCepage} placeholder="Cabernet Sauvignon, Merlot..."/>
+          <Field label="Appellation officielle" value={appellation} onChange={setAppellation} placeholder="Saint-Émilion Grand Cru AOC"/>
+          <Field label="Millésime" value={millesime} onChange={setMillesime} placeholder="2021"/>
+          <Field label="Certificat" value={certificat} onChange={setCertificat} placeholder="AOC, DOC, DOCG, DO..."/>
+          <Field label="Alcool (%)" value={alcool} onChange={setAlcool} placeholder="13.5"/>
+
+          <div style={{gridColumn:"span 2",margin:"4px 0 10px"}}>
+            <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+              <div onClick={()=>setBio(!bio)} style={{width:36,height:20,borderRadius:10,background:bio?"#22c55e":"#1a2035",position:"relative",cursor:"pointer",transition:"background .2s",flexShrink:0}}>
+                <div style={{position:"absolute",top:2,left:bio?18:2,width:16,height:16,borderRadius:"50%",background:"white",transition:"left .2s"}}/>
+              </div>
+              <span style={{fontSize:11,color:bio?"#4ade80":"#6b7280",fontWeight:600}}>🌿 Certification Bio / Biodynamique</span>
+            </label>
+          </div>
+
+          <div style={{gridColumn:"span 2",marginBottom:10,padding:"10px 12px",background:"#080a0f",border:"1px solid #0f1520",borderRadius:8}}>
+            <p style={{fontSize:10,color:"#8b5cf6",fontWeight:600,textTransform:"uppercase",letterSpacing:".4px",marginBottom:10}}>💰 Tarifs & Logistique</p>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 12px"}}>
+              <Field label="Incoterm" value={incoterm} onChange={setIncoterm} options={["FOB","CIF","DDP","EXW","DAP"]}/>
+              <Field label="Min. commande (caisses)" value={minCommande} onChange={setMinCommande} placeholder="6"/>
+              <Field label="Prix producteur (€/caisse)" value={prixProducteur} onChange={setPrixProducteur} placeholder="180"/>
+              <Field label="Prix magasin France (€/btl)" value={prixMagasinFr} onChange={setPrixMagasinFr} placeholder="45"/>
+              <Field label="Prix vente Brésil (R$/btl)" value={prixVenteBresil} onChange={setPrixVenteBresil} placeholder="350"/>
+              <Field label="Prix Mercado Livre (R$/btl)" value={prixMercadoLivre} onChange={setPrixMercadoLivre} placeholder="320"/>
+            </div>
+          </div>
+
+          <Field label="Tag 1" value={tag1} onChange={setTag1} placeholder="Bio"/>
+          <Field label="Tag 2" value={tag2} onChange={setTag2} placeholder="Volume"/>
+        </>}
+
+        {!isVin && <>
+          <Field label="Contact" value={contact} onChange={setContact} placeholder="Prénom Nom"/>
+          <Field label="Email" value={email} onChange={setEmail} placeholder="contact@..."/>
+          <Field label="Téléphone" value={phone} onChange={setPhone} placeholder="+33 1 ..."/>
+          <Field label="Valeur estimée (€)" value={valeur} onChange={setValeur} placeholder="15000"/>
+          <Field label="Tag 1" value={tag1} onChange={setTag1} placeholder={projId==="print3d"?"Architecture":"Artistique"}/>
+          <Field label="Tag 2" value={tag2} onChange={setTag2} placeholder={projId==="print3d"?"Sur mesure":"Scénique"}/>
+        </>}
+
+        {isVin && <>
+          <Field label="Contact" value={contact} onChange={setContact} placeholder="Prénom Nom"/>
+          <Field label="Email" value={email} onChange={setEmail} placeholder="contact@..."/>
+          <Field label="Téléphone" value={phone} onChange={setPhone} placeholder="+33 ..."/>
+          <Field label="Valeur estimée (€)" value={valeur} onChange={setValeur} placeholder="85000"/>
+        </>}
+
         <div style={{gridColumn:"span 2",marginBottom:12}}>
           <p style={{fontSize:10,color:"#4b5563",marginBottom:4,fontWeight:600,textTransform:"uppercase",letterSpacing:".4px"}}>Note</p>
-          <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Contexte, opportunité..."
-            style={{width:"100%",padding:"8px 9px",borderRadius:7,fontSize:12,resize:"none",height:60,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",lineHeight:1.6}}/>
+          <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Contexte, opportunité, points clés..."
+            style={{width:"100%",padding:"8px 9px",borderRadius:7,fontSize:12,resize:"none",height:55,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",lineHeight:1.6}}/>
         </div>
       </div>
       <div style={{display:"flex",gap:8}}>
@@ -268,8 +331,50 @@ function AddOrderModal({ projId, prospects, preselect, onAdd, onClose }) {
   );
 }
 
+function WineFinancePanel({ prospect }) {
+  const EUR_BRL = 5.40;
+  const prixAchat = parseFloat(prospect.prixProducteur)||0;
+  const taxes = prixAchat ? calcTax(prixAchat) : null;
+  const prixRevient = prixAchat + (taxes?.totalEur||0);
+  const prixVenteBrl = parseFloat(prospect.prixVenteBresil)||0;
+  const prixVenteEur = prixVenteBrl / EUR_BRL / 12; // par bouteille → par caisse → en €
+  const prixMlBrl = parseFloat(prospect.prixMercadoLivre)||0;
+  const fraisML = prixMlBrl * 12 / EUR_BRL * 0.16;
+  const margeVente = prixVenteBrl ? (prixVenteBrl * 12 / EUR_BRL) - prixRevient : null;
+  const margeML = prixMlBrl ? (prixMlBrl * 12 / EUR_BRL) - prixRevient - fraisML : null;
+  const margeColor = m => m === null ? "#6b7280" : m > 0 ? "#22c55e" : "#ef4444";
+
+  return (
+    <div style={{padding:"12px 14px",background:"#080a0f",border:"1px solid #8b5cf622",borderRadius:9,marginBottom:12}}>
+      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}>
+        <span style={{fontSize:11,fontWeight:700,color:"#8b5cf6",textTransform:"uppercase",letterSpacing:".5px"}}>💰 Analyse financière / caisse</span>
+        <span style={{fontSize:10,color:"#4b5563"}}>(12 btl · 1€ = R${EUR_BRL})</span>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:9}}>
+        {[
+          {l:"Prix achat",       v:prixAchat?`€${prixAchat}`:"-",    c:"#f1f5f9"},
+          {l:"Taxes import BR",  v:taxes?`€${Math.round(taxes.totalEur)}`:"-", c:"#f87171", sub:taxes?`${taxes.txEffective}% du FOB`:""},
+          {l:"Prix de revient",  v:prixRevient?`€${Math.round(prixRevient)}`:"-", c:"#fbbf24"},
+          {l:"Incoterm",         v:prospect.incoterm||"-",            c:"#a78bfa"},
+          {l:"Vente Brésil",     v:prixVenteBrl?`R$${prixVenteBrl}/btl`:"-", c:"#f1f5f9", sub:prixVenteBrl?`€${Math.round(prixVenteBrl*12/EUR_BRL)}/cs`:""},
+          {l:"Marge vente directe", v:margeVente!==null?`€${Math.round(margeVente)}`:"-", c:margeColor(margeVente), sub:margeVente!==null?`${Math.round(margeVente/prixRevient*100)}%`:""},
+          {l:"Mercado Livre",    v:prixMlBrl?`R$${prixMlBrl}/btl`:"-", c:"#f1f5f9", sub:"Frais 16%"},
+          {l:"Marge ML nette",   v:margeML!==null?`€${Math.round(margeML)}`:"-", c:margeColor(margeML), sub:margeML!==null?`${Math.round(margeML/prixRevient*100)}%`:""},
+        ].map(x=>(
+          <div key={x.l} style={{background:"#0b0d16",borderRadius:7,padding:"8px 10px",border:`1px solid ${x.c}15`}}>
+            <p style={{fontSize:9,color:"#4b5563",marginBottom:3,textTransform:"uppercase",letterSpacing:".3px"}}>{x.l}</p>
+            <p style={{fontSize:13,fontWeight:700,color:x.c}}>{x.v}</p>
+            {x.sub&&<p style={{fontSize:9,color:"#4b5563",marginTop:1}}>{x.sub}</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder }) {
   const P = PROJECTS[projId];
+  const isVin = projId === "vin";
   const [status,    setStatus]    = useState(prospect.status);
   const [assigned,  setAssigned]  = useState(prospect.assignedTo||"");
   const [note,      setNote]      = useState(prospect.note||"");
@@ -286,6 +391,27 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
 
   return (
     <ModalWrap title={prospect.name} onClose={onClose} wide>
+      {/* Infos produit vin */}
+      {isVin && prospect.cepage && (
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,padding:"8px 10px",background:"#0b0d16",borderRadius:8,border:"1px solid #8b5cf620"}}>
+          {[
+            {ic:"🍇",v:prospect.type},
+            {ic:"🌿",v:prospect.cepage},
+            {ic:"📍",v:prospect.appellation},
+            {ic:"📅",v:prospect.millesime},
+            {ic:"🏷",v:prospect.certificat},
+            {ic:"🧪",v:prospect.alcool?`${prospect.alcool}°`:""},
+            {ic:"🚚",v:prospect.incoterm},
+            {ic:"📦",v:prospect.minCommande?`Min. ${prospect.minCommande} cs`:""},
+            ...(prospect.bio?[{ic:"🌱",v:"Bio"}]:[]),
+          ].filter(x=>x.v).map(x=>(
+            <span key={x.v} style={{fontSize:10,padding:"2px 7px",borderRadius:4,background:"#8b5cf615",color:"#a78bfa",fontWeight:600,display:"flex",alignItems:"center",gap:3}}>
+              {x.ic} {x.v}
+            </span>
+          ))}
+        </div>
+      )}
+
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
         <div>
           <p style={{fontSize:10,color:"#4b5563",textTransform:"uppercase",fontWeight:600,marginBottom:6}}>Contact</p>
@@ -293,6 +419,7 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
           {prospect.email   && <p style={{fontSize:11,color:"#3b82f6",marginBottom:1}}>{prospect.email}</p>}
           {prospect.phone   && <p style={{fontSize:11,color:"#6b7280",marginBottom:4}}>{prospect.phone}</p>}
           {prospect.geo     && <p style={{fontSize:11,color:"#4b5563"}}>{prospect.geo} {prospect.sub}</p>}
+          {isVin && prospect.prixMagasinFr && <p style={{fontSize:10,color:"#4b5563",marginTop:5}}>Prix magasin France : <strong style={{color:"#f1f5f9"}}>€{prospect.prixMagasinFr}/btl</strong></p>}
           <div style={{marginTop:7}}>{(prospect.tags||[]).map(t=>(
             <span key={t} style={{fontSize:10,padding:"2px 7px",borderRadius:4,background:`${P.color}15`,color:P.color,border:`1px solid ${P.color}22`,marginRight:4,fontWeight:600}}>{t}</span>
           ))}</div>
@@ -307,6 +434,9 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
           </div>
         </div>
       </div>
+
+      {/* Panneau financier vin */}
+      {isVin && <WineFinancePanel prospect={prospect}/>}
 
       <div style={{padding:"10px 12px",background:"#080a0f",borderRadius:8,border:"1px solid #0d1020",marginBottom:12}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
