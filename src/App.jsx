@@ -36,7 +36,7 @@ const PROJECTS = {
     statusColors: { "À contacter":"#3b82f6","Contacté":"#f59e0b","En négociation":"#22c55e","Commande passée":"#8b5cf6","Livraison en cours":"#f97316","Partenaire actif":"#14b8a6" },
   },
   print3d: {
-    id: "print3d", label: "Impression 3D", icon: "🖨️", color: "#14b8a6",
+    id: "print3d", label: "Impression 3D", icon: "🧊", color: "#14b8a6",
     statuses: ["Prospect","Devis envoyé","Devis accepté","En production","Livré","Facturé"],
     statusColors: { "Prospect":"#3b82f6","Devis envoyé":"#f59e0b","Devis accepté":"#22c55e","En production":"#f97316","Livré":"#8b5cf6","Facturé":"#14b8a6" },
   },
@@ -509,7 +509,7 @@ function AddEventModal({ onAdd, onClose, preDate, currentUser }) {
   const PROJ_OPTIONS = [
     {v:"makeup",  l:"💄 Carnaval Gall"},
     {v:"vin",     l:"🍷 Import Vin"},
-    {v:"print3d", l:"🖨️ Impression 3D"},
+    {v:"print3d", l:"🧊 Impression 3D"},
     {v:"perso",   l:"📅 Personnel"},
     {v:"autre",   l:"🗓 Autre"},
   ];
@@ -727,16 +727,14 @@ export default function AmigoCRM() {
   const [gmailThreads, setGmailThreads] = useState([]);
   const [gmailLoading, setGmailLoading] = useState(false);
 
-  const matchEmailToProspect = (from, to, subject, allProspects) => {
-    const haystack = `${from} ${to} ${subject}`.toLowerCase();
-    // 1. Match par domaine email exact
+  const matchEmailToProspect = (from, to, subject, snippet, allProspects) => {
+    const haystack = `${from} ${to} ${subject} ${snippet}`.toLowerCase();
     for (const p of allProspects) {
       if (p.email) {
         const domain = p.email.split("@")[1]?.toLowerCase();
         if (domain && haystack.includes(domain)) return p;
       }
     }
-    // 2. Match par nom du producteur / domaine dans le sujet
     for (const p of allProspects) {
       const names = [p.name, p.producteur, p.contact].filter(Boolean).map(n=>n.toLowerCase().trim());
       for (const n of names) {
@@ -746,15 +744,31 @@ export default function AmigoCRM() {
     return null;
   };
 
-  const matchEmailToProj = (from, to, subject) => {
-    const h = `${from} ${to} ${subject}`.toLowerCase();
-    if (["carnaval","gall","maquillage","makeup","école","ecole","formation"].some(k=>h.includes(k))) return "makeup";
-    if (["vin","wine","vinho","domaine","château","chateau","bodega","winery","cepage","millesime","import"].some(k=>h.includes(k))) return "vin";
-    if (["3d","impression","print","architecture","maquette","prototype"].some(k=>h.includes(k))) return "print3d";
+  const matchEmailToProj = (from, to, subject, snippet) => {
+    const h = `${from} ${to} ${subject} ${snippet}`.toLowerCase();
+    if (["carnaval","gall","maquillage","makeup","école","ecole","formation","beauté","beaute","cosmétique","cosmetique"].some(k=>h.includes(k))) return "makeup";
+    if ([
+      // Générique vin
+      "vin","wine","vinho","vins","winery","vignoble","vigneron","viticulteur","viticulture",
+      // Production
+      "domaine","château","chateau","cave","cuvée","cuvee","millésime","millesime","vendange","récolte","recolte","cépage","cepage","terroir","appellation",
+      // Régions
+      "bordeaux","bourgogne","champagne","alsace","loire","rhône","rhone","languedoc","provence","beaujolais","côtes","cotes","saint-émilion","pomerol","médoc","medoc","pessac","sauternes","vouvray","touraine","chinon","muscadet",
+      // Labels
+      "aoc","igp","bio","biodynamie","biodynamique","nature","naturel","sans soufre","soufre","agriculture biologique","certifié","certifie","ecocert","ab label",
+      // Commerce
+      "bodega","import","importation","exportation","négociant","negociant","grossiste","commande","bouteille","caisse","palette","conteneur","fob","cif","incoterm","expédition","expedition","livraison","tarif","devis","prix","facture",
+      // Cérémonies
+      "dégustation","degustation","salon","vinexpo","prowein",
+    ].some(k=>h.includes(k))) return "vin";
+    if (["3d","impression","print","architecture","maquette","prototype","filament","résine","resine","fraisage","usinage"].some(k=>h.includes(k))) return "print3d";
     return null;
   };
 
-  const scanGmail = async () => {
+  const [gmailFilter, setGmailFilter] = useState("projets"); // "projets" | "tous"
+
+  const scanGmail = async (filter) => {
+    const f = filter || gmailFilter;
     setGmailLoading(true);
     try {
       const token = await getGToken();
@@ -762,19 +776,21 @@ export default function AmigoCRM() {
 
       const allProspects = [...(data?.makeup||[]), ...(data?.vin||[]), ...(data?.print3d||[])];
 
-      // Construire une requête Gmail ciblée avec domaines + mots-clés projets
-      const domains = allProspects
-        .map(p => p.email?.split("@")[1]?.toLowerCase())
-        .filter(Boolean)
-        .map(d => `from:${d} OR to:${d}`);
-
-      const keywords = [
-        "carnaval","gall","maquillage",
-        "vin","wine","domaine","château","chateau","bodega","import",
-        "impression 3d","print 3d","maquette","prototype"
-      ].map(k=>`"${k}"`);
-
-      const query = [...domains, ...keywords].join(" OR ");
+      let query;
+      if (f === "tous") {
+        query = "in:anywhere";
+      } else {
+        const domains = allProspects
+          .map(p => p.email?.split("@")[1]?.toLowerCase())
+          .filter(Boolean)
+          .map(d => `from:${d} OR to:${d}`);
+        const keywords = [
+          "carnaval","gall","maquillage",
+          "vin","wine","domaine","château","chateau","bodega","import",
+          "impression 3d","print 3d","maquette","prototype"
+        ].map(k=>`"${k}"`);
+        query = [...domains, ...keywords].join(" OR ");
+      }
 
       const res = await fetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=200&q=${encodeURIComponent(query)}`,
@@ -793,9 +809,10 @@ export default function AmigoCRM() {
           const headers = msg.payload?.headers||[];
           const get = name => headers.find(h=>h.name===name)?.value||"";
           const from = get("From"), to = get("To"), subject = get("Subject"), date = get("Date");
-          const prospect = matchEmailToProspect(from, to, subject, allProspects);
-          const proj = prospect ? (prospect._proj||"vin") : matchEmailToProj(from, to, subject);
-          if (!proj) return null;
+          const snippet = msg.snippet||"";
+          const prospect = matchEmailToProspect(from, to, subject, snippet, allProspects);
+          const proj = prospect ? (prospect._proj||"vin") : matchEmailToProj(from, to, subject, snippet);
+          if (f === "projets" && !proj) return null;
           const labelIds = msg.labelIds||[];
           const folder = labelIds.includes("SENT")?"Envoyés":labelIds.includes("DRAFT")?"Brouillons":labelIds.includes("INBOX")?"Reçus":"Autre";
           const timestamp = msg.internalDate ? parseInt(msg.internalDate) : 0;
@@ -803,7 +820,6 @@ export default function AmigoCRM() {
         })
       );
 
-      // Trier par date décroissante (plus récent en premier)
       const sorted = threads
         .filter(Boolean)
         .sort((a,b) => b.timestamp - a.timestamp);
@@ -1036,7 +1052,7 @@ export default function AmigoCRM() {
           <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
             {Object.values(PROJECTS).map(p=>(
               <button key={p.id} onClick={()=>{setProjId(p.id);setView("kanban");}} className="btn"
-                style={{padding:"4px 10px",borderRadius:5,fontSize:11,fontWeight:500,cursor:"pointer",background:projId===p.id?`${p.color}18`:"transparent",color:projId===p.id?p.color:"#3d4f6b",border:projId===p.id?`1px solid ${p.color}22`:"1px solid transparent",display:"flex",alignItems:"center",gap:4}}>
+                style={{padding:"4px 10px",borderRadius:5,fontSize:12,fontWeight:500,cursor:"pointer",background:projId===p.id?`${p.color}18`:"transparent",color:projId===p.id?p.color:"#94a3b8",border:projId===p.id?`1px solid ${p.color}22`:"1px solid transparent",display:"flex",alignItems:"center",gap:4}}>
                 {p.icon} {p.label}
               </button>
             ))}
@@ -1046,7 +1062,7 @@ export default function AmigoCRM() {
         <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
           {[["kanban","Kanban"],["commandes","Commandes"],["finance","Finance"],["agenda","Agenda"],["emails","Emails"],["activite","Activité"]].map(([v,l])=>(
             <button key={v} onClick={()=>setView(v)} className="btn"
-              style={{padding:"4px 11px",borderRadius:5,fontSize:11,fontWeight:500,background:view===v?`${accent}18`:"transparent",color:view===v?accent:"#3d4f6b",border:view===v?`1px solid ${accent}22`:"1px solid transparent",cursor:"pointer"}}>
+              style={{padding:"4px 11px",borderRadius:5,fontSize:12,fontWeight:500,background:view===v?`${accent}18`:"transparent",color:view===v?accent:"#94a3b8",border:view===v?`1px solid ${accent}22`:"1px solid transparent",cursor:"pointer"}}>
               {l}
             </button>
           ))}
@@ -1366,56 +1382,78 @@ export default function AmigoCRM() {
           <div className="fade">
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
               <div>
-                <p style={{fontSize:15,fontWeight:600,color:"#f1f5f9"}}>✉️ Emails liés à tes projets</p>
-                <p style={{fontSize:11,color:"#4b5563",marginTop:2}}>Scan automatique · classement par règles</p>
+                <p style={{fontSize:15,fontWeight:600,color:"#f1f5f9"}}>✉️ Emails — {P.icon} {P.label}</p>
+                <p style={{fontSize:11,color:"#4b5563",marginTop:2}}>Expéditeur · destinataire · objet · contenu analysés</p>
               </div>
-              <button onClick={scanGmail} disabled={gmailLoading} className="btn"
-                style={{padding:"8px 14px",background:"#3b82f618",border:"1px solid #3b82f628",borderRadius:7,color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer",opacity:gmailLoading?0.6:1}}>
-                {gmailLoading?"⏳ Scan en cours…":"🔍 Scanner Gmail"}
-              </button>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{display:"flex",background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
+                  {[["projets","🎯 Ce projet"],["tous","📬 Tous"]].map(([v,l])=>(
+                    <button key={v} onClick={()=>setGmailFilter(v)} className="btn"
+                      style={{padding:"4px 11px",borderRadius:5,fontSize:11,fontWeight:500,background:gmailFilter===v?`${accent}18`:"transparent",color:gmailFilter===v?accent:"#3d4f6b",border:gmailFilter===v?`1px solid ${accent}28`:"1px solid transparent",cursor:"pointer"}}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={()=>scanGmail(gmailFilter)} disabled={gmailLoading} className="btn"
+                  style={{padding:"8px 14px",background:"#3b82f618",border:"1px solid #3b82f628",borderRadius:7,color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer",opacity:gmailLoading?0.6:1}}>
+                  {gmailLoading?"⏳ Scan…":"🔍 Scanner"}
+                </button>
+              </div>
             </div>
 
             {gmailThreads.length===0&&!gmailLoading&&(
               <div style={{textAlign:"center",padding:"50px 20px",color:"#2d3748"}}>
                 <p style={{fontSize:32,marginBottom:12}}>📭</p>
-                <p style={{fontSize:13,color:"#4b5563",marginBottom:6}}>Clique sur "Scanner Gmail" pour détecter</p>
-                <p style={{fontSize:11,color:"#2d3748"}}>les emails liés à tes prospects, fournisseurs et projets.</p>
+                <p style={{fontSize:13,color:"#4b5563",marginBottom:6}}>Clique sur "Scanner" pour détecter</p>
+                <p style={{fontSize:11,color:"#2d3748"}}>les emails liés à {P.icon} {P.label}.</p>
               </div>
             )}
 
             {gmailThreads.length>0&&(()=>{
+              const projEmails = gmailFilter==="projets"
+                ? gmailThreads.filter(t => t.proj === projId)
+                : gmailThreads;
+
               const PROJ_COLORS = {"makeup":"#ec4899","vin":"#8b5cf6","print3d":"#14b8a6"};
-              const PROJ_ICONS  = {"makeup":"💄","vin":"🍷","print3d":"🖨️"};
               const FOLDER_COLORS = {"Reçus":"#60a5fa","Envoyés":"#4ade80","Brouillons":"#fbbf24","Autre":"#6b7280"};
               const folders = ["Reçus","Envoyés","Brouillons","Autre"];
 
+              if (projEmails.length===0) return (
+                <div style={{textAlign:"center",padding:"40px 20px"}}>
+                  <p style={{fontSize:13,color:"#4b5563"}}>Aucun email trouvé pour {P.icon} {P.label}.</p>
+                  <p style={{fontSize:11,color:"#2d3748",marginTop:6}}>Essaie le filtre "Tous" ou rescanne.</p>
+                </div>
+              );
+
               return folders.map(folder => {
-                const items = gmailThreads.filter(t=>t.folder===folder);
+                const items = projEmails.filter(t=>t.folder===folder);
                 if (items.length===0) return null;
+                const fc = FOLDER_COLORS[folder]||"#6b7280";
                 return (
                   <div key={folder} style={{marginBottom:14,background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,overflow:"hidden"}}>
                     <div style={{padding:"9px 14px",borderBottom:"1px solid #0d1020",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <p style={{fontSize:11,fontWeight:600,color:FOLDER_COLORS[folder]||"#f1f5f9"}}>{folder}</p>
+                      <p style={{fontSize:11,fontWeight:600,color:fc}}>{folder}</p>
                       <p style={{fontSize:10,color:"#4b5563"}}>{items.length} email{items.length>1?"s":""}</p>
                     </div>
                     {items.map(t=>{
                       const c = PROJ_COLORS[t.proj]||"#6b7280";
-                      const icon = PROJ_ICONS[t.proj]||"📧";
                       return (
                         <div key={t.id} style={{padding:"10px 14px",borderBottom:"1px solid #080a0f",display:"flex",alignItems:"flex-start",gap:10}}>
                           <div style={{width:3,minHeight:40,borderRadius:2,background:c,flexShrink:0,marginTop:2}}/>
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
                               <span style={{fontSize:12,fontWeight:600,color:"#f1f5f9",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.subject||"(sans objet)"}</span>
-                              <span style={{fontSize:10,padding:"1px 6px",borderRadius:3,background:`${c}15`,color:c,fontWeight:600,flexShrink:0}}>{icon} {t.proj==="makeup"?"Carnaval":t.proj==="vin"?"Vin":t.proj==="print3d"?"3D":""}</span>
+                              {t.prospect&&<span style={{fontSize:10,background:"#22c55e15",color:"#4ade80",padding:"1px 6px",borderRadius:3,fontWeight:600,flexShrink:0}}>✓ {t.prospect.name}</span>}
+                              {gmailFilter==="tous"&&t.proj&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:3,background:`${c}15`,color:c,fontWeight:600,flexShrink:0}}>{t.proj==="makeup"?"💄":t.proj==="vin"?"🍷":"🧊"}</span>}
                             </div>
                             <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
                               <span style={{fontSize:10,color:"#4b5563",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{folder==="Envoyés"?`→ ${t.to}`:`← ${t.from}`}</span>
-                              {t.prospect&&<span style={{fontSize:10,background:"#22c55e15",color:"#4ade80",padding:"1px 6px",borderRadius:3,fontWeight:600,flexShrink:0}}>✓ {t.prospect.name}</span>}
                             </div>
                             <p style={{fontSize:11,color:"#374151",lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.snippet}</p>
                           </div>
-                          <span style={{fontSize:10,color:"#2d3748",flexShrink:0,whiteSpace:"nowrap"}}>{t.date?.slice(0,16)}</span>
+                          <span style={{fontSize:10,color:"#2d3748",flexShrink:0,whiteSpace:"nowrap",marginTop:2}}>
+                            {t.timestamp ? new Date(t.timestamp).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}) : ""}
+                          </span>
                         </div>
                       );
                     })}
