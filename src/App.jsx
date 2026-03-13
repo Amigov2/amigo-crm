@@ -647,7 +647,7 @@ export default function AmigoCRM() {
       provider: "google",
       options: {
         redirectTo: window.location.origin,
-        scopes: "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.compose",
+        scopes: "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly",
         queryParams: { access_type: "offline", prompt: "consent" },
       },
     });
@@ -721,6 +721,96 @@ export default function AmigoCRM() {
       });
       return res.ok;
     } catch(e) { console.error(e); return false; }
+  };
+
+  // ── Gmail scan (règles fixes, pas d'IA) ───────────────────────────────────
+  const [gmailThreads, setGmailThreads] = useState([]);
+  const [gmailLoading, setGmailLoading] = useState(false);
+
+  const matchEmailToProspect = (from, to, subject, allProspects) => {
+    const haystack = `${from} ${to} ${subject}`.toLowerCase();
+    // 1. Match par domaine email exact
+    for (const p of allProspects) {
+      if (p.email) {
+        const domain = p.email.split("@")[1]?.toLowerCase();
+        if (domain && haystack.includes(domain)) return p;
+      }
+    }
+    // 2. Match par nom du producteur / domaine dans le sujet
+    for (const p of allProspects) {
+      const names = [p.name, p.producteur, p.contact].filter(Boolean).map(n=>n.toLowerCase().trim());
+      for (const n of names) {
+        if (n.length > 4 && haystack.includes(n)) return p;
+      }
+    }
+    return null;
+  };
+
+  const matchEmailToProj = (from, to, subject) => {
+    const h = `${from} ${to} ${subject}`.toLowerCase();
+    if (["carnaval","gall","maquillage","makeup","école","ecole","formation"].some(k=>h.includes(k))) return "makeup";
+    if (["vin","wine","vinho","domaine","château","chateau","bodega","winery","cepage","millesime","import"].some(k=>h.includes(k))) return "vin";
+    if (["3d","impression","print","architecture","maquette","prototype"].some(k=>h.includes(k))) return "print3d";
+    return null;
+  };
+
+  const scanGmail = async () => {
+    setGmailLoading(true);
+    try {
+      const token = await getGToken();
+      if (!token) { setGmailLoading(false); return; }
+
+      const allProspects = [...(data?.makeup||[]), ...(data?.vin||[]), ...(data?.print3d||[])];
+
+      // Construire une requête Gmail ciblée avec domaines + mots-clés projets
+      const domains = allProspects
+        .map(p => p.email?.split("@")[1]?.toLowerCase())
+        .filter(Boolean)
+        .map(d => `from:${d} OR to:${d}`);
+
+      const keywords = [
+        "carnaval","gall","maquillage",
+        "vin","wine","domaine","château","chateau","bodega","import",
+        "impression 3d","print 3d","maquette","prototype"
+      ].map(k=>`"${k}"`);
+
+      const query = [...domains, ...keywords].join(" OR ");
+
+      const res = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=200&q=${encodeURIComponent(query)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const d = await res.json();
+      if (!d.messages) { setGmailThreads([]); setGmailLoading(false); return; }
+
+      const threads = await Promise.all(
+        d.messages.map(async m => {
+          const r = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          const msg = await r.json();
+          const headers = msg.payload?.headers||[];
+          const get = name => headers.find(h=>h.name===name)?.value||"";
+          const from = get("From"), to = get("To"), subject = get("Subject"), date = get("Date");
+          const prospect = matchEmailToProspect(from, to, subject, allProspects);
+          const proj = prospect ? (prospect._proj||"vin") : matchEmailToProj(from, to, subject);
+          if (!proj) return null;
+          const labelIds = msg.labelIds||[];
+          const folder = labelIds.includes("SENT")?"Envoyés":labelIds.includes("DRAFT")?"Brouillons":labelIds.includes("INBOX")?"Reçus":"Autre";
+          const timestamp = msg.internalDate ? parseInt(msg.internalDate) : 0;
+          return { id:m.id, from, to, subject, date, timestamp, prospect, proj, folder, snippet:msg.snippet||"" };
+        })
+      );
+
+      // Trier par date décroissante (plus récent en premier)
+      const sorted = threads
+        .filter(Boolean)
+        .sort((a,b) => b.timestamp - a.timestamp);
+
+      setGmailThreads(sorted);
+    } catch(e) { console.error(e); }
+    setGmailLoading(false);
   };
 
   useEffect(() => { if (authUser && view==="agenda") loadCalendar(calMonth, calYear); }, [view, calMonth, calYear, authUser]);
@@ -954,7 +1044,7 @@ export default function AmigoCRM() {
         </div>
 
         <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
-          {[["kanban","Kanban"],["commandes","Commandes"],["finance","Finance"],["agenda","Agenda"],["activite","Activité"]].map(([v,l])=>(
+          {[["kanban","Kanban"],["commandes","Commandes"],["finance","Finance"],["agenda","Agenda"],["emails","Emails"],["activite","Activité"]].map(([v,l])=>(
             <button key={v} onClick={()=>setView(v)} className="btn"
               style={{padding:"4px 11px",borderRadius:5,fontSize:11,fontWeight:500,background:view===v?`${accent}18`:"transparent",color:view===v?accent:"#3d4f6b",border:view===v?`1px solid ${accent}22`:"1px solid transparent",cursor:"pointer"}}>
               {l}
@@ -1270,6 +1360,71 @@ export default function AmigoCRM() {
             </div>
           );
         })()}
+
+        {/* ══ EMAILS ══ */}
+        {view==="emails"&&(
+          <div className="fade">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div>
+                <p style={{fontSize:15,fontWeight:600,color:"#f1f5f9"}}>✉️ Emails liés à tes projets</p>
+                <p style={{fontSize:11,color:"#4b5563",marginTop:2}}>Scan automatique · classement par règles</p>
+              </div>
+              <button onClick={scanGmail} disabled={gmailLoading} className="btn"
+                style={{padding:"8px 14px",background:"#3b82f618",border:"1px solid #3b82f628",borderRadius:7,color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer",opacity:gmailLoading?0.6:1}}>
+                {gmailLoading?"⏳ Scan en cours…":"🔍 Scanner Gmail"}
+              </button>
+            </div>
+
+            {gmailThreads.length===0&&!gmailLoading&&(
+              <div style={{textAlign:"center",padding:"50px 20px",color:"#2d3748"}}>
+                <p style={{fontSize:32,marginBottom:12}}>📭</p>
+                <p style={{fontSize:13,color:"#4b5563",marginBottom:6}}>Clique sur "Scanner Gmail" pour détecter</p>
+                <p style={{fontSize:11,color:"#2d3748"}}>les emails liés à tes prospects, fournisseurs et projets.</p>
+              </div>
+            )}
+
+            {gmailThreads.length>0&&(()=>{
+              const PROJ_COLORS = {"makeup":"#ec4899","vin":"#8b5cf6","print3d":"#14b8a6"};
+              const PROJ_ICONS  = {"makeup":"💄","vin":"🍷","print3d":"🖨️"};
+              const FOLDER_COLORS = {"Reçus":"#60a5fa","Envoyés":"#4ade80","Brouillons":"#fbbf24","Autre":"#6b7280"};
+              const folders = ["Reçus","Envoyés","Brouillons","Autre"];
+
+              return folders.map(folder => {
+                const items = gmailThreads.filter(t=>t.folder===folder);
+                if (items.length===0) return null;
+                return (
+                  <div key={folder} style={{marginBottom:14,background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,overflow:"hidden"}}>
+                    <div style={{padding:"9px 14px",borderBottom:"1px solid #0d1020",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <p style={{fontSize:11,fontWeight:600,color:FOLDER_COLORS[folder]||"#f1f5f9"}}>{folder}</p>
+                      <p style={{fontSize:10,color:"#4b5563"}}>{items.length} email{items.length>1?"s":""}</p>
+                    </div>
+                    {items.map(t=>{
+                      const c = PROJ_COLORS[t.proj]||"#6b7280";
+                      const icon = PROJ_ICONS[t.proj]||"📧";
+                      return (
+                        <div key={t.id} style={{padding:"10px 14px",borderBottom:"1px solid #080a0f",display:"flex",alignItems:"flex-start",gap:10}}>
+                          <div style={{width:3,minHeight:40,borderRadius:2,background:c,flexShrink:0,marginTop:2}}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
+                              <span style={{fontSize:12,fontWeight:600,color:"#f1f5f9",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.subject||"(sans objet)"}</span>
+                              <span style={{fontSize:10,padding:"1px 6px",borderRadius:3,background:`${c}15`,color:c,fontWeight:600,flexShrink:0}}>{icon} {t.proj==="makeup"?"Carnaval":t.proj==="vin"?"Vin":t.proj==="print3d"?"3D":""}</span>
+                            </div>
+                            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
+                              <span style={{fontSize:10,color:"#4b5563",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{folder==="Envoyés"?`→ ${t.to}`:`← ${t.from}`}</span>
+                              {t.prospect&&<span style={{fontSize:10,background:"#22c55e15",color:"#4ade80",padding:"1px 6px",borderRadius:3,fontWeight:600,flexShrink:0}}>✓ {t.prospect.name}</span>}
+                            </div>
+                            <p style={{fontSize:11,color:"#374151",lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.snippet}</p>
+                          </div>
+                          <span style={{fontSize:10,color:"#2d3748",flexShrink:0,whiteSpace:"nowrap"}}>{t.date?.slice(0,16)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        )}
 
         {/* ══ ACTIVITÉ ══ */}
         {view==="activite"&&(
