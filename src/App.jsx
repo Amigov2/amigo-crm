@@ -1228,28 +1228,24 @@ export default function AmigoCRM() {
       const domain = prospect.email?.split("@")[1]?.toLowerCase();
       if (!domain) { setGmailLoading(false); return; }
 
-      // Étape 1 — emails + détection PJ via format=metadata (mimeType parts)
-      const query = `from:${domain} OR to:${domain}`;
-      const res1 = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&q=${encodeURIComponent(query)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const d1 = await res1.json();
-      const emailIds = new Set((d1.messages||[]).map(m=>m.id));
-      // Détection PJ via Gmail query séparée simple
-      const res2 = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=${encodeURIComponent(`has:attachment from:${domain}`)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const d2 = await res2.json();
-      const res3 = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=${encodeURIComponent(`has:attachment to:${domain}`)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const d3 = await res3.json();
-      const pjIds = new Set([...(d2.messages||[]).map(m=>m.id), ...(d3.messages||[]).map(m=>m.id)]);
+      // Si domaine générique (orange, gmail, hotmail...) → utiliser l'adresse complète
+      const GENERIC_DOMAINS = ["gmail.com","orange.fr","hotmail.com","hotmail.fr","yahoo.com","yahoo.fr","outlook.com","outlook.fr","free.fr","sfr.fr","laposte.net","wanadoo.fr","icloud.com","live.fr","live.com","bbox.fr","numericable.fr"];
+      const emailAddr = prospect.email.toLowerCase();
+      const useFullEmail = GENERIC_DOMAINS.includes(domain);
+      const query = useFullEmail
+        ? `from:${emailAddr} OR to:${emailAddr}`
+        : `from:${domain} OR to:${domain}`;
+      const queryPJ1 = useFullEmail ? `has:attachment from:${emailAddr}` : `has:attachment from:${domain}`;
+      const queryPJ2 = useFullEmail ? `has:attachment to:${emailAddr}` : `has:attachment to:${domain}`;
 
-      const threads = await Promise.all(
+      const [res1, res2, res3] = await Promise.all([
+        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&q=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=${encodeURIComponent(queryPJ1)}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=${encodeURIComponent(queryPJ2)}`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const [d1, d2, d3] = await Promise.all([res1.json(), res2.json(), res3.json()]);
+      const emailIds = new Set((d1.messages||[]).map(m=>m.id));
+      const pjIds = new Set([...(d2.messages||[]).map(m=>m.id), ...(d3.messages||[]).map(m=>m.id)]);
         [...emailIds].map(async id => {
           const r = await fetch(
             `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
