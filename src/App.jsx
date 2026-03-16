@@ -471,7 +471,8 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
       setSent(true);
       setReplyTo(null);
       setReplyBody("");
-      // Rescanner pour récupérer le mail envoyé et les réponses
+      // Statut → Contacté si encore À contacter
+      if (prospect.status === "À contacter") onUpdate(prospect.id, { status: "Contacté" });
       setTimeout(()=>onScanForProspect&&onScanForProspect(prospect, true), 3000);
     }
   };
@@ -802,7 +803,7 @@ const EMAIL_TEMPLATES = {
   ],
 };
 
-function EmailModal({ prospect, projId, onClose, onSend }) {
+function EmailModal({ prospect, projId, onClose, onSend, onUpdateStatus }) {
   const P = PROJECTS[projId];
   const templates = EMAIL_TEMPLATES[projId]||[];
   const defaultTpl = templates[0];
@@ -822,7 +823,13 @@ function EmailModal({ prospect, projId, onClose, onSend }) {
     setSending(true);
     const ok = await onSend({ to, subject, body });
     setSending(false);
-    if (ok) setSent(true);
+    if (ok) {
+      setSent(true);
+      // Mettre à jour le statut à "Contacté" si encore "À contacter"
+      if (prospect.status === "À contacter" && onUpdateStatus) {
+        onUpdateStatus(prospect.id, { status: "Contacté" });
+      }
+    }
   };
 
   if (sent) return (
@@ -961,17 +968,17 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
   const [hoveredRegion,   setHoveredRegion]   = useState(null);
 
   const REGIONS = [
-    { id:"bordeaux",   label:"Bordeaux",        x:178, y:355, color:"#e74c3c" },
-    { id:"bourgogne",  label:"Bourgogne",       x:355, y:265, color:"#9b59b6" },
-    { id:"champagne",  label:"Champagne",       x:355, y:130, color:"#f1c40f" },
-    { id:"alsace",     label:"Alsace",          x:448, y:175, color:"#e67e22" },
-    { id:"loire",      label:"Loire",           x:238, y:230, color:"#27ae60" },
-    { id:"rhone",      label:"Vallée du Rhône", x:375, y:335, color:"#d35400" },
-    { id:"languedoc",  label:"Languedoc",       x:318, y:415, color:"#16a085" },
-    { id:"provence",   label:"Provence",        x:405, y:395, color:"#e74c3c" },
-    { id:"beaujolais", label:"Beaujolais",      x:368, y:295, color:"#8e44ad" },
-    { id:"jura",       label:"Jura/Savoie",     x:418, y:258, color:"#7f8c8d" },
-    { id:"sw",         label:"Sud-Ouest",       x:215, y:390, color:"#795548" },
+    { id:"bordeaux",   label:"Bordeaux",        x:218, y:390, color:"#e74c3c" },
+    { id:"bourgogne",  label:"Bourgogne",       x:400, y:300, color:"#9b59b6" },
+    { id:"champagne",  label:"Champagne",       x:395, y:165, color:"#f1c40f" },
+    { id:"alsace",     label:"Alsace",          x:470, y:210, color:"#e67e22" },
+    { id:"loire",      label:"Loire",           x:268, y:268, color:"#27ae60" },
+    { id:"rhone",      label:"Vallée du Rhône", x:418, y:370, color:"#d35400" },
+    { id:"languedoc",  label:"Languedoc",       x:355, y:450, color:"#16a085" },
+    { id:"provence",   label:"Provence",        x:444, y:430, color:"#c0392b" },
+    { id:"beaujolais", label:"Beaujolais",      x:408, y:335, color:"#8e44ad" },
+    { id:"jura",       label:"Jura/Savoie",     x:455, y:295, color:"#7f8c8d" },
+    { id:"sw",         label:"Sud-Ouest",       x:248, y:430, color:"#795548" },
   ];
 
   const STATUS_COLORS = {
@@ -980,18 +987,20 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
   };
 
   const getRegion = (p) => {
-    const h = `${p.appellation||""} ${p.sub||""} ${p.note||""} ${p.cepage||""}`.toLowerCase();
-    if (h.match(/bordeaux|medoc|médoc|pessac|saint-?emilion|pomerol|sauternes|margaux|lalande/)) return "bordeaux";
-    if (h.match(/bourgogne|puligny|gevrey|chambolle|nuits|meursault|chablis|macon/)) return "bourgogne";
-    if (h.match(/champagne|reims|epernay|épernay/)) return "champagne";
-    if (h.match(/alsace|riesling|gewurz|sylvaner/)) return "alsace";
-    if (h.match(/loire|vouvray|muscadet|chinon|sancerre|touraine|pouilly|amboise|cheverny|chenin/)) return "loire";
-    if (h.match(/rhone|rhône|cotes.du.rhone|chateauneuf|hermitage|condrieu/)) return "rhone";
-    if (h.match(/languedoc|roussillon|picpoul|faugeres|fitou/)) return "languedoc";
-    if (h.match(/provence|bandol|cassis|cotes.de.provence/)) return "provence";
-    if (h.match(/beaujolais|gamay|morgon|fleurie/)) return "beaujolais";
-    if (h.match(/jura|savoie|bugey|mondeuse/)) return "jura";
-    if (h.match(/cahors|gaillac|bergerac|madiran|jurançon|armagnac/)) return "sw";
+    const h = `${p.appellation||""} ${p.sub||""} ${p.note||""} ${p.cepage||""} ${p.name||""} ${p.producteur||""}`.toLowerCase();
+    if (h.match(/bordeaux|medoc|médoc|pessac|saint.?emilion|pomerol|sauternes|margaux|lalande|listrac|moulis|blaye|bourg|fronsac|lalaudey|pontac|calice/)) return "bordeaux";
+    if (h.match(/bourgogne|puligny|gevrey|chambolle|nuits|meursault|chablis|macon|côte.d.or|cote.d.or|beaune|leflaive|romanee|montrachet/)) return "bourgogne";
+    if (h.match(/champagne|reims|epernay|épernay|charpentier|brut|blanc.de.blancs/)) return "champagne";
+    if (h.match(/alsace|riesling|gewurz|sylvaner|pinot.gris|agape|alsacien|strasbourg|colmar/)) return "alsace";
+    if (h.match(/loire|vouvray|muscadet|chinon|sancerre|touraine|pouilly|amboise|cheverny|chenin|robert|alain.robert|daridan|bessons|delobel|delaunay|sainson|herivault|roux.*chateaumeillant|champalou|croix.melier|bulapapa/)) return "loire";
+    if (h.match(/rhone|rhône|cotes.du.rhone|chateauneuf|hermitage|condrieu|gigondas|vacqueyras|crozes/)) return "rhone";
+    if (h.match(/languedoc|roussillon|picpoul|faugeres|fitou|minervois|corbières|corbieres/)) return "languedoc";
+    if (h.match(/provence|bandol|cassis|cotes.de.provence|var|bouches.du.rhone/)) return "provence";
+    if (h.match(/beaujolais|gamay|morgon|fleurie|brouilly|moulin.a.vent|julienas|nugues|domaine.des.nugues/)) return "beaujolais";
+    if (h.match(/jura|savoie|bugey|mondeuse|trosset|arbin/)) return "jura";
+    if (h.match(/cahors|gaillac|bergerac|madiran|jurançon|armagnac|sud.ouest|gers|lot|dordogne|morin|bourgueil|nicolas.de.bourgueil|deshenry|cigales|heitz|bourgignon|coteaux.bourgignon/)) return "sw";
+    // Fallback par pays — vins français non identifiés → Loire par défaut (région la plus représentée)
+    if (h.match(/aoc|igp|vin de france|appellation.*controlée|appellation.*protégée/)) return "loire";
     return null;
   };
 
@@ -1010,33 +1019,36 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
         {/* Carte SVG */}
         <div style={{flex:"0 0 480px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:14}}>
           <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:10}}>🗺 Couverture viticole France</p>
-          <svg viewBox="0 0 560 580" style={{width:"100%",height:"auto"}}>
-            {/* Contour réaliste de la France métropolitaine */}
-            <path d="M263,32 L285,28 L312,35 L338,42 L358,38 L382,52 L400,65 L415,80 L425,95 L430,112 L438,128 L448,142 L462,155 L470,172 L468,190 L460,205 L452,220 L456,238 L462,255 L468,272 L472,290 L470,308 L462,322 L450,335 L442,350 L438,368 L432,384 L420,396 L408,408 L395,420 L378,428 L362,435 L345,440 L328,445 L310,448 L292,445 L274,440 L256,432 L240,422 L225,410 L212,396 L200,382 L190,366 L182,350 L175,333 L170,315 L165,296 L162,278 L162,260 L165,242 L162,224 L155,208 L148,192 L145,175 L148,158 L155,143 L162,128 L168,112 L172,95 L178,80 L188,66 L200,54 L215,44 L232,36 Z"
+          <svg viewBox="0 50 600 620" style={{width:"100%",height:"auto"}}>
+            {/* France métropolitaine — tracé précis */}
+            <path d="M348,62 L365,58 L388,65 L408,72 L428,82 L444,96 L455,114 L460,134 L458,154 L468,168 L478,182 L480,200 L474,216 L464,228 L468,246 L474,264 L478,282 L476,300 L468,316 L456,330 L448,346 L444,364 L436,380 L424,394 L410,406 L394,416 L376,424 L358,430 L338,434 L318,434 L298,430 L278,422 L260,412 L244,400 L230,386 L218,370 L208,354 L200,336 L194,318 L190,298 L188,278 L188,258 L192,238 L188,220 L180,204 L174,188 L172,170 L176,152 L184,136 L194,122 L204,108 L214,96 L226,86 L240,78 L256,72 L272,68 L290,64 L308,62 L328,60 Z"
               fill="#0d1020" stroke="#2d3748" strokeWidth="1.5"/>
-            {/* Corse */}
-            <path d="M440,430 L448,435 L452,445 L450,455 L444,460 L438,455 L435,445 L437,435 Z"
+            {/* Bretagne */}
+            <path d="M188,258 L175,262 L158,268 L144,272 L132,268 L122,260 L118,248 L124,238 L138,232 L152,228 L166,234 L178,242 Z"
               fill="#0d1020" stroke="#2d3748" strokeWidth="1"/>
-            {/* Régions viticoles en zones colorées */}
+            {/* Corse */}
+            <path d="M488,460 L496,466 L500,478 L498,492 L490,500 L482,496 L478,484 L480,470 Z"
+              fill="#0d1020" stroke="#2d3748" strokeWidth="1"/>
+            {/* Régions viticoles */}
             {REGIONS.map(r => {
               const pList = regionProspects[r.id]||[];
               const has = pList.length>0;
               const isHov = hoveredRegion===r.id;
               return (
                 <g key={r.id} onMouseEnter={()=>setHoveredRegion(r.id)} onMouseLeave={()=>setHoveredRegion(null)}>
-                  <circle cx={r.x} cy={r.y} r={has?22:14}
+                  <circle cx={r.x} cy={r.y} r={has?20:12}
                     fill={has?`${r.color}22`:"#ffffff05"}
                     stroke={has?r.color:"#374151"}
-                    strokeWidth={isHov?2:1}
+                    strokeWidth={isHov?2.5:1}
                     style={{transition:"all .2s",cursor:"pointer"}}/>
-                  {has&&<circle cx={r.x} cy={r.y} r={7} fill={r.color} opacity={0.9}/>}
-                  {!has&&<circle cx={r.x} cy={r.y} r={5} fill="#374151"/>}
-                  <text x={r.x} y={r.y+(has?33:24)} textAnchor="middle"
-                    style={{fontSize:8,fill:has?r.color:"#4b5563",fontFamily:"DM Sans",fontWeight:600,pointerEvents:"none"}}>
+                  {has&&<circle cx={r.x} cy={r.y} r={6} fill={r.color} opacity={0.95}/>}
+                  {!has&&<circle cx={r.x} cy={r.y} r={4} fill="#374151"/>}
+                  <text x={r.x} y={r.y+(has?30:22)} textAnchor="middle"
+                    style={{fontSize:7.5,fill:has?r.color:"#4b5563",fontFamily:"DM Sans",fontWeight:600,pointerEvents:"none"}}>
                     {r.label}
                   </text>
                   {pList.length>0&&(
-                    <text x={r.x+16} y={r.y-11} textAnchor="middle"
+                    <text x={r.x+15} y={r.y-10} textAnchor="middle"
                       style={{fontSize:9,fill:"#f1f5f9",fontWeight:700,fontFamily:"DM Sans",pointerEvents:"none"}}>
                       {pList.length}
                     </text>
@@ -1058,7 +1070,8 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
               return (
                 <circle key={p.id} cx={px} cy={py} r={5} fill={c} stroke="#080a0f" strokeWidth={1.5}
                   style={{cursor:"pointer"}}
-                  onMouseEnter={()=>setHoveredProspect(p)} onMouseLeave={()=>setHoveredProspect(null)}
+                  onMouseEnter={()=>setHoveredProspect(p)}
+                  onMouseLeave={()=>setHoveredProspect(null)}
                   onClick={()=>onOpenProspect(p)}/>
               );
             })}
@@ -2336,7 +2349,7 @@ export default function AmigoCRM() {
       {showAddOrder!==undefined&&<AddOrderModal projId={projId} prospects={prospects} preselect={showAddOrder} onAdd={addOrder} onClose={()=>setShowAddOrder(undefined)}/>}
       {detailProspect&&<ProspectModal prospect={detailProspect} projId={projId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} prospectEmails={data?.prospectEmails||{}} onSendEmail={sendGmail} onScanForProspect={scanForProspect} onClearEmails={clearProspectEmails} gmailLoading={gmailLoading}/>}
       {showAddEvent&&<AddEventModal onAdd={createCalEvent} onClose={()=>setShowAddEvent(null)} preDate={showAddEvent==="new"?null:showAddEvent} currentUser={user}/>}
-      {showEmailModal&&<EmailModal prospect={showEmailModal} projId={projId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail}/>}
+      {showEmailModal&&<EmailModal prospect={showEmailModal} projId={projId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail} onUpdateStatus={updateProspect}/>}
     </div>
   );
 }
