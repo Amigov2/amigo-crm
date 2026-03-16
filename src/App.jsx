@@ -388,6 +388,47 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
   const [status,    setStatus]    = useState(prospect.status);
   const [assigned,  setAssigned]  = useState(prospect.assignedTo||"");
   const [expandedEmail, setExpandedEmail] = useState(null);
+  const [emailBodies, setEmailBodies] = useState({}); // {emailId: fullBody}
+  const [loadingBody, setLoadingBody] = useState(null);
+
+  const expandEmail = async (emailId) => {
+    if (expandedEmail === emailId) { setExpandedEmail(null); return; }
+    setExpandedEmail(emailId);
+    if (emailBodies[emailId]) return; // déjà chargé
+    setLoadingBody(emailId);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.provider_token;
+      if (!token) return;
+      const r = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${emailId}?format=full`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const msg = await r.json();
+      // Extraire le corps texte
+      const getBody = (parts=[]) => {
+        for (const part of parts) {
+          if (part.mimeType==="text/plain" && part.body?.data) {
+            const binary = atob(part.body.data.replace(/-/g,"+").replace(/_/g,"/"));
+            const bytes = new Uint8Array(binary.length);
+            for (let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+            return new TextDecoder("utf-8").decode(bytes);
+          }
+          if (part.parts) { const r = getBody(part.parts); if (r) return r; }
+        }
+        return null;
+      };
+      let body = getBody(msg.payload?.parts||[]);
+      if (!body && msg.payload?.body?.data) {
+        const binary = atob(msg.payload.body.data.replace(/-/g,"+").replace(/_/g,"/"));
+        const bytes = new Uint8Array(binary.length);
+        for (let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+        body = new TextDecoder("utf-8").decode(bytes);
+      }
+      setEmailBodies(prev => ({...prev, [emailId]: body || msg.snippet || ""}));
+    } catch(e) { console.error(e); }
+    setLoadingBody(null);
+  };
   const [note,      setNote]      = useState(prospect.note||"");
   const [editNote,  setEditNote]  = useState(false);
   const [tab,       setTab]       = useState("infos");
@@ -418,7 +459,46 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
     ...savedByDomain.filter(t => !allEmailIds.has(t.id))
   ].sort((a,b) => b.timestamp - a.timestamp);
 
-  const handleReply = async () => {
+  const [emailBodies, setEmailBodies] = useState({}); // { emailId: fullBody }
+  const [loadingBody, setLoadingBody] = useState(null);
+
+  const loadEmailBody = async (email) => {
+    if (emailBodies[email.id]) return; // déjà chargé
+    setLoadingBody(email.id);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess?.session?.provider_token;
+      if (!token) return;
+      const r = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${email.id}?format=full`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const msg = await r.json();
+      // Extraire le texte du body
+      const getBody = (parts=[]) => {
+        for (const part of parts) {
+          if (part.mimeType==="text/plain" && part.body?.data) {
+            const binary = atob(part.body.data.replace(/-/g,"+").replace(/_/g,"/"));
+            const bytes = new Uint8Array(binary.length);
+            for (let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+            return new TextDecoder("utf-8").decode(bytes);
+          }
+          if (part.parts) { const r = getBody(part.parts); if (r) return r; }
+        }
+        return null;
+      };
+      let body = null;
+      if (msg.payload?.parts) body = getBody(msg.payload.parts);
+      else if (msg.payload?.body?.data) {
+        const binary = atob(msg.payload.body.data.replace(/-/g,"+").replace(/_/g,"/"));
+        const bytes = new Uint8Array(binary.length);
+        for (let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+        body = new TextDecoder("utf-8").decode(bytes);
+      }
+      setEmailBodies(prev=>({...prev, [email.id]: body || email.snippet || "(contenu vide)"}));
+    } catch(e) { console.error(e); }
+    setLoadingBody(null);
+  };
     if (!replyBody.trim() || !replyTo) return;
     setSending(true);
     const ok = await onSendEmail({
@@ -541,7 +621,7 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
           return (
             <div key={email.id} style={{marginBottom:10,borderRadius:9,border:`1px solid ${isExpanded?(isOut?"#22c55e55":"#3b82f655"):(isOut?"#22c55e22":"#1a2035")}`,overflow:"hidden",transition:"border .15s"}}>
               {/* Header email — clic pour ouvrir */}
-              <div onClick={()=>setExpandedEmail(isExpanded?null:email.id)}
+              <div onClick={()=>{const next=isExpanded?null:email.id;setExpandedEmail(next);if(next)loadEmailBody(email);}}
                 style={{padding:"10px 12px",background:isOut?"#22c55e08":"#0b0d16",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}
                 onMouseEnter={e=>e.currentTarget.style.background=isOut?"#22c55e12":"#0f1520"}
                 onMouseLeave={e=>e.currentTarget.style.background=isOut?"#22c55e08":"#0b0d16"}>
@@ -557,10 +637,10 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
               </div>
               {/* Contenu expandé */}
               {isExpanded&&<>
-                <div style={{padding:"12px 14px",background:"#06080d",borderTop:"1px solid #0d1020"}}>
-                  {email.snippet
-                    ? <p style={{fontSize:12,color:"#cbd5e1",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{email.snippet}</p>
-                    : <p style={{fontSize:11,color:"#374151",fontStyle:"italic"}}>Aperçu non disponible.</p>
+                <div style={{padding:"12px 14px",background:"#06080d",borderTop:"1px solid #0d1020",maxHeight:320,overflowY:"auto"}}>
+                  {loadingBody===email.id
+                    ? <p style={{fontSize:11,color:"#4b5563"}}>⏳ Chargement du message…</p>
+                    : <p style={{fontSize:12,color:"#cbd5e1",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{emailBodies[email.id]||email.snippet||"(contenu vide)"}</p>
                   }
                   <a href={`https://mail.google.com/mail/u/0/#search/${encodeURIComponent(email.subject||"")}`} target="_blank" rel="noopener noreferrer"
                     style={{fontSize:10,color:"#3b82f6",display:"inline-block",marginTop:8}}>
@@ -760,7 +840,6 @@ function DocsTab({ prospect, onUpdate, projId }) {
       const updated = [...docs, newDoc];
       setDocs(updated);
       onUpdate(prospect.id, { docs: updated });
-      alert(`✅ "${file.name}" ajouté avec succès !`);
     } catch(e) {
       console.error("Erreur upload:", e);
       alert("❌ Erreur : " + e.message);
@@ -1168,7 +1247,15 @@ export default function AmigoCRM() {
       if (!d.activity)      d.activity      = [];
       // Sync emails à chaque poll — capte les scans d'Harold
       const allSavedEmails = Object.values(d.prospectEmails).flat();
-      setGmailThreads(allSavedEmails.sort((a,b)=>b.timestamp-a.timestamp));
+      // Ne mettre à jour que si on a plus d'emails ou si c'est le premier chargement
+      setGmailThreads(prev => {
+        if (allSavedEmails.length >= prev.length || prev.length === 0)
+          return allSavedEmails.sort((a,b)=>b.timestamp-a.timestamp);
+        // Fusionner — garder ce qu'on avait + ce qui est nouveau
+        const prevIds = new Set(prev.map(e=>e.id));
+        const newOnes = allSavedEmails.filter(e=>!prevIds.has(e.id));
+        return [...prev, ...newOnes].sort((a,b)=>b.timestamp-a.timestamp);
+      });
       setData(d);
       setLastSync(Date.now());
     } catch { setData({...INIT_DATA}); }
