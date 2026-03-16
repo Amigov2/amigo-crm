@@ -743,13 +743,14 @@ function DocsTab({ prospect, onUpdate, projId }) {
 
   return (
     <div>
+      {/* Zone drag & drop */}
       <div
         onDragOver={e=>{e.preventDefault();setDragging(true);}}
         onDragLeave={()=>setDragging(false)}
         onDrop={e=>{e.preventDefault();setDragging(false);const f=e.dataTransfer.files[0];if(f)uploadFile(f);}}
-        onClick={()=>fileRef.current?.click()}
-        style={{border:`2px dashed ${dragging?P.color:"#1a2035"}`,borderRadius:10,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:dragging?`${P.color}08`:"transparent",transition:"all .15s",marginBottom:14}}>
-        <input ref={fileRef} type="file" style={{display:"none"}} onChange={e=>{if(e.target.files[0])uploadFile(e.target.files[0]);e.target.value="";}}/>
+        style={{position:"relative",border:`2px dashed ${dragging?P.color:"#1a2035"}`,borderRadius:10,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:dragging?`${P.color}08`:"transparent",transition:"all .15s",marginBottom:14}}>
+        <input type="file" onChange={e=>{if(e.target.files[0])uploadFile(e.target.files[0]);e.target.value="";}}
+          style={{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0,cursor:"pointer",zIndex:2}}/>
         {uploading
           ? <p style={{fontSize:12,color:P.color}}>⏳ Envoi en cours…</p>
           : <>
@@ -906,8 +907,16 @@ export default function AmigoCRM() {
     try {
       const token = await getGToken();
       if (!token) return false;
-      const email = [`To: ${to}`, `Subject: ${subject}`, "Content-Type: text/plain; charset=utf-8", "", body].join("\n");
-      const encoded = btoa(unescape(encodeURIComponent(email))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+      const emailLines = [
+        `To: ${to}`,
+        `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`,
+        "MIME-Version: 1.0",
+        "Content-Type: text/plain; charset=UTF-8",
+        "Content-Transfer-Encoding: base64",
+        "",
+        btoa(unescape(encodeURIComponent(body)))
+      ].join("\r\n");
+      const encoded = btoa(unescape(encodeURIComponent(emailLines))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
       const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -1178,9 +1187,7 @@ export default function AmigoCRM() {
       const token = await getGToken();
       if (!token) { setGmailLoading(false); return; }
       const domain = prospect.email?.split("@")[1]?.toLowerCase();
-      const emailAddr = prospect.email?.toLowerCase();
-      if (!domain && !emailAddr) { setGmailLoading(false); return; }
-      // Uniquement par adresse email / domaine — pas par nom
+      if (!domain) { setGmailLoading(false); return; }
       const query = `from:${domain} OR to:${domain}`;
       const res = await fetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&q=${encodeURIComponent(query)}`,
@@ -1188,10 +1195,14 @@ export default function AmigoCRM() {
       );
       const d = await res.json();
       if (!d.messages) { setGmailLoading(false); return; }
+
+      const newDocs = [];
+
       const threads = await Promise.all(
         d.messages.map(async m => {
+          // format=full pour avoir les pièces jointes
           const r = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           const msg = await r.json();
@@ -1202,12 +1213,61 @@ export default function AmigoCRM() {
           const labelIds=msg.labelIds||[];
           const folder=labelIds.includes("SENT")?"Envoyés":labelIds.includes("DRAFT")?"Brouillons":labelIds.includes("INBOX")?"Reçus":"Autre";
           const timestamp=msg.internalDate?parseInt(msg.internalDate):0;
+
+          // Cherche les pièces jointes dans toutes les parties
+          const findAttachments = (parts=[]) => {
+            for (const part of parts) {
+              if (part.filename && part.body?.attachmentId) {
+                newDocs.push({ msgId:m.id, attachmentId:part.body.attachmentId, filename:part.filename, mimeType:part.mimeType, size:part.body.size||0 });
+              }
+              if (part.parts) findAttachments(part.parts);
+            }
+          };
+          findAttachments(msg.payload?.parts||[]);
+
           return { id:m.id, from, to, subject, date, timestamp, prospect, proj:prospect._proj||projId, folder, snippet };
         })
       );
+
+      // Télécharger et uploader les pièces jointes dans Supabase
+      const existingDocs = prospect.docs||[];
+      const existingNames = new Set(existingDocs.map(d=>d.name));
+      let updatedDocs = [...existingDocs];
+
+      for (const att of newDocs) {
+        if (existingNames.has(att.filename)) continue; // anti-doublon
+        try {
+          const attRes = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${att.msgId}/attachments/${att.attachmentId}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          const attData = await attRes.json();
+          if (!attData.data) continue;
+          // Décoder base64url → Blob
+          const binary = atob(attData.data.replace(/-/g,"+").replace(/_/g,"/"));
+          const bytes = new Uint8Array(binary.length);
+          for (let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+          const blob = new Blob([bytes], { type: att.mimeType });
+          const path = `${prospect.id}/${Date.now()}_${att.filename}`;
+          const { error } = await supabase.storage.from("amigo-docs").upload(path, blob, { contentType: att.mimeType });
+          if (error) continue;
+          updatedDocs.push({ id:"doc"+uid(), name:att.filename, path, size:att.size, date:new Date().toLocaleDateString("fr-FR"), uploadedBy:"Gmail auto" });
+          existingNames.add(att.filename);
+        } catch(e) { console.error("Erreur pièce jointe:", e); }
+      }
+
+      // Sauvegarder les nouveaux docs dans le prospect
+      if (updatedDocs.length > existingDocs.length) {
+        await updateProspect(prospect.id, { docs: updatedDocs });
+      }
+
       const existingIds = new Set(gmailThreads.map(t=>t.id));
       const fresh = threads.filter(t=>!existingIds.has(t.id));
       setGmailThreads(prev=>[...prev,...fresh].sort((a,b)=>b.timestamp-a.timestamp));
+
+      const nbDocs = updatedDocs.length - existingDocs.length;
+      if (nbDocs > 0) alert(`✅ ${fresh.length} email(s) + ${nbDocs} pièce(s) jointe(s) importées dans Docs !`);
+
     } catch(e) { console.error(e); }
     setGmailLoading(false);
   };
