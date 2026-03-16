@@ -372,7 +372,7 @@ function WineFinancePanel({ prospect }) {
   );
 }
 
-function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder, onEmail, gmailThreads, onSendEmail, onScanForProspect }) {
+function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder, onEmail, gmailThreads, onSendEmail, onScanForProspect, gmailLoading }) {
   const P = PROJECTS[projId];
   const isVin = projId === "vin";
   const [status,    setStatus]    = useState(prospect.status);
@@ -485,9 +485,16 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
       {/* ── EMAILS ── */}
       {tab==="emails"&&<>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <button onClick={()=>onScanForProspect&&onScanForProspect(prospect, setProspectDocs)} style={{padding:"6px 12px",background:"#3b82f618",border:"1px solid #3b82f628",borderRadius:6,color:"#60a5fa",fontSize:11,fontWeight:600,cursor:"pointer"}}>🔍 Scanner mes emails</button>
-            {myEmails.length>0&&<span style={{fontSize:10,color:"#4b5563"}}>{myEmails.length} email{myEmails.length>1?"s":""} trouvé{myEmails.length>1?"s":""}</span>}
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <button onClick={()=>onScanForProspect&&onScanForProspect(prospect)}
+              disabled={gmailLoading}
+              style={{padding:"6px 12px",background:"#3b82f618",border:"1px solid #3b82f628",borderRadius:6,color:"#60a5fa",fontSize:11,fontWeight:600,cursor:gmailLoading?"default":"pointer",opacity:gmailLoading?0.6:1,display:"flex",alignItems:"center",gap:6}}>
+              {gmailLoading
+                ? <><span style={{display:"inline-block",width:10,height:10,border:"2px solid #60a5fa",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>Scan en cours…</>
+                : "🔍 Scanner mes emails"
+              }
+            </button>
+            {!gmailLoading&&myEmails.length>0&&<span style={{fontSize:10,color:"#4b5563"}}>{myEmails.length} email{myEmails.length>1?"s":""} trouvé{myEmails.length>1?"s":""}</span>}
           </div>
           <button onClick={()=>onEmail&&onEmail(prospect)} style={{padding:"6px 12px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:6,color:P.color,fontSize:11,fontWeight:600,cursor:"pointer"}}>✉️ Nouvel email</button>
         </div>
@@ -1331,6 +1338,7 @@ export default function AmigoCRM() {
         .fade{animation:fi .22s ease}@keyframes fi{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
         .pulse{animation:pl 2.5s ease infinite}@keyframes pl{0%,100%{opacity:1}50%{opacity:.4}}
         .notif{animation:nf .3s ease}@keyframes nf{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
         select option{background:#0d1020}
         th{padding:8px 12px;font-size:10px;color:#3d4f6b;text-align:left;text-transform:uppercase;letter-spacing:.4px;font-weight:600;border-bottom:1px solid #0d1020}
         td{padding:8px 12px;font-size:12px;color:#9ca3af;border-bottom:1px solid #080a0f}
@@ -1872,7 +1880,7 @@ export default function AmigoCRM() {
       {/* ══ MODALS ══ */}
       {showAddProspect&&<AddProspectModal projId={projId} onAdd={addProspect} onClose={()=>setShowAddProspect(false)}/>}
       {showAddOrder!==undefined&&<AddOrderModal projId={projId} prospects={prospects} preselect={showAddOrder} onAdd={addOrder} onClose={()=>setShowAddOrder(undefined)}/>}
-      {detailProspect&&<ProspectModal prospect={detailProspect} projId={projId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} onSendEmail={sendGmail} onScanForProspect={scanForProspect}/>}
+      {detailProspect&&<ProspectModal prospect={detailProspect} projId={projId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} onSendEmail={sendGmail} onScanForProspect={scanForProspect} gmailLoading={gmailLoading}/>}
       {showAddEvent&&<AddEventModal onAdd={createCalEvent} onClose={()=>setShowAddEvent(null)} preDate={showAddEvent==="new"?null:showAddEvent} currentUser={user}/>}
       {showEmailModal&&<EmailModal prospect={showEmailModal} projId={projId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail}/>}
     </div>
