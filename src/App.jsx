@@ -589,22 +589,21 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
         return (
           <div>
             {/* Zone drag & drop */}
-            <div
+            <label
               onDragOver={e=>{e.preventDefault();setDragging(true);}}
               onDragLeave={()=>setDragging(false)}
               onDrop={e=>{e.preventDefault();setDragging(false);const f=e.dataTransfer.files[0];if(f)uploadFile(f);}}
-              onClick={()=>document.getElementById(`file-input-${prospect.id}`)?.click()}
-              style={{border:`2px dashed ${dragging?P.color:"#1a2035"}`,borderRadius:10,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:dragging?`${P.color}08`:"transparent",transition:"all .15s",marginBottom:14}}>
-              <input id={`file-input-${prospect.id}`} type="file" style={{display:"none"}} onChange={e=>{if(e.target.files[0])uploadFile(e.target.files[0]);e.target.value="";}}/>
+              style={{display:"block",border:`2px dashed ${dragging?P.color:"#1a2035"}`,borderRadius:10,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:dragging?`${P.color}08`:"transparent",transition:"all .15s",marginBottom:14}}>
+              <input type="file" style={{display:"none"}} onChange={e=>{if(e.target.files[0])uploadFile(e.target.files[0]);e.target.value="";}}/>
               {uploading
                 ? <p style={{fontSize:12,color:P.color}}>⏳ Envoi en cours…</p>
                 : <>
-                    <p style={{fontSize:22,marginBottom:6}}>📎</p>
+                    <p style={{fontSize:22,marginBottom:6}}>📁</p>
                     <p style={{fontSize:12,color:"#4b5563",marginBottom:2}}>Glisse un fichier ici ou clique pour parcourir</p>
                     <p style={{fontSize:10,color:"#2d3748"}}>PDF, Excel, Word, images — max 50Mo</p>
                   </>
               }
-            </div>
+            </label>
 
             {/* Liste des documents */}
             {docs.length===0
