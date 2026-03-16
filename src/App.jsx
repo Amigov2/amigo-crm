@@ -398,11 +398,13 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
   const col = P.statusColors[status]||"#6b7280";
 
   // Emails partagés — lus depuis Supabase (scannés par Anthony OU Harold)
-  const savedEmails = (gmailThreads||[]).filter(t =>
-  const myEmails = savedEmails;
+  const myEmails = (gmailThreads||[]).filter(t =>
     t.prospectId === prospect.id ||
     t.prospect?.id === prospect.id ||
-    (prospect.email && (t.from?.includes(prospect.email.split("@")[1]||"__") || t.to?.includes(prospect.email.split("@")[1]||"__")))
+    (prospect.email && (
+      t.from?.includes(prospect.email.split("@")[1]||"__") ||
+      t.to?.includes(prospect.email.split("@")[1]||"__")
+    ))
   ).sort((a,b) => b.timestamp - a.timestamp);
 
   const handleReply = async () => {
@@ -923,16 +925,22 @@ export default function AmigoCRM() {
     try {
       const token = await getGToken();
       if (!token) return false;
-      const emailLines = [
+      const toB64 = str => {
+        const bytes = new TextEncoder().encode(str);
+        let bin = "";
+        bytes.forEach(b => bin += String.fromCharCode(b));
+        return btoa(bin);
+      };
+      const raw = [
         `To: ${to}`,
-        `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`,
+        `Subject: =?UTF-8?B?${toB64(subject)}?=`,
         "MIME-Version: 1.0",
         "Content-Type: text/plain; charset=UTF-8",
         "Content-Transfer-Encoding: base64",
         "",
-        btoa(unescape(encodeURIComponent(body)))
+        toB64(body)
       ].join("\r\n");
-      const encoded = btoa(unescape(encodeURIComponent(emailLines))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+      const encoded = toB64(raw).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
       const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
