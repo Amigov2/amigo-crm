@@ -733,17 +733,89 @@ function AddEventModal({ onAdd, onClose, preDate, currentUser }) {
   );
 }
 
+const EMAIL_TEMPLATES = {
+  vin: [
+    {
+      id:"vin_intro", label:"Premier contact",
+      subject: p => `Partenariat import vins — Brésil · ${p.name}`,
+      body: p => `Bonjour${p.contact?` ${p.contact.split(" ")[0]}`:""},\n\nJe me permets de vous contacter depuis Rio de Janeiro, où je développe un réseau de distribution de vins français premium au Brésil.\n\nVotre domaine ${p.name}${p.cepage?`, notamment votre ${p.cepage},`:""} correspond exactement à ce que recherche notre clientèle brésilienne haut de gamme.\n\nSeriez-vous disponible pour un échange de 20 minutes afin d'explorer les possibilités d'exportation ?\n\nCordialement,\nAnthony Donzel\nRio de Janeiro, Brésil`,
+    },
+    {
+      id:"vin_relance", label:"Relance sans réponse",
+      subject: p => `Re: Partenariat import vins — ${p.name}`,
+      body: p => `Bonjour${p.contact?` ${p.contact.split(" ")[0]}`:""},\n\nJe me permets de revenir vers vous suite à mon précédent message resté sans réponse.\n\nLe marché brésilien pour les vins${p.cepage?` ${p.cepage}`:""} est particulièrement porteur en ce moment, et je serais ravi de vous présenter notre projet de distribution.\n\nÊtes-vous disponible cette semaine pour un appel rapide ?\n\nCordialement,\nAnthony Donzel`,
+    },
+    {
+      id:"vin_tarifs", label:"Demande tarifs export",
+      subject: p => `Demande tarifs & conditions export — ${p.name}`,
+      body: p => `Bonjour${p.contact?` ${p.contact.split(" ")[0]}`:""},\n\nSuite à notre échange, je vous recontacte pour obtenir vos conditions d'exportation vers le Brésil :\n\n• Tarif départ cave (FOB/CIF)\n• Quantité minimum par commande\n• Délais de production / disponibilité\n• Conditions de paiement\n\nNous travaillons en priorité avec des domaines proposant des volumes réguliers, idéalement à partir de ${p.minCommande||6} caisses par référence.\n\nMerci par avance,\nAnthony Donzel`,
+    },
+    {
+      id:"vin_confirmation", label:"Confirmation commande",
+      subject: p => `Confirmation de commande — ${p.name}`,
+      body: p => `Bonjour${p.contact?` ${p.contact.split(" ")[0]}`:""},\n\nJe vous confirme par ce message notre commande :\n\n• Produit : ${p.name}${p.millesime?` ${p.millesime}`:""}\n• Quantité : à définir\n• Incoterm : ${p.incoterm||"FOB"}\n\nMerci de me faire parvenir votre proforma afin de procéder au règlement.\n\nCordialement,\nAnthony Donzel`,
+    },
+    {
+      id:"vin_degustation", label:"Remerciement dégustation",
+      subject: p => `Merci pour la dégustation — ${p.name}`,
+      body: p => `Bonjour${p.contact?` ${p.contact.split(" ")[0]}`:""},\n\nJe tenais à vous remercier chaleureusement pour la dégustation et l'accueil au domaine.\n\nVos vins${p.cepage?` ${p.cepage}`:""} ont confirmé tout le bien que j'en pensais — ils ont vraiment leur place dans notre sélection brésilienne.\n\nJe reviens vers vous rapidement avec une proposition commerciale concrète.\n\nTrès cordialement,\nAnthony Donzel`,
+    },
+  ],
+  makeup: [
+    {
+      id:"makeup_intro", label:"Présentation package",
+      subject: p => `Package Formation Carnaval Rio 2026 — ${p.name}`,
+      body: p => `Bonjour${p.contact?` ${p.contact.split(" ")[0]}`:""},\n\nJe me permets de vous contacter au sujet d'un partenariat exclusif pour votre école de maquillage.\n\nNous proposons un package immersif "Carnaval Rio" développé avec Madame Gall — 5 jours de formation terrain à Rio de Janeiro en février, hébergement Ipanema inclus.\n\n✦ Tarif : 3 500€/élève\n✦ Groupes : 6 à 10 personnes\n✦ Programme : techniques Carnaval, couleur, effets spéciaux en conditions réelles\n\nCe séjour représente une expérience unique pour vos élèves et un argument différenciant fort pour votre école.\n\nSeriez-vous disponible pour en discuter ?\n\nCordialement,\nAnthony Donzel`,
+    },
+    {
+      id:"makeup_relance", label:"Relance directeur",
+      subject: p => `Re: Package Carnaval Rio — ${p.name}`,
+      body: p => `Bonjour${p.contact?` ${p.contact.split(" ")[0]}`:""},\n\nJe reviens vers vous concernant notre programme de formation Carnaval Rio 2026.\n\nLes places pour février sont limitées et plusieurs écoles partenaires ont déjà confirmé leur participation.\n\nAvez-vous eu l'occasion d'en discuter avec votre équipe pédagogique ?\n\nCordialement,\nAnthony Donzel`,
+    },
+    {
+      id:"makeup_devis", label:"Envoi devis",
+      subject: p => `Devis — Programme Carnaval Rio · ${p.name}`,
+      body: p => `Bonjour${p.contact?` ${p.contact.split(" ")[0]}`:""},\n\nComme convenu, veuillez trouver ci-joint le devis détaillé pour le programme de formation Carnaval Rio 2026.\n\nRécapitulatif :\n• Durée : 5 jours (février 2026)\n• Hébergement : Ipanema, Rio de Janeiro\n• Encadrement : Madame Gall + équipe locale\n• Tarif : 3 500€/élève (groupe de 6 à 10)\n\nN'hésitez pas si vous avez des questions.\n\nCordialement,\nAnthony Donzel`,
+    },
+    {
+      id:"makeup_confirmation", label:"Confirmation participation",
+      subject: p => `Confirmation participation — Carnaval Rio 2026 · ${p.name}`,
+      body: p => `Bonjour${p.contact?` ${p.contact.split(" ")[0]}`:""},\n\nNous sommes ravis de confirmer la participation de ${p.name} au programme Carnaval Rio 2026.\n\nProchaines étapes :\n• Envoi du contrat et des modalités de paiement\n• Confirmation des noms des participants\n• Réservation des hébergements\n\nMerci pour votre confiance, ce sera une belle aventure !\n\nCordialement,\nAnthony Donzel`,
+    },
+  ],
+  print3d: [
+    {
+      id:"3d_intro", label:"Premier contact",
+      subject: p => `Impression 3D sur mesure — Projet ${p.name}`,
+      body: p => `Bonjour${p.contact?` ${p.contact.split(" ")[0]}`:""},\n\nJe me permets de vous contacter concernant vos besoins en impression 3D sur mesure.\n\nNous réalisons des pièces techniques et architecturales de haute précision, maquettes, prototypes et éléments décoratifs.\n\nSeriez-vous intéressé par un devis pour votre prochain projet ?\n\nCordialement,\nAnthony Donzel`,
+    },
+    {
+      id:"3d_devis", label:"Envoi devis",
+      subject: p => `Devis impression 3D — ${p.name}`,
+      body: p => `Bonjour${p.contact?` ${p.contact.split(" ")[0]}`:""},\n\nSuite à notre échange, veuillez trouver ci-joint le devis pour votre projet.\n\nN'hésitez pas à me contacter pour tout ajustement.\n\nCordialement,\nAnthony Donzel`,
+    },
+    {
+      id:"3d_relance", label:"Relance devis",
+      subject: p => `Re: Devis impression 3D — ${p.name}`,
+      body: p => `Bonjour${p.contact?` ${p.contact.split(" ")[0]}`:""},\n\nJe reviens vers vous concernant le devis que je vous ai transmis.\n\nAvez-vous eu l'occasion de l'examiner ? Je reste disponible pour tout ajustement ou question.\n\nCordialement,\nAnthony Donzel`,
+    },
+  ],
+};
+
 function EmailModal({ prospect, projId, onClose, onSend }) {
   const P = PROJECTS[projId];
+  const templates = EMAIL_TEMPLATES[projId]||[];
+  const defaultTpl = templates[0];
   const [to,      setTo]      = useState(prospect.email||"");
-  const [subject, setSubject] = useState(projId==="makeup"?"Package Formation Carnaval Rio 2026 — Partenariat":"Partenariat import vins — Rio de Janeiro");
-  const [body,    setBody]    = useState(
-    projId==="makeup"
-    ? `Bonjour,\n\nJe me permets de vous contacter au sujet d'un partenariat exclusif pour votre école de maquillage.\n\nNous proposons un package immersif "Carnaval Rio" développé avec Madame Gall — 5 jours de formation terrain à Rio de Janeiro en février, hébergement Ipanema inclus.\n\nTarif : 3 500€/élève · Groupes 6-10 personnes.\n\nSeriez-vous disponible pour en discuter ?\n\nCordialement,\nAnthony`
-    : `Bonjour,\n\nJe suis importateur de vins basé à Rio de Janeiro et je développe un réseau de distribution premium au Brésil.\n\nJe serais ravi de discuter d'un partenariat avec ${prospect.name}.\n\nCordialement,\nAnthony`
-  );
+  const [subject, setSubject] = useState(defaultTpl?defaultTpl.subject(prospect):"");
+  const [body,    setBody]    = useState(defaultTpl?defaultTpl.body(prospect):"");
   const [sending, setSending] = useState(false);
   const [sent,    setSent]    = useState(false);
+
+  const applyTemplate = (tpl) => {
+    setSubject(tpl.subject(prospect));
+    setBody(tpl.body(prospect));
+  };
 
   const handleSend = async () => {
     if (!to) return;
@@ -763,12 +835,28 @@ function EmailModal({ prospect, projId, onClose, onSend }) {
 
   return (
     <ModalWrap title={`✉️ Email — ${prospect.name}`} onClose={onClose} wide>
+      {/* Templates */}
+      {templates.length>0&&(
+        <div style={{marginBottom:14}}>
+          <p style={{fontSize:10,color:"#4b5563",marginBottom:6,fontWeight:600,textTransform:"uppercase",letterSpacing:".4px"}}>Templates</p>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {templates.map(tpl=>(
+              <button key={tpl.id} onClick={()=>applyTemplate(tpl)}
+                style={{padding:"4px 11px",borderRadius:6,fontSize:11,fontWeight:600,cursor:"pointer",background:`${P.color}15`,border:`1px solid ${P.color}28`,color:P.color,transition:"all .12s"}}
+                onMouseEnter={e=>e.currentTarget.style.background=`${P.color}28`}
+                onMouseLeave={e=>e.currentTarget.style.background=`${P.color}15`}>
+                {tpl.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <Field label="À" value={to} onChange={setTo} placeholder="email@domaine.com"/>
       <Field label="Objet" value={subject} onChange={setSubject} placeholder="Objet..."/>
       <div style={{marginBottom:12}}>
         <p style={{fontSize:10,color:"#4b5563",marginBottom:4,fontWeight:600,textTransform:"uppercase",letterSpacing:".4px"}}>Message</p>
         <textarea value={body} onChange={e=>setBody(e.target.value)}
-          style={{width:"100%",padding:"9px",borderRadius:7,fontSize:12,resize:"vertical",height:200,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",lineHeight:1.7}}/>
+          style={{width:"100%",padding:"9px",borderRadius:7,fontSize:12,resize:"vertical",height:220,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",lineHeight:1.7}}/>
       </div>
       <div style={{display:"flex",gap:8}}>
         <button onClick={handleSend} disabled={sending||!to}
