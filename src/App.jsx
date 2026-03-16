@@ -118,7 +118,7 @@ function KanbanCard({ prospect, accent, onOpen }) {
       onMouseLeave={e=>e.currentTarget.style.background="#0d1120"}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
         <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",lineHeight:1.3,flex:1,marginRight:6}}>{prospect.name}</p>
-        <p style={{fontSize:12,fontWeight:700,color:accent,flexShrink:0}}>{fmt(prospect.valeur)}</p>
+        
       </div>
       {prospect.geo && <p style={{fontSize:10,color:"#4b5563",marginBottom:4}}>{prospect.geo}{prospect.sub?` · ${prospect.sub}`:""}</p>}
       <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
@@ -1551,7 +1551,7 @@ export default function AmigoCRM() {
                         <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</p>
                         <p style={{fontSize:10,color:"#4b5563"}}>{proj.label} · {p.status}</p>
                       </div>
-                      {p.valeur>0&&<span style={{fontSize:11,color:"#4ade80",fontWeight:600,flexShrink:0}}>{fmt(p.valeur)}</span>}
+                      
                     </div>
                   );
                 })}
@@ -1654,7 +1654,7 @@ export default function AmigoCRM() {
                         <span style={{fontSize:11,fontWeight:600,color:col}}>{status}</span>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:5}}>
-                        {colVal>0&&<span style={{fontSize:10,color:"#4b5563"}}>{fmt(colVal)}</span>}
+                        
                         <span style={{fontSize:10,fontWeight:700,color:"#4b5563",background:"#0b0d16",padding:"1px 6px",borderRadius:10}}>{cards.length}</span>
                       </div>
                     </div>
@@ -1728,7 +1728,7 @@ export default function AmigoCRM() {
         {view==="finance"&&(
           <div className="fade">
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
-              <StatCard label="CA pipeline" value={fmt(pipeline)} sub="valeur prospects" color="#60a5fa" icon="📊"/>
+              <StatCard label="Commandes" value={projOrders.length} sub="au total" color="#f59e0b" icon="📦"/>
               <StatCard label="CA confirmé" value={fmt(totalCA)} sub="hors taxes" color="#22c55e" icon="💶"/>
               <StatCard label={projId==="vin"?"Taxes import BR":"TVA est."} value={fmt(projId==="vin"?projOrders.reduce((s,o)=>s+(o.taxData?.totalEur||0),0):totalCA*0.20)} color="#ef4444" icon="🏛"/>
               <StatCard label="Marge nette est." value={fmt(totalCA*(projId==="vin"?0.30:projId==="print3d"?0.45:0.35))} sub={`~${projId==="vin"?"30":projId==="print3d"?"45":"35"}%`} color="#a78bfa" icon="📈"/>
