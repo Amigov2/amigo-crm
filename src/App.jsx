@@ -406,12 +406,13 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
   const col = P.statusColors[status]||"#6b7280";
 
   // Emails partagés — lus depuis Supabase (scannés par Anthony OU Harold)
+  const domain = prospect.email?.split("@")[1]?.toLowerCase()||"__";
   const myEmails = (gmailThreads||[]).filter(t =>
     t.prospectId === prospect.id ||
     t.prospect?.id === prospect.id ||
     (prospect.email && (
-      t.from?.includes(prospect.email.split("@")[1]||"__") ||
-      t.to?.includes(prospect.email.split("@")[1]||"__")
+      t.from?.toLowerCase().includes(domain) ||
+      t.to?.toLowerCase().includes(domain)
     ))
   ).sort((a,b) => b.timestamp - a.timestamp);
 
@@ -1260,24 +1261,29 @@ export default function AmigoCRM() {
           const labelIds=msg.labelIds||[];
           const folder=labelIds.includes("SENT")?"Envoyés":labelIds.includes("DRAFT")?"Brouillons":labelIds.includes("INBOX")?"Reçus":"Autre";
           const timestamp=msg.internalDate?parseInt(msg.internalDate):0;
-          return { id, from, to, subject, date, timestamp, prospectId:prospect.id, proj:prospect._proj||projId, folder, snippet, scannedBy:user, hasPJ:pjIds.has(id) };
+          // PJ uniquement si l'email est dans notre liste ET dans la liste PJ Gmail
+          const hasPJ = pjIds.has(id);
+          return { id, from, to, subject, date, timestamp, prospectId:prospect.id, proj:prospect._proj||projId, folder, snippet, scannedBy:user, hasPJ };
         })
       );
 
-      // Fusionner avec existants et sauvegarder
-      const existingEmails = data?.prospectEmails?.[prospect.id]||[];
+      // Fusionner avec existants — relire Supabase en direct pour ne pas écraser les emails d'Harold
+      const freshSupabase = await storage.get(KEY);
+      const latestData = freshSupabase ? JSON.parse(freshSupabase.value) : data;
+      const existingEmails = latestData?.prospectEmails?.[prospect.id]||[];
       const existingIds = new Set(existingEmails.map(e=>e.id));
       const fresh = threads.filter(t=>!existingIds.has(t.id));
       const allEmails = [...existingEmails, ...fresh].sort((a,b)=>b.timestamp-a.timestamp);
-      const nd = {...data, prospectEmails:{...(data.prospectEmails||{}), [prospect.id]:allEmails}};
+      const nd = {...latestData, prospectEmails:{...(latestData.prospectEmails||{}), [prospect.id]:allEmails}};
       await save(nd);
 
-      // Étape 2 — PJ sur les emails détectés avec pièces jointes
+      // Étape 2 — PJ uniquement sur les emails qui sont dans notre liste de threads
+      const threadIdsWithPJ = new Set(threads.filter(t=>t.hasPJ).map(t=>t.id));
       const existingDocs = prospect.docs||[];
       const existingNames = new Set(existingDocs.map(d=>d.name));
       let updatedDocs = [...existingDocs];
 
-      for (const id of pjIds) {
+      for (const id of threadIdsWithPJ) {
         try {
           const r = await fetch(
             `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,
