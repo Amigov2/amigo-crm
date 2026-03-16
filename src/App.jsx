@@ -565,8 +565,9 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
             const path = `${prospect.id}/${Date.now()}_${file.name}`;
             const { error } = await supabase.storage.from("amigo-docs").upload(path, file);
             if (error) throw error;
-            const { data: urlData } = supabase.storage.from("amigo-docs").getPublicUrl(path);
-            const newDoc = { id: "doc"+uid(), name: file.name, path, url: urlData.publicUrl, size: file.size, date: new Date().toLocaleDateString("fr-FR"), uploadedBy: "Anthony" };
+            const { data: urlData, error: urlError } = await supabase.storage.from("amigo-docs").createSignedUrl(path, 3600);
+            if (urlError) throw urlError;
+            const newDoc = { id: "doc"+uid(), name: file.name, path, size: file.size, date: new Date().toLocaleDateString("fr-FR"), uploadedBy: "Anthony" };
             const updated = [...docs, newDoc];
             setDocs(updated);
             onUpdate(prospect.id, { docs: updated });
@@ -616,8 +617,11 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
                     <p style={{fontSize:10,color:"#4b5563"}}>{doc.date} · {fmt_size(doc.size)} · {doc.uploadedBy}</p>
                   </div>
                   <div style={{display:"flex",gap:6,flexShrink:0}}>
-                    <a href={doc.url} target="_blank" rel="noopener noreferrer"
-                      style={{padding:"4px 10px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:5,color:P.color,fontSize:10,fontWeight:600,textDecoration:"none"}}>⬇️ Ouvrir</a>
+                    <button onClick={async()=>{
+                      const {data,error}=await supabase.storage.from("amigo-docs").createSignedUrl(doc.path,3600);
+                      if(error){alert("Erreur accès fichier");return;}
+                      window.open(data.signedUrl,"_blank");
+                    }} style={{padding:"4px 10px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:5,color:P.color,fontSize:10,fontWeight:600,cursor:"pointer"}}>⬇️ Ouvrir</button>
                     <button onClick={()=>deleteDoc(doc)} style={{padding:"4px 8px",background:"#ef444415",border:"1px solid #ef444425",borderRadius:5,color:"#f87171",fontSize:10,cursor:"pointer"}}>✕</button>
                   </div>
                 </div>
@@ -796,7 +800,9 @@ export default function AmigoCRM() {
   const [showAddProspect, setShowAddProspect] = useState(false);
   const [showAddOrder,    setShowAddOrder]    = useState(undefined);
   const [detailProspect,  setDetailProspect]  = useState(null);
-  const [showAddEvent,    setShowAddEvent]    = useState(null); // null | "new" | "YYYY-MM-DD"
+  const [showAddEvent,    setShowAddEvent]    = useState(null);
+  const [searchQuery,     setSearchQuery]     = useState("");
+  const [searchOpen,      setSearchOpen]      = useState(false);
 
   const KEY = "amigo-v9";
   const pollRef  = useRef(null);
@@ -1279,6 +1285,59 @@ export default function AmigoCRM() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* ── BARRE DE RECHERCHE ── */}
+        <div style={{position:"relative",flex:"0 0 280px"}}>
+          <input
+            value={searchQuery}
+            onChange={e=>{setSearchQuery(e.target.value);setSearchOpen(true);}}
+            onFocus={()=>setSearchOpen(true)}
+            onBlur={()=>setTimeout(()=>setSearchOpen(false),180)}
+            placeholder="🔍 Rechercher un prospect, fournisseur…"
+            style={{width:"100%",padding:"6px 12px",borderRadius:8,fontSize:12,outline:"none",background:"#0b0d16",border:`1px solid ${searchQuery?"#3b82f6":"#0f1520"}`,color:"#e2e8f0",fontFamily:"inherit",transition:"border .15s"}}
+          />
+          {searchOpen && searchQuery.length>1 && (()=>{
+            const q = searchQuery.toLowerCase();
+            const allProspects = [
+              ...(data?.makeup||[]).map(p=>({...p,_proj:"makeup"})),
+              ...(data?.vin||[]).map(p=>({...p,_proj:"vin"})),
+              ...(data?.print3d||[]).map(p=>({...p,_proj:"print3d"})),
+            ];
+            const results = allProspects.filter(p=>
+              p.name?.toLowerCase().includes(q) ||
+              p.contact?.toLowerCase().includes(q) ||
+              p.email?.toLowerCase().includes(q) ||
+              p.producteur?.toLowerCase().includes(q) ||
+              p.cepage?.toLowerCase().includes(q) ||
+              p.note?.toLowerCase().includes(q)
+            ).slice(0,8);
+            if (!results.length) return (
+              <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,right:0,background:"#0b0d16",border:"1px solid #1a2035",borderRadius:9,padding:"14px",zIndex:200}}>
+                <p style={{fontSize:11,color:"#4b5563",textAlign:"center"}}>Aucun résultat pour "{searchQuery}"</p>
+              </div>
+            );
+            return (
+              <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,right:0,background:"#0b0d16",border:"1px solid #1a2035",borderRadius:9,overflow:"hidden",zIndex:200,boxShadow:"0 8px 24px #00000060"}}>
+                {results.map(p=>{
+                  const proj = PROJECTS[p._proj];
+                  return (
+                    <div key={p.id} onMouseDown={()=>{setProjId(p._proj);setDetailProspect(p);setSearchQuery("");setSearchOpen(false);}}
+                      style={{padding:"9px 14px",borderBottom:"1px solid #080a0f",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}
+                      onMouseEnter={e=>e.currentTarget.style.background="#0f1520"}
+                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <span style={{fontSize:16,flexShrink:0}}>{proj.icon}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</p>
+                        <p style={{fontSize:10,color:"#4b5563"}}>{proj.label} · {p.status}</p>
+                      </div>
+                      {p.valeur>0&&<span style={{fontSize:11,color:"#4ade80",fontWeight:600,flexShrink:0}}>{fmt(p.valeur)}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
 
         <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
