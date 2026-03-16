@@ -1208,19 +1208,23 @@ export default function AmigoCRM() {
       if (!token) { setGmailLoading(false); return; }
       const domain = prospect.email?.split("@")[1]?.toLowerCase();
       if (!domain) { setGmailLoading(false); return; }
-      const query = `from:${domain} OR to:${domain}`;
-      const res = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&q=${encodeURIComponent(query)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const d = await res.json();
-      if (!d.messages) { setGmailLoading(false); return; }
 
-      // Étape 1 — metadata rapide pour afficher les emails
+      // Étape 1 — emails normaux (metadata rapide)
+      const query = `from:${domain} OR to:${domain}`;
+      const [res1, res2] = await Promise.all([
+        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&q=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&q=${encodeURIComponent(`has:attachment (${query})`)}`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const d1 = await res1.json();
+      const d2 = await res2.json();
+
+      const emailIds = new Set((d1.messages||[]).map(m=>m.id));
+      const pjIds = new Set((d2.messages||[]).map(m=>m.id));
+
       const threads = await Promise.all(
-        d.messages.map(async m => {
+        [...emailIds].map(async id => {
           const r = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           const msg = await r.json();
@@ -1231,12 +1235,11 @@ export default function AmigoCRM() {
           const labelIds=msg.labelIds||[];
           const folder=labelIds.includes("SENT")?"Envoyés":labelIds.includes("DRAFT")?"Brouillons":labelIds.includes("INBOX")?"Reçus":"Autre";
           const timestamp=msg.internalDate?parseInt(msg.internalDate):0;
-          const hasPJ = (msg.payload?.parts||[]).some(p=>p.filename&&p.filename.length>0);
-          return { id:m.id, from, to, subject, date, timestamp, prospectId:prospect.id, proj:prospect._proj||projId, folder, snippet, scannedBy:user, hasPJ };
+          return { id, from, to, subject, date, timestamp, prospectId:prospect.id, proj:prospect._proj||projId, folder, snippet, scannedBy:user, hasPJ:pjIds.has(id) };
         })
       );
 
-      // Sauvegarder emails dans Supabase
+      // Fusionner avec existants et sauvegarder
       const existingEmails = data?.prospectEmails?.[prospect.id]||[];
       const existingIds = new Set(existingEmails.map(e=>e.id));
       const fresh = threads.filter(t=>!existingIds.has(t.id));
@@ -1244,30 +1247,28 @@ export default function AmigoCRM() {
       const nd = {...data, prospectEmails:{...(data.prospectEmails||{}), [prospect.id]:allEmails}};
       await save(nd);
 
-      // Étape 2 — PJ uniquement sur les emails qui en ont
-      const emailsWithPJ = threads.filter(t=>t.hasPJ);
+      // Étape 2 — PJ sur les emails détectés avec pièces jointes
       const existingDocs = prospect.docs||[];
       const existingNames = new Set(existingDocs.map(d=>d.name));
       let updatedDocs = [...existingDocs];
 
-      for (const emailMeta of emailsWithPJ) {
+      for (const id of pjIds) {
         try {
           const r = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${emailMeta.id}?format=full`,
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           const msg = await r.json();
-          const findAttachments = (parts=[]) => {
+          const findAtts = (parts=[]) => {
             const found = [];
             for (const part of parts) {
-              if (part.filename && part.filename.length>0 && part.body?.attachmentId)
-                found.push({ msgId:emailMeta.id, attachmentId:part.body.attachmentId, filename:part.filename, mimeType:part.mimeType||"application/octet-stream", size:part.body.size||0 });
-              if (part.parts) found.push(...findAttachments(part.parts));
+              if (part.filename?.length>0 && part.body?.attachmentId)
+                found.push({ msgId:id, attachmentId:part.body.attachmentId, filename:part.filename, mimeType:part.mimeType||"application/octet-stream", size:part.body.size||0 });
+              if (part.parts) found.push(...findAtts(part.parts));
             }
             return found;
           };
-          const atts = findAttachments(msg.payload?.parts||[]);
-          for (const att of atts) {
+          for (const att of findAtts(msg.payload?.parts||[])) {
             if (existingNames.has(att.filename)) continue;
             const attRes = await fetch(
               `https://gmail.googleapis.com/gmail/v1/users/me/messages/${att.msgId}/attachments/${att.attachmentId}`,
@@ -1281,18 +1282,18 @@ export default function AmigoCRM() {
             const blob = new Blob([bytes], { type: att.mimeType });
             const path = `${prospect.id}/${Date.now()}_${att.filename}`;
             const { error } = await supabase.storage.from("amigo-docs").upload(path, blob, { contentType: att.mimeType });
-            if (error) { console.error("Upload PJ:", error.message); continue; }
+            if (error) { console.error("PJ upload:", error.message); continue; }
             updatedDocs.push({ id:"doc"+uid(), name:att.filename, path, size:att.size, date:new Date().toLocaleDateString("fr-FR"), uploadedBy:`Gmail (${user})` });
             existingNames.add(att.filename);
           }
-        } catch(e) { console.error("PJ erreur:", e.message); }
+        } catch(e) { console.error("PJ:", e.message); }
       }
 
       if (updatedDocs.length > existingDocs.length)
         await updateProspect(prospect.id, { docs: updatedDocs });
 
       const nbDocs = updatedDocs.length - existingDocs.length;
-      alert(`✅ ${fresh.length} email(s) chargé(s)${nbDocs>0?` · ${nbDocs} pièce(s) jointe(s) dans Docs`:""}`);
+      alert(`✅ ${fresh.length} email(s)${nbDocs>0?` · ${nbDocs} pièce(s) jointe(s) dans Docs`:""}`);
 
     } catch(e) { console.error(e); alert("Erreur : "+e.message); }
     setGmailLoading(false);
