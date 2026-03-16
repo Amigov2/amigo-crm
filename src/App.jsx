@@ -1041,7 +1041,37 @@ export default function AmigoCRM() {
   const [calLoading,   setCalLoading]   = useState(false);
   const [calMonth,     setCalMonth]     = useState(new Date().getMonth());
   const [calYear,      setCalYear]      = useState(new Date().getFullYear());
-  const [showEmailModal, setShowEmailModal] = useState(null); // prospect
+  const [showEmailModal, setShowEmailModal] = useState(null);
+  const [eurBrl,       setEurBrl]       = useState(null);
+  const [heureFrance,  setHeureFrance]  = useState("");
+
+  // Widget heure France (UTC+1 hiver, UTC+2 été)
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      const fr = new Intl.DateTimeFormat("fr-FR", { timeZone:"Europe/Paris", hour:"2-digit", minute:"2-digit", second:"2-digit" }).format(now);
+      setHeureFrance(fr);
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Widget taux EUR/BRL — API gratuite
+  useEffect(() => {
+    fetch("https://api.exchangerate-api.com/v4/latest/EUR")
+      .then(r=>r.json())
+      .then(d=>setEurBrl(d?.rates?.BRL?.toFixed(2)||null))
+      .catch(()=>{});
+    // Rafraîchir toutes les heures
+    const t = setInterval(()=>{
+      fetch("https://api.exchangerate-api.com/v4/latest/EUR")
+        .then(r=>r.json())
+        .then(d=>setEurBrl(d?.rates?.BRL?.toFixed(2)||null))
+        .catch(()=>{});
+    }, 3600000);
+    return () => clearInterval(t);
+  }, []);
 
   const loadCalendar = async (month, year) => {
     setCalLoading(true);
@@ -1658,6 +1688,20 @@ export default function AmigoCRM() {
         </div>
 
         <div style={{display:"flex",alignItems:"center",gap:8}}>
+
+          {/* Widget Heure France */}
+          <div style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",background:"#0b0d16",borderRadius:7,border:"1px solid #0f1520"}}>
+            <span style={{fontSize:10}}>🇫🇷</span>
+            <span style={{fontSize:11,fontWeight:600,color:"#f1f5f9",fontVariantNumeric:"tabular-nums"}}>{heureFrance||"--:--:--"}</span>
+          </div>
+
+          {/* Widget EUR/BRL */}
+          <div style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",background:"#0b0d16",borderRadius:7,border:"1px solid #0f1520"}}>
+            <span style={{fontSize:10}}>💱</span>
+            <span style={{fontSize:10,color:"#4b5563"}}>EUR/BRL</span>
+            <span style={{fontSize:11,fontWeight:700,color:eurBrl?"#4ade80":"#374151"}}>{eurBrl||"…"}</span>
+          </div>
+
           <div style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",background:"#0b0d16",borderRadius:5,border:"1px solid #0f1520"}}>
             <span className="pulse" style={{width:5,height:5,borderRadius:"50%",background:"#22c55e",display:"inline-block"}}/>
             <span style={{fontSize:10,color:"#4b5563"}}>{lastSync?ago(lastSync):"–"}</span>
