@@ -69,6 +69,14 @@ const INIT_DATA = {
 };
 
 const uid = () => Math.random().toString(36).slice(2, 8);
+const decodeSnippet = s => {
+  if (!s) return "";
+  return s
+    .replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">")
+    .replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&nbsp;/g," ")
+    .replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(n))
+    .replace(/&#x([0-9a-f]+);/gi,(_,h)=>String.fromCharCode(parseInt(h,16)));
+};
 const fmt = n => !n ? "€0" : n >= 1000000 ? `€${(n/1000000).toFixed(1)}M` : n >= 1000 ? `€${Math.round(n/1000)}k` : `€${Math.round(n)}`;
 const ago = ts => { if(!ts) return "–"; const m=Math.floor((Date.now()-ts)/60000); if(m<1) return "maintenant"; if(m<60) return `${m}min`; const h=Math.floor(m/60); if(h<24) return `${h}h`; return `${Math.floor(h/24)}j`; };
 const today = () => new Date().toISOString().slice(0,10);
@@ -1036,14 +1044,14 @@ export default function AmigoCRM() {
           const headers = msg.payload?.headers||[];
           const get = name => headers.find(h=>h.name===name)?.value||"";
           const from = get("From"), to = get("To"), subject = get("Subject"), date = get("Date");
-          const snippet = msg.snippet||"";
+          const snippet = decodeSnippet(msg.snippet);
           const prospect = matchEmailToProspect(from, to, subject, snippet, allProspects);
           const proj = prospect ? (prospect._proj||"vin") : matchEmailToProj(from, to, subject, snippet);
           if (f === "projets" && !proj) return null;
           const labelIds = msg.labelIds||[];
           const folder = labelIds.includes("SENT")?"Envoyés":labelIds.includes("DRAFT")?"Brouillons":labelIds.includes("INBOX")?"Reçus":"Autre";
           const timestamp = msg.internalDate ? parseInt(msg.internalDate) : 0;
-          return { id:m.id, from, to, subject, date, timestamp, prospect, proj, folder, snippet:msg.snippet||"" };
+          return { id:m.id, from, to, subject, date, timestamp, prospect, proj, folder, snippet };
         })
       );
 
@@ -1217,17 +1225,26 @@ export default function AmigoCRM() {
       const domain = prospect.email?.split("@")[1]?.toLowerCase();
       if (!domain) { setGmailLoading(false); return; }
 
-      // Étape 1 — emails normaux (metadata rapide)
+      // Étape 1 — emails + détection PJ via format=metadata (mimeType parts)
       const query = `from:${domain} OR to:${domain}`;
-      const [res1, res2] = await Promise.all([
-        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&q=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&q=${encodeURIComponent(`has:attachment (${query})`)}`, { headers: { Authorization: `Bearer ${token}` } }),
-      ]);
+      const res1 = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&q=${encodeURIComponent(query)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       const d1 = await res1.json();
-      const d2 = await res2.json();
-
       const emailIds = new Set((d1.messages||[]).map(m=>m.id));
-      const pjIds = new Set((d2.messages||[]).map(m=>m.id));
+      // Détection PJ via Gmail query séparée simple
+      const res2 = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=${encodeURIComponent(`has:attachment from:${domain}`)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const d2 = await res2.json();
+      const res3 = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=${encodeURIComponent(`has:attachment to:${domain}`)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const d3 = await res3.json();
+      const pjIds = new Set([...(d2.messages||[]).map(m=>m.id), ...(d3.messages||[]).map(m=>m.id)]);
 
       const threads = await Promise.all(
         [...emailIds].map(async id => {
@@ -1239,7 +1256,7 @@ export default function AmigoCRM() {
           const headers = msg.payload?.headers||[];
           const get = n => headers.find(h=>h.name===n)?.value||"";
           const from=get("From"), to=get("To"), subject=get("Subject"), date=get("Date");
-          const snippet=msg.snippet||"";
+          const snippet=decodeSnippet(msg.snippet);
           const labelIds=msg.labelIds||[];
           const folder=labelIds.includes("SENT")?"Envoyés":labelIds.includes("DRAFT")?"Brouillons":labelIds.includes("INBOX")?"Reçus":"Autre";
           const timestamp=msg.internalDate?parseInt(msg.internalDate):0;
