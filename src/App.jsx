@@ -619,8 +619,14 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
                   <div style={{display:"flex",gap:6,flexShrink:0}}>
                     <button onClick={async()=>{
                       const {data,error}=await supabase.storage.from("amigo-docs").createSignedUrl(doc.path,3600);
-                      if(error){alert("Erreur accès fichier");return;}
-                      window.open(data.signedUrl,"_blank");
+                      if(error||!data){alert("Erreur accès fichier");return;}
+                      const a=document.createElement("a");
+                      a.href=data.signedUrl;
+                      a.download=doc.name;
+                      a.target="_blank";
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
                     }} style={{padding:"4px 10px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:5,color:P.color,fontSize:10,fontWeight:600,cursor:"pointer"}}>⬇️ Ouvrir</button>
                     <button onClick={()=>deleteDoc(doc)} style={{padding:"4px 8px",background:"#ef444415",border:"1px solid #ef444425",borderRadius:5,color:"#f87171",fontSize:10,cursor:"pointer"}}>✕</button>
                   </div>
