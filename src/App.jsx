@@ -961,17 +961,17 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
   const [hoveredRegion,   setHoveredRegion]   = useState(null);
 
   const REGIONS = [
-    { id:"bordeaux",   label:"Bordeaux",        x:165, y:355, color:"#8b0000" },
-    { id:"bourgogne",  label:"Bourgogne",       x:360, y:270, color:"#4a0080" },
-    { id:"champagne",  label:"Champagne",       x:355, y:150, color:"#d4af37" },
-    { id:"alsace",     label:"Alsace",          x:460, y:195, color:"#cc6600" },
-    { id:"loire",      label:"Vallée de Loire", x:230, y:240, color:"#006400" },
-    { id:"rhone",      label:"Vallée du Rhône", x:380, y:340, color:"#8b4513" },
-    { id:"languedoc",  label:"Languedoc",       x:330, y:415, color:"#2e8b57" },
-    { id:"provence",   label:"Provence",        x:410, y:400, color:"#ff6347" },
-    { id:"beaujolais", label:"Beaujolais",      x:370, y:300, color:"#c71585" },
-    { id:"jura",       label:"Jura/Savoie",     x:420, y:265, color:"#708090" },
-    { id:"sw",         label:"Sud-Ouest",       x:210, y:400, color:"#a0522d" },
+    { id:"bordeaux",   label:"Bordeaux",        x:178, y:355, color:"#e74c3c" },
+    { id:"bourgogne",  label:"Bourgogne",       x:355, y:265, color:"#9b59b6" },
+    { id:"champagne",  label:"Champagne",       x:355, y:130, color:"#f1c40f" },
+    { id:"alsace",     label:"Alsace",          x:448, y:175, color:"#e67e22" },
+    { id:"loire",      label:"Loire",           x:238, y:230, color:"#27ae60" },
+    { id:"rhone",      label:"Vallée du Rhône", x:375, y:335, color:"#d35400" },
+    { id:"languedoc",  label:"Languedoc",       x:318, y:415, color:"#16a085" },
+    { id:"provence",   label:"Provence",        x:405, y:395, color:"#e74c3c" },
+    { id:"beaujolais", label:"Beaujolais",      x:368, y:295, color:"#8e44ad" },
+    { id:"jura",       label:"Jura/Savoie",     x:418, y:258, color:"#7f8c8d" },
+    { id:"sw",         label:"Sud-Ouest",       x:215, y:390, color:"#795548" },
   ];
 
   const STATUS_COLORS = {
@@ -1010,28 +1010,33 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
         {/* Carte SVG */}
         <div style={{flex:"0 0 480px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:14}}>
           <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:10}}>🗺 Couverture viticole France</p>
-          <svg viewBox="0 0 560 500" style={{width:"100%",height:"auto"}}>
-            <path d="M180,60 L320,40 L420,70 L470,130 L490,200 L475,270 L450,330 L430,400 L390,450 L320,470 L250,460 L180,430 L140,380 L110,310 L100,240 L120,170 L150,110 Z"
-              fill="#0d1020" stroke="#1a2035" strokeWidth="2"/>
+          <svg viewBox="0 0 560 580" style={{width:"100%",height:"auto"}}>
+            {/* Contour réaliste de la France métropolitaine */}
+            <path d="M263,32 L285,28 L312,35 L338,42 L358,38 L382,52 L400,65 L415,80 L425,95 L430,112 L438,128 L448,142 L462,155 L470,172 L468,190 L460,205 L452,220 L456,238 L462,255 L468,272 L472,290 L470,308 L462,322 L450,335 L442,350 L438,368 L432,384 L420,396 L408,408 L395,420 L378,428 L362,435 L345,440 L328,445 L310,448 L292,445 L274,440 L256,432 L240,422 L225,410 L212,396 L200,382 L190,366 L182,350 L175,333 L170,315 L165,296 L162,278 L162,260 L165,242 L162,224 L155,208 L148,192 L145,175 L148,158 L155,143 L162,128 L168,112 L172,95 L178,80 L188,66 L200,54 L215,44 L232,36 Z"
+              fill="#0d1020" stroke="#2d3748" strokeWidth="1.5"/>
+            {/* Corse */}
+            <path d="M440,430 L448,435 L452,445 L450,455 L444,460 L438,455 L435,445 L437,435 Z"
+              fill="#0d1020" stroke="#2d3748" strokeWidth="1"/>
+            {/* Régions viticoles en zones colorées */}
             {REGIONS.map(r => {
               const pList = regionProspects[r.id]||[];
               const has = pList.length>0;
               const isHov = hoveredRegion===r.id;
               return (
                 <g key={r.id} onMouseEnter={()=>setHoveredRegion(r.id)} onMouseLeave={()=>setHoveredRegion(null)}>
-                  <circle cx={r.x} cy={r.y} r={has?20:13}
-                    fill={has?`${r.color}25`:"#ffffff06"}
-                    stroke={has?r.color:"#2d3748"}
+                  <circle cx={r.x} cy={r.y} r={has?22:14}
+                    fill={has?`${r.color}22`:"#ffffff05"}
+                    stroke={has?r.color:"#374151"}
                     strokeWidth={isHov?2:1}
-                    style={{transition:"all .2s"}}/>
-                  {has&&<circle cx={r.x} cy={r.y} r={6} fill={r.color} opacity={0.9}/>}
-                  {!has&&<circle cx={r.x} cy={r.y} r={4} fill="#2d3748"/>}
-                  <text x={r.x} y={r.y+(has?30:22)} textAnchor="middle"
-                    style={{fontSize:8,fill:has?r.color:"#374151",fontFamily:"DM Sans",fontWeight:600,pointerEvents:"none"}}>
+                    style={{transition:"all .2s",cursor:"pointer"}}/>
+                  {has&&<circle cx={r.x} cy={r.y} r={7} fill={r.color} opacity={0.9}/>}
+                  {!has&&<circle cx={r.x} cy={r.y} r={5} fill="#374151"/>}
+                  <text x={r.x} y={r.y+(has?33:24)} textAnchor="middle"
+                    style={{fontSize:8,fill:has?r.color:"#4b5563",fontFamily:"DM Sans",fontWeight:600,pointerEvents:"none"}}>
                     {r.label}
                   </text>
                   {pList.length>0&&(
-                    <text x={r.x+15} y={r.y-10} textAnchor="middle"
+                    <text x={r.x+16} y={r.y-11} textAnchor="middle"
                       style={{fontSize:9,fill:"#f1f5f9",fontWeight:700,fontFamily:"DM Sans",pointerEvents:"none"}}>
                       {pList.length}
                     </text>
@@ -1039,20 +1044,20 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
                 </g>
               );
             })}
-            {/* Points individuels */}
+            {/* Points individuels prospects */}
             {prospects.map((p,i) => {
               const r = getRegion(p);
               if (!r) return null;
               const region = REGIONS.find(rg=>rg.id===r);
               if (!region) return null;
               const angle = (i*137.5)*Math.PI/180;
-              const rad = 10+(i%3)*6;
+              const rad = 10+(i%3)*7;
               const px = region.x+Math.cos(angle)*rad;
               const py = region.y+Math.sin(angle)*rad;
               const c = STATUS_COLORS[p.status]||"#6b7280";
               return (
                 <circle key={p.id} cx={px} cy={py} r={5} fill={c} stroke="#080a0f" strokeWidth={1.5}
-                  style={{cursor:"pointer",transition:"r .15s"}}
+                  style={{cursor:"pointer"}}
                   onMouseEnter={()=>setHoveredProspect(p)} onMouseLeave={()=>setHoveredProspect(null)}
                   onClick={()=>onOpenProspect(p)}/>
               );
