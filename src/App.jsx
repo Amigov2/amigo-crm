@@ -1618,11 +1618,9 @@ export default function AmigoCRM() {
               </div>
             )}
 
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
-              <StatCard label="Pipeline total" value={fmt(pipeline)} sub={`${prospects.length} prospects`} color="#60a5fa" icon="💼"/>
-              <StatCard label="En cours" value={prospects.filter(p=>!["À contacter","Prospect","Prospect froid"].includes(p.status)).length} sub="actifs" color={accent} icon="🔄"/>
-              <StatCard label="CA confirmé" value={fmt(totalCA)} color="#22c55e" icon="✅"/>
-              <StatCard label="Commandes" value={projOrders.length} sub={`${fmt(projOrders.reduce((s,o)=>s+o.amount,0))} total`} color="#f59e0b" icon="📦"/>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:14}}>
+              <StatCard label="Prospects" value={prospects.length} sub="au total" color="#60a5fa" icon="👥"/>
+              <StatCard label="Commandes" value={projOrders.length} sub={`${projOrders.length>0?fmt(projOrders.reduce((s,o)=>s+o.amount,0)):"-"} total`} color="#f59e0b" icon="📦"/>
             </div>
 
             <div style={{display:"flex",gap:8,marginBottom:14}}>
