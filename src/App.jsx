@@ -381,7 +381,7 @@ function WineFinancePanel({ prospect }) {
   );
 }
 
-function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder, onEmail, gmailThreads, prospectEmails, onSendEmail, onScanForProspect, gmailLoading }) {
+function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder, onEmail, gmailThreads, prospectEmails, onSendEmail, onScanForProspect, onClearEmails, gmailLoading }) {
   const P = PROJECTS[projId];
   const isVin = projId === "vin";
   const [status,    setStatus]    = useState(prospect.status);
@@ -509,7 +509,12 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
                 : "🔍 Scanner mes emails"
               }
             </button>
-            {!gmailLoading&&myEmails.length>0&&<span style={{fontSize:10,color:"#4b5563"}}>{myEmails.length} email{myEmails.length>1?"s":""} trouvé{myEmails.length>1?"s":""}</span>}
+            <button onClick={()=>onClearEmails&&onClearEmails(prospect)}
+              disabled={gmailLoading}
+              style={{padding:"6px 10px",background:"#ef444415",border:"1px solid #ef444425",borderRadius:6,color:"#f87171",fontSize:11,fontWeight:500,cursor:"pointer"}}>
+              🗑 Vider
+            </button>
+            {!gmailLoading&&myEmails.length>0&&<span style={{fontSize:10,color:"#4b5563"}}>{myEmails.length} email{myEmails.length>1?"s":""}</span>}
           </div>
           <button onClick={()=>onEmail&&onEmail(prospect)} style={{padding:"6px 12px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:6,color:P.color,fontSize:11,fontWeight:600,cursor:"pointer"}}>✉️ Nouvel email</button>
         </div>
@@ -1220,6 +1225,14 @@ export default function AmigoCRM() {
     await save({...data, events:(data.events||[]).filter(e=>e.id!==eid)});
   };
 
+  const clearProspectEmails = async (prospect) => {
+    if (!confirm(`Vider tous les emails de ${prospect.name} ?`)) return;
+    const freshSupabase = await storage.get(KEY);
+    const latestData = freshSupabase ? JSON.parse(freshSupabase.value) : data;
+    const nd = {...latestData, prospectEmails:{...(latestData.prospectEmails||{}), [prospect.id]:[]}};
+    await save(nd);
+  };
+
   const scanForProspect = async (prospect) => {
     setGmailLoading(true);
     try {
@@ -1922,7 +1935,7 @@ export default function AmigoCRM() {
       {/* ══ MODALS ══ */}
       {showAddProspect&&<AddProspectModal projId={projId} onAdd={addProspect} onClose={()=>setShowAddProspect(false)}/>}
       {showAddOrder!==undefined&&<AddOrderModal projId={projId} prospects={prospects} preselect={showAddOrder} onAdd={addOrder} onClose={()=>setShowAddOrder(undefined)}/>}
-      {detailProspect&&<ProspectModal prospect={detailProspect} projId={projId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} prospectEmails={data?.prospectEmails||{}} onSendEmail={sendGmail} onScanForProspect={scanForProspect} gmailLoading={gmailLoading}/>}
+      {detailProspect&&<ProspectModal prospect={detailProspect} projId={projId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} prospectEmails={data?.prospectEmails||{}} onSendEmail={sendGmail} onScanForProspect={scanForProspect} onClearEmails={clearProspectEmails} gmailLoading={gmailLoading}/>}
       {showAddEvent&&<AddEventModal onAdd={createCalEvent} onClose={()=>setShowAddEvent(null)} preDate={showAddEvent==="new"?null:showAddEvent} currentUser={user}/>}
       {showEmailModal&&<EmailModal prospect={showEmailModal} projId={projId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail}/>}
     </div>
