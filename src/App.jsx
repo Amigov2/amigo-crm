@@ -427,7 +427,13 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
       body: replyBody + `\n\n---\nDe : ${replyTo.from}\n${replyTo.snippet}`,
     });
     setSending(false);
-    if (ok) { setSent(true); setReplyTo(null); setReplyBody(""); }
+    if (ok) {
+      setSent(true);
+      setReplyTo(null);
+      setReplyBody("");
+      // Rescanner pour récupérer le mail envoyé et les réponses
+      setTimeout(()=>onScanForProspect&&onScanForProspect(prospect, true), 3000);
+    }
   };
 
   const TABS = [["infos","📋 Infos"],["emails",`✉️ Emails${myEmails.length>0?` (${myEmails.length})`:""}`],["docs","📎 Docs"],["commandes",`📦 Commandes${myOrders.length>0?` (${myOrders.length})`:""}`]];
@@ -552,8 +558,14 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
               {/* Contenu expandé */}
               {isExpanded&&<>
                 <div style={{padding:"12px 14px",background:"#06080d",borderTop:"1px solid #0d1020"}}>
-                  <p style={{fontSize:12,color:"#cbd5e1",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{email.snippet}</p>
-                  <p style={{fontSize:10,color:"#2d3748",marginTop:10,fontStyle:"italic"}}>Aperçu du contenu · ouvre Gmail pour voir le message complet</p>
+                  {email.snippet
+                    ? <p style={{fontSize:12,color:"#cbd5e1",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{email.snippet}</p>
+                    : <p style={{fontSize:11,color:"#374151",fontStyle:"italic"}}>Aperçu non disponible.</p>
+                  }
+                  <a href={`https://mail.google.com/mail/u/0/#search/${encodeURIComponent(email.subject||"")}`} target="_blank" rel="noopener noreferrer"
+                    style={{fontSize:10,color:"#3b82f6",display:"inline-block",marginTop:8}}>
+                    📧 Ouvrir dans Gmail →
+                  </a>
                 </div>
                 {/* Zone réponse */}
                 <div style={{padding:"10px 12px",background:"#0b0d16",borderTop:"1px solid #0d1020",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -1169,6 +1181,26 @@ export default function AmigoCRM() {
 
   useEffect(() => { load(); pollRef.current=setInterval(load,8000); return()=>clearInterval(pollRef.current); }, [load]);
 
+  // Auto-scan à la connexion — tourne en arrière-plan
+  useEffect(() => {
+    if (!authUser || !data) return;
+    const allProspects = [
+      ...(data.makeup||[]).map(p=>({...p,_proj:"makeup"})),
+      ...(data.vin||[]).map(p=>({...p,_proj:"vin"})),
+      ...(data.print3d||[]).map(p=>({...p,_proj:"print3d"})),
+    ].filter(p=>p.email);
+    if (!allProspects.length) return;
+    // Scan séquentiel silencieux — 1 prospect toutes les 2s pour ne pas surcharger
+    let i = 0;
+    const next = async () => {
+      if (i >= allProspects.length) return;
+      try { await scanForProspect(allProspects[i], true); } catch(e) {}
+      i++;
+      setTimeout(next, 2000);
+    };
+    setTimeout(next, 3000); // Attendre 3s que l'interface soit chargée
+  }, [authUser?.uid, data?.vin?.length]);
+
   useEffect(() => {
     if (!data||!user) return;
     const acts=data.activity||[];
@@ -1236,7 +1268,7 @@ export default function AmigoCRM() {
     await save(nd);
   };
 
-  const scanForProspect = async (prospect) => {
+  const scanForProspect = async (prospect, silent=false) => {
     setGmailLoading(true);
     try {
       const token = await getGToken();
@@ -1340,7 +1372,7 @@ export default function AmigoCRM() {
         await updateProspect(prospect.id, { docs: updatedDocs });
 
       const nbDocs = updatedDocs.length - existingDocs.length;
-      alert(`✅ ${fresh.length} email(s)${nbDocs>0?` · ${nbDocs} pièce(s) jointe(s) dans Docs`:""}`);
+      if (!silent) alert(`✅ ${fresh.length} email(s)${nbDocs>0?` · ${nbDocs} pièce(s) jointe(s) dans Docs`:""}`);
 
     } catch(e) { console.error(e); alert("Erreur : "+e.message); }
     setGmailLoading(false);
