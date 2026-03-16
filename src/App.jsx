@@ -65,6 +65,7 @@ const INIT_DATA = {
   print3d: [],
   orders: [],
   activity: [],
+  prospectEmails: {}, // { prospectId: [{id, from, to, subject, date, timestamp, folder, snippet}] }
 };
 
 const uid = () => Math.random().toString(36).slice(2, 8);
@@ -396,8 +397,10 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
   const myOrders = orders.filter(o=>o.prospectId===prospect.id);
   const col = P.statusColors[status]||"#6b7280";
 
-  // Emails liés à ce prospect
-  const myEmails = (gmailThreads||[]).filter(t =>
+  // Emails partagés — lus depuis Supabase (scannés par Anthony OU Harold)
+  const savedEmails = (gmailThreads||[]).filter(t =>
+  const myEmails = savedEmails;
+    t.prospectId === prospect.id ||
     t.prospect?.id === prospect.id ||
     (prospect.email && (t.from?.includes(prospect.email.split("@")[1]||"__") || t.to?.includes(prospect.email.split("@")[1]||"__")))
   ).sort((a,b) => b.timestamp - a.timestamp);
@@ -1121,6 +1124,10 @@ export default function AmigoCRM() {
       const r = await storage.get(KEY);
       const d = r ? JSON.parse(r.value) : {...INIT_DATA};
       if (!d.print3d)  d.print3d  = [];
+      if (!d.prospectEmails) d.prospectEmails = {};
+      // Charger les emails sauvegardés dans le state global
+      const allSavedEmails = Object.values(d.prospectEmails).flat();
+      if (allSavedEmails.length > 0) setGmailThreads(allSavedEmails.sort((a,b)=>b.timestamp-a.timestamp));
       if (!d.orders)   d.orders   = [];
       if (!d.activity) d.activity = [];
       setData(d);
@@ -1194,7 +1201,7 @@ export default function AmigoCRM() {
     await save({...data, events:(data.events||[]).filter(e=>e.id!==eid)});
   };
 
-  const scanForProspect = async (prospect, setDocsCb) => {
+  const scanForProspect = async (prospect) => {
     setGmailLoading(true);
     try {
       const token = await getGToken();
@@ -1210,10 +1217,8 @@ export default function AmigoCRM() {
       if (!d.messages) { setGmailLoading(false); return; }
 
       const newDocs = [];
-
       const threads = await Promise.all(
         d.messages.map(async m => {
-          // format=full pour avoir les pièces jointes
           const r = await fetch(
             `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`,
             { headers: { Authorization: `Bearer ${token}` } }
@@ -1227,28 +1232,43 @@ export default function AmigoCRM() {
           const folder=labelIds.includes("SENT")?"Envoyés":labelIds.includes("DRAFT")?"Brouillons":labelIds.includes("INBOX")?"Reçus":"Autre";
           const timestamp=msg.internalDate?parseInt(msg.internalDate):0;
 
-          // Cherche les pièces jointes dans toutes les parties
+          // Pièces jointes
           const findAttachments = (parts=[]) => {
             for (const part of parts) {
-              if (part.filename && part.body?.attachmentId) {
-                newDocs.push({ msgId:m.id, attachmentId:part.body.attachmentId, filename:part.filename, mimeType:part.mimeType, size:part.body.size||0 });
+              if (part.filename && part.filename.length>0 && part.body?.attachmentId) {
+                newDocs.push({ msgId:m.id, attachmentId:part.body.attachmentId, filename:part.filename, mimeType:part.mimeType||"application/octet-stream", size:part.body.size||0 });
               }
               if (part.parts) findAttachments(part.parts);
             }
           };
           findAttachments(msg.payload?.parts||[]);
 
-          return { id:m.id, from, to, subject, date, timestamp, prospect, proj:prospect._proj||projId, folder, snippet };
+          return { id:m.id, from, to, subject, date, timestamp, prospectId:prospect.id, proj:prospect._proj||projId, folder, snippet, scannedBy:user };
         })
       );
 
-      // Télécharger et uploader les pièces jointes dans Supabase
+      // Fusionner avec emails existants dans Supabase (partagés Anthony+Harold)
+      const existingEmails = data?.prospectEmails?.[prospect.id]||[];
+      const existingIds = new Set(existingEmails.map(e=>e.id));
+      const fresh = threads.filter(t=>!existingIds.has(t.id));
+      const allEmails = [...existingEmails, ...fresh].sort((a,b)=>b.timestamp-a.timestamp);
+
+      // Sauvegarder dans Supabase pour partage
+      const nd = {...data, prospectEmails:{...(data.prospectEmails||{}), [prospect.id]:allEmails}};
+      await save(nd);
+
+      // Mettre à jour le state local des gmailThreads
+      const existingGlobalIds = new Set(gmailThreads.map(t=>t.id));
+      const freshGlobal = threads.filter(t=>!existingGlobalIds.has(t.id)).map(t=>({...t, prospect}));
+      setGmailThreads(prev=>[...prev,...freshGlobal].sort((a,b)=>b.timestamp-a.timestamp));
+
+      // Uploader les pièces jointes
       const existingDocs = prospect.docs||[];
       const existingNames = new Set(existingDocs.map(d=>d.name));
       let updatedDocs = [...existingDocs];
 
       for (const att of newDocs) {
-        if (existingNames.has(att.filename)) continue; // anti-doublon
+        if (existingNames.has(att.filename)) continue;
         try {
           const attRes = await fetch(
             `https://gmail.googleapis.com/gmail/v1/users/me/messages/${att.msgId}/attachments/${att.attachmentId}`,
@@ -1256,33 +1276,27 @@ export default function AmigoCRM() {
           );
           const attData = await attRes.json();
           if (!attData.data) continue;
-          // Décoder base64url → Blob
           const binary = atob(attData.data.replace(/-/g,"+").replace(/_/g,"/"));
           const bytes = new Uint8Array(binary.length);
           for (let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
           const blob = new Blob([bytes], { type: att.mimeType });
           const path = `${prospect.id}/${Date.now()}_${att.filename}`;
           const { error } = await supabase.storage.from("amigo-docs").upload(path, blob, { contentType: att.mimeType });
-          if (error) continue;
-          updatedDocs.push({ id:"doc"+uid(), name:att.filename, path, size:att.size, date:new Date().toLocaleDateString("fr-FR"), uploadedBy:"Gmail auto" });
+          if (error) { console.error("Upload PJ:", error); continue; }
+          updatedDocs.push({ id:"doc"+uid(), name:att.filename, path, size:att.size, date:new Date().toLocaleDateString("fr-FR"), uploadedBy:`Gmail (${user})` });
           existingNames.add(att.filename);
-        } catch(e) { console.error("Erreur pièce jointe:", e); }
+        } catch(e) { console.error("PJ erreur:", att.filename, e); }
       }
 
-      // Sauvegarder les nouveaux docs dans le prospect
       if (updatedDocs.length > existingDocs.length) {
         await updateProspect(prospect.id, { docs: updatedDocs });
-        if (setDocsCb) setDocsCb(updatedDocs);
       }
 
-      const existingIds = new Set(gmailThreads.map(t=>t.id));
-      const fresh = threads.filter(t=>!existingIds.has(t.id));
-      setGmailThreads(prev=>[...prev,...fresh].sort((a,b)=>b.timestamp-a.timestamp));
-
       const nbDocs = updatedDocs.length - existingDocs.length;
-      if (nbDocs > 0) alert(`✅ ${fresh.length} email(s) + ${nbDocs} pièce(s) jointe(s) importées dans Docs !`);
+      const msg2 = `✅ ${fresh.length} email(s) chargé(s)${nbDocs>0?` + ${nbDocs} pièce(s) jointe(s) dans Docs`:""}`;
+      if (fresh.length>0||nbDocs>0) alert(msg2);
 
-    } catch(e) { console.error(e); }
+    } catch(e) { console.error(e); alert("Erreur scan: "+e.message); }
     setGmailLoading(false);
   };
 
