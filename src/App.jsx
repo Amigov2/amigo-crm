@@ -1597,7 +1597,7 @@ export default function AmigoCRM() {
         <div style={{width:16,height:16,borderRadius:"50%",background:U.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,color:"white"}}>{U.avatar}</div>
         <span style={{fontSize:11,color:U.color,fontWeight:600}}>{U.label}</span>
         <span style={{fontSize:11,color:"#2d3748"}}>· {P.icon} {P.label}</span>
-        <span style={{marginLeft:"auto",fontSize:11,color:"#22c55e",fontWeight:600}}>CA confirmé : {fmt(totalCA)}</span>
+        <span style={{marginLeft:"auto",fontSize:11,color:"#2d3748"}}>{P.icon} {P.label}</span>
       </div>
 
       <div style={{flex:1,overflow:"auto",padding:"18px 20px"}}>
