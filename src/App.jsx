@@ -381,7 +381,7 @@ function WineFinancePanel({ prospect }) {
   );
 }
 
-function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder, onEmail, gmailThreads, onSendEmail, onScanForProspect, gmailLoading }) {
+function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder, onEmail, gmailThreads, prospectEmails, onSendEmail, onScanForProspect, gmailLoading }) {
   const P = PROJECTS[projId];
   const isVin = projId === "vin";
   const [status,    setStatus]    = useState(prospect.status);
@@ -405,16 +405,17 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
   const myOrders = orders.filter(o=>o.prospectId===prospect.id);
   const col = P.statusColors[status]||"#6b7280";
 
-  // Emails partagés — lus depuis Supabase (scannés par Anthony OU Harold)
+  // Emails partagés — lus directement depuis Supabase (Anthony + Harold)
   const domain = prospect.email?.split("@")[1]?.toLowerCase()||"__";
-  const myEmails = (gmailThreads||[]).filter(t =>
-    t.prospectId === prospect.id ||
-    t.prospect?.id === prospect.id ||
-    (prospect.email && (
-      t.from?.toLowerCase().includes(domain) ||
-      t.to?.toLowerCase().includes(domain)
-    ))
-  ).sort((a,b) => b.timestamp - a.timestamp);
+  const savedByProspectId = (prospectEmails||{})[prospect.id]||[];
+  const savedByDomain = (gmailThreads||[]).filter(t =>
+    t.from?.toLowerCase().includes(domain) || t.to?.toLowerCase().includes(domain)
+  );
+  const allEmailIds = new Set(savedByProspectId.map(e=>e.id));
+  const myEmails = [
+    ...savedByProspectId,
+    ...savedByDomain.filter(t => !allEmailIds.has(t.id))
+  ].sort((a,b) => b.timestamp - a.timestamp);
 
   const handleReply = async () => {
     if (!replyBody.trim() || !replyTo) return;
@@ -576,7 +577,7 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
       </>}
 
       {/* ── COMMANDES ── */}
-      {tab==="docs"&&<DocsTab prospect={prospect} onUpdate={onUpdate} projId={projId} docs={prospectDocs} setDocs={setProspectDocs}/>}
+      {tab==="docs"&&<DocsTab key={prospect.id} prospect={prospect} onUpdate={onUpdate} projId={projId}/>}
 
       {tab==="commandes"&&<>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -720,8 +721,9 @@ function EmailModal({ prospect, projId, onClose, onSend }) {
   );
 }
 
-function DocsTab({ prospect, onUpdate, projId, docs, setDocs }) {
+function DocsTab({ prospect, onUpdate, projId }) {
   const P = PROJECTS[projId];
+  const [docs,      setDocs]      = useState(prospect.docs||[]);
   const [dragging,  setDragging]  = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
@@ -1924,7 +1926,7 @@ export default function AmigoCRM() {
       {/* ══ MODALS ══ */}
       {showAddProspect&&<AddProspectModal projId={projId} onAdd={addProspect} onClose={()=>setShowAddProspect(false)}/>}
       {showAddOrder!==undefined&&<AddOrderModal projId={projId} prospects={prospects} preselect={showAddOrder} onAdd={addOrder} onClose={()=>setShowAddOrder(undefined)}/>}
-      {detailProspect&&<ProspectModal prospect={detailProspect} projId={projId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} onSendEmail={sendGmail} onScanForProspect={scanForProspect} gmailLoading={gmailLoading}/>}
+      {detailProspect&&<ProspectModal prospect={detailProspect} projId={projId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} prospectEmails={data?.prospectEmails||{}} onSendEmail={sendGmail} onScanForProspect={scanForProspect} gmailLoading={gmailLoading}/>}
       {showAddEvent&&<AddEventModal onAdd={createCalEvent} onClose={()=>setShowAddEvent(null)} preDate={showAddEvent==="new"?null:showAddEvent} currentUser={user}/>}
       {showEmailModal&&<EmailModal prospect={showEmailModal} projId={projId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail}/>}
     </div>
