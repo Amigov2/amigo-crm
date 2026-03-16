@@ -388,47 +388,8 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
   const [status,    setStatus]    = useState(prospect.status);
   const [assigned,  setAssigned]  = useState(prospect.assignedTo||"");
   const [expandedEmail, setExpandedEmail] = useState(null);
-  const [emailBodies, setEmailBodies] = useState({}); // {emailId: fullBody}
+  const [emailBodies, setEmailBodies] = useState({});
   const [loadingBody, setLoadingBody] = useState(null);
-
-  const expandEmail = async (emailId) => {
-    if (expandedEmail === emailId) { setExpandedEmail(null); return; }
-    setExpandedEmail(emailId);
-    if (emailBodies[emailId]) return; // déjà chargé
-    setLoadingBody(emailId);
-    try {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session?.session?.provider_token;
-      if (!token) return;
-      const r = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${emailId}?format=full`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const msg = await r.json();
-      // Extraire le corps texte
-      const getBody = (parts=[]) => {
-        for (const part of parts) {
-          if (part.mimeType==="text/plain" && part.body?.data) {
-            const binary = atob(part.body.data.replace(/-/g,"+").replace(/_/g,"/"));
-            const bytes = new Uint8Array(binary.length);
-            for (let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
-            return new TextDecoder("utf-8").decode(bytes);
-          }
-          if (part.parts) { const r = getBody(part.parts); if (r) return r; }
-        }
-        return null;
-      };
-      let body = getBody(msg.payload?.parts||[]);
-      if (!body && msg.payload?.body?.data) {
-        const binary = atob(msg.payload.body.data.replace(/-/g,"+").replace(/_/g,"/"));
-        const bytes = new Uint8Array(binary.length);
-        for (let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
-        body = new TextDecoder("utf-8").decode(bytes);
-      }
-      setEmailBodies(prev => ({...prev, [emailId]: body || msg.snippet || ""}));
-    } catch(e) { console.error(e); }
-    setLoadingBody(null);
-  };
   const [note,      setNote]      = useState(prospect.note||"");
   const [editNote,  setEditNote]  = useState(false);
   const [tab,       setTab]       = useState("infos");
@@ -458,9 +419,6 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
     ...savedByProspectId,
     ...savedByDomain.filter(t => !allEmailIds.has(t.id))
   ].sort((a,b) => b.timestamp - a.timestamp);
-
-  const [emailBodies, setEmailBodies] = useState({}); // { emailId: fullBody }
-  const [loadingBody, setLoadingBody] = useState(null);
 
   const loadEmailBody = async (email) => {
     if (emailBodies[email.id]) return; // déjà chargé
@@ -499,6 +457,8 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
     } catch(e) { console.error(e); }
     setLoadingBody(null);
   };
+
+  const handleReply = async () => {
     if (!replyBody.trim() || !replyTo) return;
     setSending(true);
     const ok = await onSendEmail({
