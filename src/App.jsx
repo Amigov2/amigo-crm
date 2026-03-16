@@ -22,6 +22,7 @@ const storage = {
 const USERS = {
   anthony: { label: "Anthony", color: "#3b82f6", avatar: "A" },
   harold:  { label: "Harold",  color: "#22c55e", avatar: "H" },
+  jade:    { label: "Jade",    color: "#f59e0b", avatar: "J" },
 };
 
 const PROJECTS = {
@@ -613,13 +614,15 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
 const ALLOWED_EMAILS = [
   "anthony.donzel@gmail.com",
   "harold.grenouilleau@gmail.com",
+  "jade.investissement@gmail.com",
 ];
 
 const emailToUser = email => {
   if (!email) return null;
   const lower = email.toLowerCase();
-  if (lower === "anthony.donzel@gmail.com")     return "anthony";
-  if (lower === "harold.grenouilleau@gmail.com") return "harold";
+  if (lower === "anthony.donzel@gmail.com")       return "anthony";
+  if (lower === "harold.grenouilleau@gmail.com")  return "harold";
+  if (lower === "jade.investissement@gmail.com")  return "jade";
   return null;
 };
 
