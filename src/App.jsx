@@ -380,11 +380,12 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
   const [expandedEmail, setExpandedEmail] = useState(null);
   const [note,      setNote]      = useState(prospect.note||"");
   const [editNote,  setEditNote]  = useState(false);
-  const [tab,       setTab]       = useState("infos"); // infos | emails | commandes
+  const [tab,       setTab]       = useState("infos");
   const [replyTo,   setReplyTo]   = useState(null);
   const [replyBody, setReplyBody] = useState("");
   const [sending,   setSending]   = useState(false);
   const [sent,      setSent]      = useState(false);
+  const [prospectDocs, setProspectDocs] = useState(prospect.docs||[]);
 
   const save = (field, val) => {
     if (field==="status") setStatus(val);
@@ -485,7 +486,7 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
       {tab==="emails"&&<>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <button onClick={()=>onScanForProspect&&onScanForProspect(prospect)} style={{padding:"6px 12px",background:"#3b82f618",border:"1px solid #3b82f628",borderRadius:6,color:"#60a5fa",fontSize:11,fontWeight:600,cursor:"pointer"}}>🔍 Scanner mes emails</button>
+            <button onClick={()=>onScanForProspect&&onScanForProspect(prospect, setProspectDocs)} style={{padding:"6px 12px",background:"#3b82f618",border:"1px solid #3b82f628",borderRadius:6,color:"#60a5fa",fontSize:11,fontWeight:600,cursor:"pointer"}}>🔍 Scanner mes emails</button>
             {myEmails.length>0&&<span style={{fontSize:10,color:"#4b5563"}}>{myEmails.length} email{myEmails.length>1?"s":""} trouvé{myEmails.length>1?"s":""}</span>}
           </div>
           <button onClick={()=>onEmail&&onEmail(prospect)} style={{padding:"6px 12px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:6,color:P.color,fontSize:11,fontWeight:600,cursor:"pointer"}}>✉️ Nouvel email</button>
@@ -554,7 +555,7 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
       </>}
 
       {/* ── COMMANDES ── */}
-      {tab==="docs"&&<DocsTab prospect={prospect} onUpdate={onUpdate} projId={projId}/>}
+      {tab==="docs"&&<DocsTab prospect={prospect} onUpdate={onUpdate} projId={projId} docs={prospectDocs} setDocs={setProspectDocs}/>}
 
       {tab==="commandes"&&<>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -698,9 +699,8 @@ function EmailModal({ prospect, projId, onClose, onSend }) {
   );
 }
 
-function DocsTab({ prospect, onUpdate, projId }) {
+function DocsTab({ prospect, onUpdate, projId, docs, setDocs }) {
   const P = PROJECTS[projId];
-  const [docs,      setDocs]      = useState(prospect.docs||[]);
   const [dragging,  setDragging]  = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
@@ -709,13 +709,19 @@ function DocsTab({ prospect, onUpdate, projId }) {
     setUploading(true);
     try {
       const path = `${prospect.id}/${Date.now()}_${file.name}`;
-      const { error } = await supabase.storage.from("amigo-docs").upload(path, file);
-      if (error) throw error;
+      console.log("Upload vers:", path, "bucket: amigo-docs");
+      const { data: upData, error } = await supabase.storage.from("amigo-docs").upload(path, file);
+      console.log("Résultat upload:", upData, error);
+      if (error) throw new Error(`Upload échoué : ${error.message}`);
       const newDoc = { id:"doc"+uid(), name:file.name, path, size:file.size, date:new Date().toLocaleDateString("fr-FR"), uploadedBy:"Anthony" };
       const updated = [...docs, newDoc];
       setDocs(updated);
       onUpdate(prospect.id, { docs: updated });
-    } catch(e) { alert("Erreur upload : " + e.message); }
+      alert(`✅ "${file.name}" ajouté avec succès !`);
+    } catch(e) {
+      console.error("Erreur upload:", e);
+      alert("❌ Erreur : " + e.message);
+    }
     setUploading(false);
   };
 
@@ -1181,7 +1187,7 @@ export default function AmigoCRM() {
     await save({...data, events:(data.events||[]).filter(e=>e.id!==eid)});
   };
 
-  const scanForProspect = async (prospect) => {
+  const scanForProspect = async (prospect, setDocsCb) => {
     setGmailLoading(true);
     try {
       const token = await getGToken();
@@ -1259,6 +1265,7 @@ export default function AmigoCRM() {
       // Sauvegarder les nouveaux docs dans le prospect
       if (updatedDocs.length > existingDocs.length) {
         await updateProspect(prospect.id, { docs: updatedDocs });
+        if (setDocsCb) setDocsCb(updatedDocs);
       }
 
       const existingIds = new Set(gmailThreads.map(t=>t.id));
