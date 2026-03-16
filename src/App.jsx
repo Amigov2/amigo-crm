@@ -1259,6 +1259,8 @@ export default function AmigoCRM() {
       const [d1, d2, d3] = await Promise.all([res1.json(), res2.json(), res3.json()]);
       const emailIds = new Set((d1.messages||[]).map(m=>m.id));
       const pjIds = new Set([...(d2.messages||[]).map(m=>m.id), ...(d3.messages||[]).map(m=>m.id)]);
+
+      const threads = await Promise.all(
         [...emailIds].map(async id => {
           const r = await fetch(
             `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
