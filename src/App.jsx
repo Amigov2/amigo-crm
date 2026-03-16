@@ -554,87 +554,7 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
       </>}
 
       {/* ── COMMANDES ── */}
-      {tab==="docs"&&(()=>{
-        const [docs, setDocs] = useState(prospect.docs||[]);
-        const [dragging, setDragging] = useState(false);
-        const [uploading, setUploading] = useState(false);
-
-        const uploadFile = async (file) => {
-          setUploading(true);
-          try {
-            const path = `${prospect.id}/${Date.now()}_${file.name}`;
-            const { error } = await supabase.storage.from("amigo-docs").upload(path, file);
-            if (error) throw error;
-            const { data: urlData, error: urlError } = await supabase.storage.from("amigo-docs").createSignedUrl(path, 3600);
-            if (urlError) throw urlError;
-            const newDoc = { id: "doc"+uid(), name: file.name, path, size: file.size, date: new Date().toLocaleDateString("fr-FR"), uploadedBy: "Anthony" };
-            const updated = [...docs, newDoc];
-            setDocs(updated);
-            onUpdate(prospect.id, { docs: updated });
-          } catch(e) { alert("Erreur upload : " + e.message); }
-          setUploading(false);
-        };
-
-        const deleteDoc = async (doc) => {
-          if (!confirm(`Supprimer "${doc.name}" ?`)) return;
-          await supabase.storage.from("amigo-docs").remove([doc.path]);
-          const updated = docs.filter(d=>d.id!==doc.id);
-          setDocs(updated);
-          onUpdate(prospect.id, { docs: updated });
-        };
-
-        const fmt_size = b => b>1024*1024?`${(b/1024/1024).toFixed(1)}Mo`:b>1024?`${(b/1024).toFixed(0)}Ko`:`${b}o`;
-        const FILE_ICON = name => name.endsWith(".pdf")?"📄":name.match(/\.(xlsx?|csv)/)?"📊":name.match(/\.(jpe?g|png|gif|webp)/)?"🖼️":name.match(/\.(docx?)/)?"📝":"📎";
-
-        return (
-          <div>
-            {/* Zone drag & drop */}
-            <label
-              onDragOver={e=>{e.preventDefault();setDragging(true);}}
-              onDragLeave={()=>setDragging(false)}
-              onDrop={e=>{e.preventDefault();setDragging(false);const f=e.dataTransfer.files[0];if(f)uploadFile(f);}}
-              style={{display:"block",border:`2px dashed ${dragging?P.color:"#1a2035"}`,borderRadius:10,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:dragging?`${P.color}08`:"transparent",transition:"all .15s",marginBottom:14}}>
-              <input type="file" style={{display:"none"}} onChange={e=>{if(e.target.files[0])uploadFile(e.target.files[0]);e.target.value="";}}/>
-              {uploading
-                ? <p style={{fontSize:12,color:P.color}}>⏳ Envoi en cours…</p>
-                : <>
-                    <p style={{fontSize:22,marginBottom:6}}>📁</p>
-                    <p style={{fontSize:12,color:"#4b5563",marginBottom:2}}>Glisse un fichier ici ou clique pour parcourir</p>
-                    <p style={{fontSize:10,color:"#2d3748"}}>PDF, Excel, Word, images — max 50Mo</p>
-                  </>
-              }
-            </label>
-
-            {/* Liste des documents */}
-            {docs.length===0
-              ? <p style={{fontSize:11,color:"#2d3748",textAlign:"center",padding:"10px 0",fontStyle:"italic"}}>Aucun document attaché.</p>
-              : docs.map(doc=>(
-                <div key={doc.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"#0b0d16",borderRadius:8,border:"1px solid #0f1520",marginBottom:6}}>
-                  <span style={{fontSize:20,flexShrink:0}}>{FILE_ICON(doc.name)}</span>
-                  <div style={{flex:1,minWidth:0}}>
-                    <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{doc.name}</p>
-                    <p style={{fontSize:10,color:"#4b5563"}}>{doc.date} · {fmt_size(doc.size)} · {doc.uploadedBy}</p>
-                  </div>
-                  <div style={{display:"flex",gap:6,flexShrink:0}}>
-                    <button onClick={async()=>{
-                      const {data,error}=await supabase.storage.from("amigo-docs").createSignedUrl(doc.path,3600);
-                      if(error||!data){alert("Erreur accès fichier");return;}
-                      const a=document.createElement("a");
-                      a.href=data.signedUrl;
-                      a.download=doc.name;
-                      a.target="_blank";
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
-                    }} style={{padding:"4px 10px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:5,color:P.color,fontSize:10,fontWeight:600,cursor:"pointer"}}>⬇️ Ouvrir</button>
-                    <button onClick={()=>deleteDoc(doc)} style={{padding:"4px 8px",background:"#ef444415",border:"1px solid #ef444425",borderRadius:5,color:"#f87171",fontSize:10,cursor:"pointer"}}>✕</button>
-                  </div>
-                </div>
-              ))
-            }
-          </div>
-        );
-      })()}
+      {tab==="docs"&&<DocsTab prospect={prospect} onUpdate={onUpdate} projId={projId}/>}
 
       {tab==="commandes"&&<>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -775,6 +695,87 @@ function EmailModal({ prospect, projId, onClose, onSend }) {
         <button onClick={onClose} style={{padding:"9px 14px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:7,color:"#6b7280",fontSize:12,cursor:"pointer"}}>Annuler</button>
       </div>
     </ModalWrap>
+  );
+}
+
+function DocsTab({ prospect, onUpdate, projId }) {
+  const P = PROJECTS[projId];
+  const [docs,      setDocs]      = useState(prospect.docs||[]);
+  const [dragging,  setDragging]  = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+
+  const uploadFile = async (file) => {
+    setUploading(true);
+    try {
+      const path = `${prospect.id}/${Date.now()}_${file.name}`;
+      const { error } = await supabase.storage.from("amigo-docs").upload(path, file);
+      if (error) throw error;
+      const newDoc = { id:"doc"+uid(), name:file.name, path, size:file.size, date:new Date().toLocaleDateString("fr-FR"), uploadedBy:"Anthony" };
+      const updated = [...docs, newDoc];
+      setDocs(updated);
+      onUpdate(prospect.id, { docs: updated });
+    } catch(e) { alert("Erreur upload : " + e.message); }
+    setUploading(false);
+  };
+
+  const deleteDoc = async (doc) => {
+    if (!confirm(`Supprimer "${doc.name}" ?`)) return;
+    await supabase.storage.from("amigo-docs").remove([doc.path]);
+    const updated = docs.filter(d=>d.id!==doc.id);
+    setDocs(updated);
+    onUpdate(prospect.id, { docs: updated });
+  };
+
+  const openDoc = async (doc) => {
+    const {data,error} = await supabase.storage.from("amigo-docs").createSignedUrl(doc.path, 3600);
+    if (error||!data) { alert("Erreur accès fichier"); return; }
+    const a = document.createElement("a");
+    a.href = data.signedUrl;
+    a.download = doc.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const fmtSize = b => b>1024*1024?`${(b/1024/1024).toFixed(1)}Mo`:b>1024?`${(b/1024).toFixed(0)}Ko`:`${b}o`;
+  const fileIcon = n => n?.endsWith(".pdf")?"📄":n?.match(/\.(xlsx?|csv)/)?"📊":n?.match(/\.(jpe?g|png|gif|webp)/)?"🖼️":n?.match(/\.(docx?)/)?"📝":"📎";
+
+  return (
+    <div>
+      <div
+        onDragOver={e=>{e.preventDefault();setDragging(true);}}
+        onDragLeave={()=>setDragging(false)}
+        onDrop={e=>{e.preventDefault();setDragging(false);const f=e.dataTransfer.files[0];if(f)uploadFile(f);}}
+        onClick={()=>fileRef.current?.click()}
+        style={{border:`2px dashed ${dragging?P.color:"#1a2035"}`,borderRadius:10,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:dragging?`${P.color}08`:"transparent",transition:"all .15s",marginBottom:14}}>
+        <input ref={fileRef} type="file" style={{display:"none"}} onChange={e=>{if(e.target.files[0])uploadFile(e.target.files[0]);e.target.value="";}}/>
+        {uploading
+          ? <p style={{fontSize:12,color:P.color}}>⏳ Envoi en cours…</p>
+          : <>
+              <p style={{fontSize:22,marginBottom:6}}>📁</p>
+              <p style={{fontSize:12,color:"#4b5563",marginBottom:2}}>Glisse un fichier ici ou clique pour parcourir</p>
+              <p style={{fontSize:10,color:"#2d3748"}}>PDF, Excel, Word, images — max 50Mo</p>
+            </>
+        }
+      </div>
+      {docs.length===0
+        ? <p style={{fontSize:11,color:"#2d3748",textAlign:"center",padding:"10px 0",fontStyle:"italic"}}>Aucun document attaché.</p>
+        : docs.map(doc=>(
+          <div key={doc.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"#0b0d16",borderRadius:8,border:"1px solid #0f1520",marginBottom:6}}>
+            <span style={{fontSize:20,flexShrink:0}}>{fileIcon(doc.name)}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{doc.name}</p>
+              <p style={{fontSize:10,color:"#4b5563"}}>{doc.date} · {fmtSize(doc.size)}</p>
+            </div>
+            <div style={{display:"flex",gap:6,flexShrink:0}}>
+              <button onClick={()=>openDoc(doc)} style={{padding:"4px 10px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:5,color:P.color,fontSize:10,fontWeight:600,cursor:"pointer"}}>⬇️ Ouvrir</button>
+              <button onClick={()=>deleteDoc(doc)} style={{padding:"4px 8px",background:"#ef444415",border:"1px solid #ef444425",borderRadius:5,color:"#f87171",fontSize:10,cursor:"pointer"}}>✕</button>
+            </div>
+          </div>
+        ))
+      }
+    </div>
   );
 }
 
