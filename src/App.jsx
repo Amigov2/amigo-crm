@@ -527,6 +527,18 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
           </div>
         </div>
         {isVin && <WineFinancePanel prospect={prospect}/>}
+        {isVin && (
+          <div style={{marginBottom:12,padding:"8px 12px",background:"#080a0f",borderRadius:8,border:"1px solid #0f1520"}}>
+            <p style={{fontSize:10,color:"#4b5563",fontWeight:600,marginBottom:6,textTransform:"uppercase",letterSpacing:".4px"}}>📍 Région viticole (carte)</p>
+            <select value={prospect.regionManuelle||""} onChange={e=>onUpdate(prospect.id,{regionManuelle:e.target.value||null})}
+              style={{width:"100%",padding:"6px 8px",borderRadius:6,fontSize:12,background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",cursor:"pointer"}}>
+              <option value="">Détection automatique</option>
+              {[["bordeaux","Bordeaux"],["bourgogne","Bourgogne"],["champagne","Champagne"],["alsace","Alsace"],["loire","Loire"],["rhone","Vallée du Rhône"],["languedoc","Languedoc"],["provence","Provence"],["beaujolais","Beaujolais"],["jura","Jura/Savoie"],["sw","Sud-Ouest"]].map(([v,l])=>(
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div style={{padding:"10px 12px",background:"#080a0f",borderRadius:8,border:"1px solid #0d1020"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
             <p style={{fontSize:10,color:"#4b5563",fontWeight:600}}>📝 NOTE PARTAGÉE</p>
@@ -964,21 +976,21 @@ function DocsTab({ prospect, onUpdate, projId }) {
 }
 
 function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
-  const [hoveredProspect, setHoveredProspect] = useState(null);
-  const [hoveredRegion,   setHoveredRegion]   = useState(null);
+  const [selectedRegion, setSelectedRegion] = useState(null);
+  const [zoom,           setZoom]           = useState(1);
 
   const REGIONS = [
-    { id:"bordeaux",   label:"Bordeaux",        x:218, y:390, color:"#e74c3c" },
-    { id:"bourgogne",  label:"Bourgogne",       x:400, y:300, color:"#9b59b6" },
-    { id:"champagne",  label:"Champagne",       x:395, y:165, color:"#f1c40f" },
-    { id:"alsace",     label:"Alsace",          x:470, y:210, color:"#e67e22" },
-    { id:"loire",      label:"Loire",           x:268, y:268, color:"#27ae60" },
-    { id:"rhone",      label:"Vallée du Rhône", x:418, y:370, color:"#d35400" },
-    { id:"languedoc",  label:"Languedoc",       x:355, y:450, color:"#16a085" },
-    { id:"provence",   label:"Provence",        x:444, y:430, color:"#c0392b" },
-    { id:"beaujolais", label:"Beaujolais",      x:408, y:335, color:"#8e44ad" },
-    { id:"jura",       label:"Jura/Savoie",     x:455, y:295, color:"#7f8c8d" },
-    { id:"sw",         label:"Sud-Ouest",       x:248, y:430, color:"#795548" },
+    { id:"bordeaux",   label:"Bordeaux",        color:"#e74c3c", lat:44.837, lng:-0.579 },
+    { id:"bourgogne",  label:"Bourgogne",       color:"#9b59b6", lat:47.052, lng:4.383  },
+    { id:"champagne",  label:"Champagne",       color:"#f1c40f", lat:49.059, lng:4.358  },
+    { id:"alsace",     label:"Alsace",          color:"#e67e22", lat:48.318, lng:7.441  },
+    { id:"loire",      label:"Loire",           color:"#27ae60", lat:47.394, lng:0.690  },
+    { id:"rhone",      label:"Vallée du Rhône", color:"#d35400", lat:44.932, lng:4.892  },
+    { id:"languedoc",  label:"Languedoc",       color:"#16a085", lat:43.611, lng:3.877  },
+    { id:"provence",   label:"Provence",        color:"#c0392b", lat:43.529, lng:5.447  },
+    { id:"beaujolais", label:"Beaujolais",      color:"#8e44ad", lat:46.157, lng:4.716  },
+    { id:"jura",       label:"Jura/Savoie",     color:"#7f8c8d", lat:46.921, lng:5.822  },
+    { id:"sw",         label:"Sud-Ouest",       color:"#795548", lat:43.833, lng:1.447  },
   ];
 
   const STATUS_COLORS = {
@@ -987,20 +999,21 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
   };
 
   const getRegion = (p) => {
+    // Région manuelle en priorité
+    if (p.regionManuelle) return p.regionManuelle;
     const h = `${p.appellation||""} ${p.sub||""} ${p.note||""} ${p.cepage||""} ${p.name||""} ${p.producteur||""}`.toLowerCase();
-    if (h.match(/bordeaux|medoc|médoc|pessac|saint.?emilion|pomerol|sauternes|margaux|lalande|listrac|moulis|blaye|bourg|fronsac|lalaudey|pontac|calice/)) return "bordeaux";
-    if (h.match(/bourgogne|puligny|gevrey|chambolle|nuits|meursault|chablis|macon|côte.d.or|cote.d.or|beaune|leflaive|romanee|montrachet/)) return "bourgogne";
-    if (h.match(/champagne|reims|epernay|épernay|charpentier|brut|blanc.de.blancs/)) return "champagne";
-    if (h.match(/alsace|riesling|gewurz|sylvaner|pinot.gris|agape|alsacien|strasbourg|colmar/)) return "alsace";
-    if (h.match(/loire|vouvray|muscadet|chinon|sancerre|touraine|pouilly|amboise|cheverny|chenin|robert|alain.robert|daridan|bessons|delobel|delaunay|sainson|herivault|roux.*chateaumeillant|champalou|croix.melier|bulapapa/)) return "loire";
-    if (h.match(/rhone|rhône|cotes.du.rhone|chateauneuf|hermitage|condrieu|gigondas|vacqueyras|crozes/)) return "rhone";
-    if (h.match(/languedoc|roussillon|picpoul|faugeres|fitou|minervois|corbières|corbieres/)) return "languedoc";
-    if (h.match(/provence|bandol|cassis|cotes.de.provence|var|bouches.du.rhone/)) return "provence";
-    if (h.match(/beaujolais|gamay|morgon|fleurie|brouilly|moulin.a.vent|julienas|nugues|domaine.des.nugues/)) return "beaujolais";
+    if (h.match(/bordeaux|medoc|médoc|pessac|saint.?emilion|pomerol|sauternes|margaux|lalande|lalaudey|pontac|calice/)) return "bordeaux";
+    if (h.match(/bourgogne|puligny|gevrey|chambolle|nuits|meursault|chablis|macon|côte.d.or|cote.d.or|beaune|leflaive|montrachet|folie.sauvage|coteaux.bourgignon|bourgignon/)) return "bourgogne";
+    if (h.match(/champagne|reims|epernay|épernay|charpentier/)) return "champagne";
+    if (h.match(/alsace|riesling|gewurz|sylvaner|agape|alsacien|colmar/)) return "alsace";
+    if (h.match(/loire|vouvray|muscadet|chinon|sancerre|touraine|pouilly|amboise|cheverny|chenin|alain.robert|daridan|bessons|delobel|delaunay|sainson|herivault|champalou|croix.melier|bulapapa/)) return "loire";
+    if (h.match(/rhone|rhône|cotes.du.rhone|chateauneuf|hermitage|condrieu|gigondas/)) return "rhone";
+    if (h.match(/languedoc|roussillon|picpoul|faugeres|fitou|minervois/)) return "languedoc";
+    if (h.match(/provence|bandol|cassis|cotes.de.provence/)) return "provence";
+    if (h.match(/beaujolais|gamay|morgon|fleurie|brouilly|nugues/)) return "beaujolais";
     if (h.match(/jura|savoie|bugey|mondeuse|trosset|arbin/)) return "jura";
-    if (h.match(/cahors|gaillac|bergerac|madiran|jurançon|armagnac|sud.ouest|gers|lot|dordogne|morin|bourgueil|nicolas.de.bourgueil|deshenry|cigales|heitz|bourgignon|coteaux.bourgignon/)) return "sw";
-    // Fallback par pays — vins français non identifiés → Loire par défaut (région la plus représentée)
-    if (h.match(/aoc|igp|vin de france|appellation.*controlée|appellation.*protégée/)) return "loire";
+    if (h.match(/cahors|gaillac|bergerac|madiran|jurançon|armagnac|morin|bourgueil|nicolas.de.bourgueil|deshenry|heitz/)) return "sw";
+    if (h.match(/aoc|igp|vin de france|appellation.*contr/)) return "loire";
     return null;
   };
 
@@ -1010,138 +1023,177 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
     if (r) { if (!regionProspects[r]) regionProspects[r]=[]; regionProspects[r].push(p); }
   });
 
-  const covered = REGIONS.filter(r=>regionProspects[r.id]?.length);
+  const covered   = REGIONS.filter(r=>regionProspects[r.id]?.length);
   const uncovered = REGIONS.filter(r=>!regionProspects[r.id]?.length);
+  const unmapped  = prospects.filter(p=>!getRegion(p));
+
+  const selectedProspects = selectedRegion ? (regionProspects[selectedRegion]||[]) : [];
+  const selectedReg = REGIONS.find(r=>r.id===selectedRegion);
+
+  // Coordonnées SVG pour la carte stylisée (viewBox 0 0 500 560)
+  const SVG_POS = {
+    bordeaux:   {x:118, y:370}, bourgogne: {x:330, y:268}, champagne: {x:318, y:130},
+    alsace:     {x:400, y:168}, loire:     {x:200, y:248}, rhone:     {x:348, y:345},
+    languedoc:  {x:288, y:428}, provence:  {x:378, y:408}, beaujolais:{x:338, y:302},
+    jura:       {x:378, y:258}, sw:        {x:178, y:408},
+  };
 
   return (
     <div className="fade">
-      <div style={{display:"flex",gap:14}}>
-        {/* Carte SVG */}
-        <div style={{flex:"0 0 480px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:14}}>
-          <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:10}}>🗺 Couverture viticole France</p>
-          <svg viewBox="0 50 600 620" style={{width:"100%",height:"auto"}}>
-            {/* France métropolitaine — tracé précis */}
-            <path d="M348,62 L365,58 L388,65 L408,72 L428,82 L444,96 L455,114 L460,134 L458,154 L468,168 L478,182 L480,200 L474,216 L464,228 L468,246 L474,264 L478,282 L476,300 L468,316 L456,330 L448,346 L444,364 L436,380 L424,394 L410,406 L394,416 L376,424 L358,430 L338,434 L318,434 L298,430 L278,422 L260,412 L244,400 L230,386 L218,370 L208,354 L200,336 L194,318 L190,298 L188,278 L188,258 L192,238 L188,220 L180,204 L174,188 L172,170 L176,152 L184,136 L194,122 L204,108 L214,96 L226,86 L240,78 L256,72 L272,68 L290,64 L308,62 L328,60 Z"
-              fill="#0d1020" stroke="#2d3748" strokeWidth="1.5"/>
-            {/* Bretagne */}
-            <path d="M188,258 L175,262 L158,268 L144,272 L132,268 L122,260 L118,248 L124,238 L138,232 L152,228 L166,234 L178,242 Z"
-              fill="#0d1020" stroke="#2d3748" strokeWidth="1"/>
-            {/* Corse */}
-            <path d="M488,460 L496,466 L500,478 L498,492 L490,500 L482,496 L478,484 L480,470 Z"
-              fill="#0d1020" stroke="#2d3748" strokeWidth="1"/>
-            {/* Régions viticoles */}
-            {REGIONS.map(r => {
-              const pList = regionProspects[r.id]||[];
-              const has = pList.length>0;
-              const isHov = hoveredRegion===r.id;
-              return (
-                <g key={r.id} onMouseEnter={()=>setHoveredRegion(r.id)} onMouseLeave={()=>setHoveredRegion(null)}>
-                  <circle cx={r.x} cy={r.y} r={has?20:12}
-                    fill={has?`${r.color}22`:"#ffffff05"}
-                    stroke={has?r.color:"#374151"}
-                    strokeWidth={isHov?2.5:1}
-                    style={{transition:"all .2s",cursor:"pointer"}}/>
-                  {has&&<circle cx={r.x} cy={r.y} r={6} fill={r.color} opacity={0.95}/>}
-                  {!has&&<circle cx={r.x} cy={r.y} r={4} fill="#374151"/>}
-                  <text x={r.x} y={r.y+(has?30:22)} textAnchor="middle"
-                    style={{fontSize:7.5,fill:has?r.color:"#4b5563",fontFamily:"DM Sans",fontWeight:600,pointerEvents:"none"}}>
-                    {r.label}
-                  </text>
-                  {pList.length>0&&(
-                    <text x={r.x+15} y={r.y-10} textAnchor="middle"
-                      style={{fontSize:9,fill:"#f1f5f9",fontWeight:700,fontFamily:"DM Sans",pointerEvents:"none"}}>
-                      {pList.length}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-            {/* Points individuels prospects */}
-            {prospects.map((p,i) => {
-              const r = getRegion(p);
-              if (!r) return null;
-              const region = REGIONS.find(rg=>rg.id===r);
-              if (!region) return null;
-              const angle = (i*137.5)*Math.PI/180;
-              const rad = 10+(i%3)*7;
-              const px = region.x+Math.cos(angle)*rad;
-              const py = region.y+Math.sin(angle)*rad;
-              const c = STATUS_COLORS[p.status]||"#6b7280";
-              return (
-                <circle key={p.id} cx={px} cy={py} r={5} fill={c} stroke="#080a0f" strokeWidth={1.5}
-                  style={{cursor:"pointer"}}
-                  onMouseEnter={()=>setHoveredProspect(p)}
-                  onMouseLeave={()=>setHoveredProspect(null)}
-                  onClick={()=>onOpenProspect(p)}/>
-              );
-            })}
-          </svg>
-          {/* Légende statuts */}
-          <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:6}}>
+      <div style={{display:"flex",gap:12,height:580}}>
+
+        {/* CARTE */}
+        <div style={{flex:"0 0 420px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:14,display:"flex",flexDirection:"column"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9"}}>🗺 France viticole</p>
+            <div style={{display:"flex",gap:4}}>
+              <button onClick={()=>setZoom(z=>Math.min(z+0.25,2.5))} style={{padding:"2px 8px",background:"#0f1520",border:"1px solid #1a2035",borderRadius:4,color:"#94a3b8",cursor:"pointer",fontSize:14}}>+</button>
+              <button onClick={()=>setZoom(z=>Math.max(z-0.25,0.75))} style={{padding:"2px 8px",background:"#0f1520",border:"1px solid #1a2035",borderRadius:4,color:"#94a3b8",cursor:"pointer",fontSize:14}}>−</button>
+              <button onClick={()=>setZoom(1)} style={{padding:"2px 6px",background:"#0f1520",border:"1px solid #1a2035",borderRadius:4,color:"#4b5563",cursor:"pointer",fontSize:10}}>↺</button>
+            </div>
+          </div>
+          <div style={{flex:1,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div style={{transform:`scale(${zoom})`,transformOrigin:"center center",transition:"transform .2s"}}>
+              <svg viewBox="0 0 500 560" width="390" height="490">
+                {/* France — tracé réaliste */}
+                <path d="M298,52 L318,48 L342,54 L364,62 L382,74 L396,90 L406,108 L410,128 L406,148 L416,162 L428,178 L432,198 L428,216 L418,230 L420,250 L424,270 L426,292 L420,312 L410,328 L400,344 L394,362 L386,378 L374,392 L358,402 L340,410 L320,416 L300,418 L280,416 L260,408 L242,398 L226,386 L212,372 L200,356 L190,338 L184,320 L180,300 L178,280 L180,260 L178,242 L170,226 L164,210 L162,192 L166,174 L174,158 L184,144 L194,130 L202,116 L208,100 L218,88 L230,78 L244,70 L260,64 L278,58 Z"
+                  fill="#0d1020" stroke="#334155" strokeWidth="2"/>
+                {/* Bretagne */}
+                <path d="M178,260 L162,265 L145,270 L130,268 L118,258 L116,246 L126,238 L142,234 L158,238 L170,248 Z"
+                  fill="#0d1020" stroke="#334155" strokeWidth="1.5"/>
+                {/* Corse */}
+                <path d="M416,448 L424,454 L428,468 L424,480 L416,484 L408,478 L406,464 L410,452 Z"
+                  fill="#0d1020" stroke="#334155" strokeWidth="1.5"/>
+
+                {/* Points régions */}
+                {REGIONS.map(r => {
+                  const pos = SVG_POS[r.id];
+                  if (!pos) return null;
+                  const pList = regionProspects[r.id]||[];
+                  const has = pList.length>0;
+                  const isSel = selectedRegion===r.id;
+                  return (
+                    <g key={r.id} onClick={()=>setSelectedRegion(isSel?null:r.id)} style={{cursor:"pointer"}}>
+                      <circle cx={pos.x} cy={pos.y} r={has?19:11}
+                        fill={has?`${r.color}25`:"#ffffff08"}
+                        stroke={has?r.color:"#475569"}
+                        strokeWidth={isSel?3:1.5}
+                        style={{transition:"all .2s"}}/>
+                      {has&&pList.map((p,i)=>{
+                        const angle=(i*137.5)*Math.PI/180;
+                        const rad=7+(i%3)*5;
+                        const px=pos.x+Math.cos(angle)*rad;
+                        const py=pos.y+Math.sin(angle)*rad;
+                        const c=STATUS_COLORS[p.status]||"#6b7280";
+                        return <circle key={p.id} cx={px} cy={py} r={4} fill={c} stroke="#080a0f" strokeWidth={1} style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();onOpenProspect(p);}}/>;
+                      })}
+                      {!has&&<circle cx={pos.x} cy={pos.y} r={4} fill="#475569"/>}
+                      <text x={pos.x} y={pos.y+(has?30:21)} textAnchor="middle"
+                        style={{fontSize:7,fill:has?r.color:"#475569",fontFamily:"DM Sans",fontWeight:600,pointerEvents:"none"}}>
+                        {r.label}
+                      </text>
+                      {has&&<text x={pos.x+14} y={pos.y-10} textAnchor="middle"
+                        style={{fontSize:9,fill:"#f1f5f9",fontWeight:700,fontFamily:"DM Sans",pointerEvents:"none"}}>
+                        {pList.length}
+                      </text>}
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+          </div>
+          {/* Légende */}
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:6}}>
             {Object.entries(STATUS_COLORS).map(([s,c])=>(
               <div key={s} style={{display:"flex",alignItems:"center",gap:3}}>
                 <span style={{width:7,height:7,borderRadius:"50%",background:c,display:"inline-block"}}/>
-                <span style={{fontSize:9,color:"#4b5563"}}>{s}</span>
+                <span style={{fontSize:8,color:"#4b5563"}}>{s}</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Panel droit */}
-        <div style={{flex:1,display:"flex",flexDirection:"column",gap:10,overflowY:"auto",maxHeight:520}}>
+        {/* PANEL DROIT */}
+        <div style={{flex:1,display:"flex",flexDirection:"column",gap:10,overflowY:"auto"}}>
 
-          {/* Tooltip survol */}
-          {hoveredProspect&&(
-            <div style={{background:"#0b0d16",border:`1px solid ${STATUS_COLORS[hoveredProspect.status]||"#0f1520"}`,borderRadius:10,padding:14}}>
-              <p style={{fontSize:13,fontWeight:700,color:"#f1f5f9",marginBottom:4}}>{hoveredProspect.name}</p>
-              <p style={{fontSize:11,color:"#6b7280",marginBottom:6}}>{hoveredProspect.producteur} · {hoveredProspect.cepage}</p>
-              <div style={{display:"flex",gap:6,marginBottom:8}}>
-                <span style={{fontSize:10,padding:"2px 7px",borderRadius:4,background:`${STATUS_COLORS[hoveredProspect.status]||"#6b7280"}20`,color:STATUS_COLORS[hoveredProspect.status]||"#6b7280",fontWeight:600}}>{hoveredProspect.status}</span>
-                {hoveredProspect.bio&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:4,background:"#22c55e15",color:"#4ade80",fontWeight:600}}>🌱 Bio</span>}
+          {/* Région sélectionnée */}
+          {selectedRegion&&selectedReg&&(
+            <div style={{background:"#0b0d16",border:`2px solid ${selectedReg.color}40`,borderRadius:11,padding:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <p style={{fontSize:12,fontWeight:700,color:selectedReg.color}}>{selectedReg.label} — {selectedProspects.length} domaine{selectedProspects.length>1?"s":""}</p>
+                <button onClick={()=>setSelectedRegion(null)} style={{background:"none",border:"none",color:"#4b5563",cursor:"pointer",fontSize:16}}>×</button>
               </div>
-              <button onClick={()=>onOpenProspect(hoveredProspect)}
-                style={{padding:"5px 12px",background:"#8b5cf618",border:"1px solid #8b5cf628",borderRadius:6,color:"#a78bfa",fontSize:11,fontWeight:600,cursor:"pointer"}}>
-                Ouvrir la fiche →
-              </button>
+              {selectedProspects.map(p=>{
+                const c=STATUS_COLORS[p.status]||"#6b7280";
+                return (
+                  <div key={p.id} onClick={()=>onOpenProspect(p)}
+                    style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,marginBottom:6,background:"#080a0f",border:`1px solid ${c}22`,cursor:"pointer",transition:"background .12s"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="#0f1520"}
+                    onMouseLeave={e=>e.currentTarget.style.background="#080a0f"}>
+                    <span style={{width:8,height:8,borderRadius:"50%",background:c,flexShrink:0}}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</p>
+                      <p style={{fontSize:10,color:"#4b5563"}}>{p.cepage||p.producteur||"–"} · {p.status}</p>
+                    </div>
+                    {p.bio&&<span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"#22c55e15",color:"#4ade80",fontWeight:600}}>Bio</span>}
+                    <span style={{fontSize:10,color:"#4b5563",flexShrink:0}}>→</span>
+                  </div>
+                );
+              })}
             </div>
           )}
 
           {/* Couverture */}
-          <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:10,padding:14}}>
+          <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:14}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <p style={{fontSize:11,fontWeight:600,color:"#f1f5f9"}}>📊 Couverture</p>
-              <span style={{fontSize:11,fontWeight:700,color:"#8b5cf6"}}>{covered.length}/{REGIONS.length} régions</span>
+              <p style={{fontSize:11,fontWeight:600,color:"#f1f5f9"}}>📊 Couverture — {covered.length}/{REGIONS.length} régions</p>
+              <span style={{fontSize:11,fontWeight:700,color:"#8b5cf6"}}>{prospects.length} domaines</span>
             </div>
-            <div style={{height:6,background:"#0d1020",borderRadius:3,marginBottom:10,overflow:"hidden"}}>
-              <div style={{height:"100%",width:`${covered.length/REGIONS.length*100}%`,background:"linear-gradient(90deg,#8b5cf6,#6d28d9)",borderRadius:3,transition:"width .5s"}}/>
+            <div style={{height:5,background:"#0d1020",borderRadius:3,marginBottom:10,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${covered.length/REGIONS.length*100}%`,background:"linear-gradient(90deg,#8b5cf6,#6d28d9)",borderRadius:3}}/>
             </div>
             {covered.map(r=>(
-              <div key={r.id} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #080a0f"}}>
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <span style={{width:7,height:7,borderRadius:"50%",background:r.color,display:"inline-block"}}/>
+              <div key={r.id} onClick={()=>setSelectedRegion(r.id)}
+                style={{display:"flex",justifyContent:"space-between",padding:"5px 8px",borderRadius:6,marginBottom:3,cursor:"pointer",background:selectedRegion===r.id?`${r.color}15`:"transparent",transition:"background .12s"}}
+                onMouseEnter={e=>e.currentTarget.style.background=`${r.color}10`}
+                onMouseLeave={e=>e.currentTarget.style.background=selectedRegion===r.id?`${r.color}15`:"transparent"}>
+                <div style={{display:"flex",alignItems:"center",gap:7}}>
+                  <span style={{width:8,height:8,borderRadius:"50%",background:r.color,display:"inline-block"}}/>
                   <span style={{fontSize:11,color:"#9ca3af"}}>{r.label}</span>
                 </div>
-                <span style={{fontSize:11,fontWeight:600,color:"#f1f5f9"}}>{regionProspects[r.id].length} domaine{regionProspects[r.id].length>1?"s":""}</span>
+                <span style={{fontSize:11,fontWeight:600,color:r.color}}>{regionProspects[r.id].length} →</span>
               </div>
             ))}
           </div>
 
           {/* Régions sans contact */}
           {uncovered.length>0&&(
-            <div style={{background:"#0b0d16",border:"1px solid #ef444425",borderRadius:10,padding:14}}>
-              <p style={{fontSize:11,fontWeight:600,color:"#f87171",marginBottom:10}}>⚠️ Régions sans contact</p>
+            <div style={{background:"#0b0d16",border:"1px solid #ef444425",borderRadius:11,padding:14}}>
+              <p style={{fontSize:11,fontWeight:600,color:"#f87171",marginBottom:8}}>⚠️ Zones non couvertes</p>
               {uncovered.map(r=>(
-                <div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid #080a0f"}}>
-                  <span style={{fontSize:11,color:"#6b7280"}}>{r.label}</span>
+                <div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderBottom:"1px solid #080a0f"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{width:7,height:7,borderRadius:"50%",background:"#374151",display:"inline-block"}}/>
+                    <span style={{fontSize:11,color:"#6b7280"}}>{r.label}</span>
+                  </div>
                   <button onClick={onAddProspect} style={{fontSize:10,padding:"2px 8px",background:"#3b82f618",border:"1px solid #3b82f628",borderRadius:4,color:"#60a5fa",cursor:"pointer"}}>+ Ajouter</button>
                 </div>
               ))}
             </div>
           )}
-          {uncovered.length===0&&(
-            <div style={{background:"#0b0d16",border:"1px solid #22c55e25",borderRadius:10,padding:14,textAlign:"center"}}>
-              <p style={{fontSize:13}}>🎉</p>
-              <p style={{fontSize:11,color:"#4ade80",fontWeight:600}}>Toutes les régions sont couvertes !</p>
+
+          {/* Non placés */}
+          {unmapped.length>0&&(
+            <div style={{background:"#0b0d16",border:"1px solid #f59e0b25",borderRadius:11,padding:14}}>
+              <p style={{fontSize:11,fontWeight:600,color:"#fbbf24",marginBottom:8}}>📍 Non localisés ({unmapped.length}) — assigne une région depuis la fiche</p>
+              {unmapped.map(p=>(
+                <div key={p.id} onClick={()=>onOpenProspect(p)}
+                  style={{fontSize:11,color:"#6b7280",padding:"3px 0",borderBottom:"1px solid #080a0f",cursor:"pointer"}}
+                  onMouseEnter={e=>e.currentTarget.style.color="#94a3b8"}
+                  onMouseLeave={e=>e.currentTarget.style.color="#6b7280"}>
+                  {p.name} →
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -1149,6 +1201,7 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
     </div>
   );
 }
+
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 
