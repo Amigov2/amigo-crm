@@ -1004,7 +1004,7 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
 
   const getRegion = (p) => {
     if (p.regionManuelle) return p.regionManuelle;
-    const h = `${p.appellation||""} ${p.sub||""} ${p.note||""} ${p.cepage||""} ${p.name||""} ${p.producteur||}`.toLowerCase();
+    const h = `${p.appellation||""} ${p.sub||""} ${p.note||""} ${p.cepage||""} ${p.name||""} ${p.producteur||""}`.toLowerCase();
     if (h.match(/bordeaux|medoc|pessac|saint.?emilion|pomerol|sauternes|margaux|lalande|lalaudey|pontac|calice/)) return "bordeaux";
     if (h.match(/bourgogne|puligny|gevrey|chambolle|nuits|meursault|chablis|macon|leflaive|montrachet|folie.sauvage|coteaux.bourgignon|bourgignon|heitz/)) return "bourgogne";
     if (h.match(/champagne|reims|epernay|charpentier/)) return "champagne";
