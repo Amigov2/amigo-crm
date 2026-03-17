@@ -977,23 +977,24 @@ function DocsTab({ prospect, onUpdate, projId }) {
 
 function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
   const [selectedRegion, setSelectedRegion] = useState(null);
+  const [hoveredRegion, setHoveredRegion] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({x:0,y:0});
   const [dragging, setDragging] = useState(false);
   const [dragStart, setDragStart] = useState(null);
 
   const REGIONS = [
-    { id:"bordeaux",   label:"Bordeaux",        color:"#e74c3c", cx:118, cy:342 },
-    { id:"bourgogne",  label:"Bourgogne",       color:"#9b59b6", cx:322, cy:248 },
-    { id:"champagne",  label:"Champagne",       color:"#f1c40f", cx:308, cy:112 },
-    { id:"alsace",     label:"Alsace",          color:"#e67e22", cx:398, cy:155 },
-    { id:"loire",      label:"Loire",           color:"#27ae60", cx:192, cy:218 },
-    { id:"rhone",      label:"Vallée du Rhône", color:"#d35400", cx:338, cy:318 },
-    { id:"languedoc",  label:"Languedoc",       color:"#16a085", cx:278, cy:402 },
-    { id:"provence",   label:"Provence",        color:"#c0392b", cx:368, cy:388 },
-    { id:"beaujolais", label:"Beaujolais",      color:"#8e44ad", cx:328, cy:278 },
-    { id:"jura",       label:"Jura/Savoie",     color:"#7f8c8d", cx:368, cy:242 },
-    { id:"sw",         label:"Sud-Ouest",       color:"#795548", cx:168, cy:382 },
+    { id:"bordeaux",   label:"Bordeaux",        color:"#e05252", cx:108, cy:330 },
+    { id:"bourgogne",  label:"Bourgogne",       color:"#a855f7", cx:310, cy:252 },
+    { id:"champagne",  label:"Champagne",       color:"#eab308", cx:295, cy:118 },
+    { id:"alsace",     label:"Alsace",          color:"#f97316", cx:378, cy:165 },
+    { id:"loire",      label:"Loire",           color:"#22c55e", cx:188, cy:222 },
+    { id:"rhone",      label:"Vallée du Rhône", color:"#fb923c", cx:322, cy:320 },
+    { id:"languedoc",  label:"Languedoc",       color:"#14b8a6", cx:262, cy:390 },
+    { id:"provence",   label:"Provence",        color:"#f43f5e", cx:348, cy:378 },
+    { id:"beaujolais", label:"Beaujolais",      color:"#c084fc", cx:308, cy:282 },
+    { id:"jura",       label:"Jura/Savoie",     color:"#94a3b8", cx:355, cy:248 },
+    { id:"sw",         label:"Sud-Ouest",       color:"#d97706", cx:152, cy:372 },
   ];
 
   const STATUS_COLORS = {
@@ -1003,7 +1004,7 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
 
   const getRegion = (p) => {
     if (p.regionManuelle) return p.regionManuelle;
-    const h = `${p.appellation||""} ${p.sub||""} ${p.note||""} ${p.cepage||""} ${p.name||""} ${p.producteur||""}`.toLowerCase();
+    const h = `${p.appellation||""} ${p.sub||""} ${p.note||""} ${p.cepage||""} ${p.name||""} ${p.producteur||}`.toLowerCase();
     if (h.match(/bordeaux|medoc|pessac|saint.?emilion|pomerol|sauternes|margaux|lalande|lalaudey|pontac|calice/)) return "bordeaux";
     if (h.match(/bourgogne|puligny|gevrey|chambolle|nuits|meursault|chablis|macon|leflaive|montrachet|folie.sauvage|coteaux.bourgignon|bourgignon|heitz/)) return "bourgogne";
     if (h.match(/champagne|reims|epernay|charpentier/)) return "champagne";
@@ -1041,79 +1042,190 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
   const handleMouseMove = (e) => { if (dragging&&dragStart) setPan({x:e.clientX-dragStart.x, y:e.clientY-dragStart.y}); };
   const handleMouseUp   = () => { setDragging(false); setDragStart(null); };
 
-  // Vrai tracé SVG de la France métropolitaine (source IGN simplifié)
-  const FRANCE_PATH = "M248,52 L268,46 L292,48 L316,50 L338,46 L360,52 L380,62 L398,74 L412,90 L420,108 L422,128 L416,148 L424,162 L436,174 L444,192 L442,210 L432,224 L430,242 L436,258 L440,278 L438,296 L430,312 L420,326 L412,342 L406,360 L396,376 L382,390 L364,400 L344,408 L322,412 L300,414 L278,410 L258,402 L240,390 L224,376 L210,360 L198,342 L190,322 L184,302 L182,280 L184,260 L180,242 L172,226 L166,210 L164,192 L168,174 L176,158 L186,142 L196,128 L204,114 L212,100 L222,88 L234,78 L246,68 Z";
-  const BRETAGNE_PATH = "M182,260 L165,265 L148,270 L132,266 L118,256 L115,244 L125,236 L142,232 L158,238 L170,248 Z";
-  const CORSE_PATH = "M406,432 L414,438 L418,450 L414,462 L406,466 L398,460 L396,448 L400,438 Z";
+  // France métropolitaine — contour SVG précis avec courbes
+  const FRANCE_PATH = "M 258,28 C 270,24 286,22 304,22 C 320,22 336,26 350,32 C 362,37 374,46 382,56 C 388,64 392,72 396,80 C 400,84 408,87 416,93 C 422,100 424,110 424,120 C 424,132 420,142 416,150 C 418,158 424,166 430,176 C 434,186 436,196 436,208 C 436,220 432,232 428,242 C 428,252 432,264 436,276 C 438,288 438,300 436,312 C 432,326 426,338 418,350 C 412,360 406,368 400,376 C 390,386 378,394 364,400 C 348,406 330,408 312,408 C 296,408 280,406 264,400 C 248,394 234,384 220,372 C 208,360 198,346 190,330 C 184,316 180,300 178,284 C 176,268 178,254 176,242 C 172,230 164,220 158,210 C 154,200 154,190 156,180 C 158,170 164,160 170,152 C 174,144 174,136 170,128 C 166,118 160,110 156,100 C 154,90 156,80 162,70 C 168,60 178,52 188,46 C 200,40 212,36 226,32 C 238,29 248,27 258,28 Z";
+  const BRETAGNE_PATH = "M 178,256 C 166,258 152,262 138,266 C 124,268 110,264 100,256 C 92,248 92,238 98,230 C 106,222 118,220 130,224 C 142,228 154,238 164,248 Z";
+  const COTENTIN_PATH = "M 196,100 C 188,94 180,86 176,76 C 174,68 176,60 184,58 C 192,56 200,62 204,72 C 206,82 204,94 196,100 Z";
+  const CORSE_PATH = "M 392,424 C 398,428 404,436 406,446 C 408,456 406,466 400,470 C 394,474 386,470 382,462 C 378,454 378,444 382,436 C 386,428 390,422 392,424 Z";
+
+  const RIVERS = [
+    { id:"loire",   d:"M 158,208 Q 192,205 222,200 Q 252,194 272,200 Q 292,206 310,202" },
+    { id:"rhone",   d:"M 314,222 Q 322,254 324,284 Q 326,314 332,342 Q 338,366 356,384" },
+    { id:"garonne", d:"M 157,196 Q 162,232 160,268 Q 158,300 144,334 Q 132,358 114,374" },
+    { id:"seine",   d:"M 232,114 Q 252,108 274,114 Q 294,118 304,124" },
+  ];
 
   return (
     <div className="fade">
       <div style={{display:"flex",gap:12}}>
         {/* CARTE */}
-        <div style={{flex:"0 0 450px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,overflow:"hidden"}}>
-          <div style={{padding:"10px 14px",borderBottom:"1px solid #0d1020",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9"}}>🗺 France viticole</p>
+        <div style={{flex:"0 0 460px",background:"#07090f",border:"1px solid #192030",borderRadius:14,overflow:"hidden",boxShadow:"0 8px 40px #00000060"}}>
+          <div style={{padding:"11px 16px",borderBottom:"1px solid #101828",display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(90deg,#09111f,#0b1220)"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:15}}>🍷</span>
+              <p style={{fontSize:12,fontWeight:700,color:"#e2e8f0",letterSpacing:".3px"}}>France viticole</p>
+            </div>
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
-              <span style={{fontSize:10,color:"#4b5563"}}>Scroll = zoom</span>
-              <button onClick={()=>{setZoom(1);setPan({x:0,y:0});}} style={{fontSize:10,padding:"2px 7px",background:"#0f1520",border:"1px solid #1a2035",borderRadius:4,color:"#4b5563",cursor:"pointer"}}>↺</button>
+              <span style={{fontSize:9,color:"#2d4060",letterSpacing:".4px",fontWeight:600}}>SCROLL · DRAG</span>
+              <button onClick={()=>{setZoom(1);setPan({x:0,y:0});}}
+                style={{fontSize:10,padding:"3px 9px",background:"#0f1728",border:"1px solid #1a2540",borderRadius:5,color:"#3d5070",cursor:"pointer"}}>↺</button>
             </div>
           </div>
-          <div style={{overflow:"hidden",width:450,height:500,cursor:dragging?"grabbing":"grab",background:"#080a0f"}}
+
+          <div style={{overflow:"hidden",width:460,height:510,cursor:dragging?"grabbing":"grab",background:"#050810",position:"relative"}}
             onWheel={handleWheel}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}>
-            <svg viewBox="0 0 460 480" width={450} height={500}
-              style={{transform:`translate(${pan.x}px,${pan.y}px) scale(${zoom})`,transformOrigin:"center center",transition:dragging?"none":"transform .1s"}}>
-              {/* France */}
-              <path d={FRANCE_PATH} fill="#111827" stroke="#334155" strokeWidth="1.5"/>
-              <path d={BRETAGNE_PATH} fill="#111827" stroke="#334155" strokeWidth="1.5"/>
-              <path d={CORSE_PATH} fill="#111827" stroke="#334155" strokeWidth="1.5"/>
+            <svg viewBox="0 0 460 480" width={460} height={510}
+              style={{transform:`translate(${pan.x}px,${pan.y}px) scale(${zoom})`,transformOrigin:"center center",transition:dragging?"none":"transform .12s ease"}}>
+
+              <defs>
+                <radialGradient id="seaGrad" cx="30%" cy="50%" r="70%">
+                  <stop offset="0%" stopColor="#091828"/>
+                  <stop offset="100%" stopColor="#04080f"/>
+                </radialGradient>
+                <linearGradient id="franceGrad" x1="10%" y1="0%" x2="90%" y2="100%">
+                  <stop offset="0%" stopColor="#151f30"/>
+                  <stop offset="50%" stopColor="#101828"/>
+                  <stop offset="100%" stopColor="#0d1420"/>
+                </linearGradient>
+                <filter id="glow">
+                  <feGaussianBlur stdDeviation="4" result="blur"/>
+                  <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+                <filter id="softglow">
+                  <feGaussianBlur stdDeviation="8" result="blur"/>
+                  <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+              </defs>
+
+              {/* Fond mer */}
+              <rect x="-100" y="-100" width="700" height="700" fill="url(#seaGrad)"/>
+
+              {/* Grille cartographique subtile */}
+              {[0,60,120,180,240,300,360,420,480].map(y=>(
+                <line key={"h"+y} x1="-100" y1={y} x2="600" y2={y} stroke="#0a1422" strokeWidth=".6"/>
+              ))}
+              {[0,60,120,180,240,300,360,420,480].map(x=>(
+                <line key={"v"+x} x1={x} y1="-100" x2={x} y2="600" stroke="#0a1422" strokeWidth=".6"/>
+              ))}
+
+              {/* Ombre profondeur France */}
+              <path d={FRANCE_PATH} fill="#000" opacity="0.45" transform="translate(5,7)" filter="url(#softglow)"/>
+              <path d={BRETAGNE_PATH} fill="#000" opacity="0.4" transform="translate(5,7)"/>
+              <path d={COTENTIN_PATH} fill="#000" opacity="0.35" transform="translate(5,7)"/>
+
+              {/* Territoire France */}
+              <path d={FRANCE_PATH} fill="url(#franceGrad)" stroke="#1e3050" strokeWidth="2"/>
+              <path d={BRETAGNE_PATH} fill="url(#franceGrad)" stroke="#1e3050" strokeWidth="2"/>
+              <path d={COTENTIN_PATH} fill="url(#franceGrad)" stroke="#1e3050" strokeWidth="1.5"/>
+              <path d={CORSE_PATH} fill="url(#franceGrad)" stroke="#1e3050" strokeWidth="1.5"/>
+
+              {/* Rivières */}
+              {RIVERS.map(r=>(
+                <path key={r.id} d={r.d} fill="none" stroke="#142840" strokeWidth="1.2"
+                  strokeLinecap="round" opacity="0.7"/>
+              ))}
+
+              {/* Halos lumineux pour régions actives */}
+              {REGIONS.map(r => {
+                const has = (regionProspects[r.id]||[]).length > 0;
+                if (!has) return null;
+                return <circle key={"halo-"+r.id} cx={r.cx} cy={r.cy} r={32}
+                  fill={r.color} opacity="0.07" filter="url(#softglow)"/>;
+              })}
 
               {/* Régions viticoles */}
               {REGIONS.map(r => {
                 const pList = regionProspects[r.id]||[];
-                const has = pList.length>0;
-                const isSel = selectedRegion===r.id;
+                const has = pList.length > 0;
+                const isSel = selectedRegion === r.id;
+                const isHov = hoveredRegion === r.id;
+                const active = isSel || isHov;
                 return (
-                  <g key={r.id} onClick={()=>setSelectedRegion(isSel?null:r.id)} style={{cursor:"pointer"}}>
-                    {has&&<circle cx={r.cx} cy={r.cy} r={isSel?22:17}
-                      fill={r.color+"28"} stroke={r.color} strokeWidth={isSel?2.5:1.5}
-                      style={{transition:"all .2s"}}/>}
-                    {!has&&<circle cx={r.cx} cy={r.cy} r={8}
-                      fill="#1e293b" stroke="#475569" strokeWidth="1"
-                      strokeDasharray="3,2"/>}
-                    {/* Points prospects */}
-                    {pList.map((p,i) => {
-                      const angle=(i*137.5)*Math.PI/180;
-                      const rad=6+(i%3)*5;
-                      const c=STATUS_COLORS[p.status]||"#6b7280";
-                      return <circle key={p.id}
-                        cx={r.cx+Math.cos(angle)*rad} cy={r.cy+Math.sin(angle)*rad}
-                        r={4} fill={c} stroke="#080a0f" strokeWidth={1}
-                        style={{cursor:"pointer"}}
-                        onClick={e=>{e.stopPropagation();onOpenProspect(p);}}/>;
-                    })}
-                    <text x={r.cx} y={r.cy+(has?30:20)} textAnchor="middle"
-                      fontSize={isSel?"9":"7.5"} fill={has?r.color:"#475569"}
-                      fontFamily="DM Sans" fontWeight="600" pointerEvents="none">
+                  <g key={r.id}
+                    onClick={()=>setSelectedRegion(isSel?null:r.id)}
+                    onMouseEnter={()=>setHoveredRegion(r.id)}
+                    onMouseLeave={()=>setHoveredRegion(null)}
+                    style={{cursor:"pointer"}}>
+
+                    {has ? (
+                      <>
+                        {/* Halo extérieur sélectionné */}
+                        {isSel && <circle cx={r.cx} cy={r.cy} r={30}
+                          fill="none" stroke={r.color} strokeWidth="1" opacity="0.3"
+                          strokeDasharray="4,3"/>}
+
+                        {/* Cercle principal */}
+                        <circle cx={r.cx} cy={r.cy} r={active?23:17}
+                          fill={r.color+(active?"25":"14")}
+                          stroke={r.color}
+                          strokeWidth={isSel?2.5:active?2:1.5}
+                          style={{transition:"all .2s ease"}}/>
+
+                        {/* Badge compteur */}
+                        <circle cx={r.cx+13} cy={r.cy-13} r={7.5}
+                          fill={r.color} opacity={active?1:0.85}
+                          style={{transition:"all .2s"}}/>
+                        <text x={r.cx+13} y={r.cy-13+3.5} textAnchor="middle"
+                          fontSize="8" fill="#fff" fontWeight="800" pointerEvents="none">
+                          {pList.length}
+                        </text>
+
+                        {/* Points prospects */}
+                        {pList.map((p,i) => {
+                          const angle = (i * 137.5) * Math.PI / 180;
+                          const rad = active ? 9+(i%3)*6 : 6+(i%3)*5;
+                          const c = STATUS_COLORS[p.status]||"#6b7280";
+                          return (
+                            <circle key={p.id}
+                              cx={r.cx+Math.cos(angle)*rad}
+                              cy={r.cy+Math.sin(angle)*rad}
+                              r={4.5} fill={c} stroke="#050810" strokeWidth={1.5}
+                              style={{cursor:"pointer",transition:"all .2s ease"}}
+                              onClick={e=>{e.stopPropagation();onOpenProspect(p);}}/>
+                          );
+                        })}
+                      </>
+                    ) : (
+                      <circle cx={r.cx} cy={r.cy} r={5}
+                        fill="#0d1828" stroke="#1e3050" strokeWidth="1"
+                        strokeDasharray="2,2" opacity="0.5"/>
+                    )}
+
+                    {/* Label région */}
+                    <text x={r.cx} y={r.cy+(has?(active?33:27):17)} textAnchor="middle"
+                      fontSize={active?"9.5":"8"} fill={has?r.color+"dd":"#1e3050"}
+                      fontFamily="system-ui,sans-serif" fontWeight={active?"700":"600"}
+                      pointerEvents="none" style={{transition:"all .15s"}}>
                       {r.label}
                     </text>
-                    {has&&<text x={r.cx+16} y={r.cy-12} textAnchor="middle"
-                      fontSize="9" fill="#f1f5f9" fontFamily="DM Sans" fontWeight="700" pointerEvents="none">
-                      {pList.length}
-                    </text>}
                   </g>
                 );
               })}
+
+              {/* Label Corse */}
+              <text x="393" y="478" textAnchor="middle" fontSize="6.5" fill="#1e3050"
+                fontFamily="system-ui" fontWeight="500">Corse</text>
+
+              {/* Boussole */}
+              <g transform="translate(428,34)" opacity="0.4">
+                <circle cx="0" cy="0" r="11" fill="none" stroke="#1e3050" strokeWidth="1"/>
+                <text x="0" y="-14" textAnchor="middle" fontSize="6.5" fill="#3d5070" fontWeight="700">N</text>
+                <path d="M 0,-9 L 2.5,0 L 0,2.5 L -2.5,0 Z" fill="#3d6090"/>
+                <path d="M 0,9 L 2.5,0 L 0,-2.5 L -2.5,0 Z" fill="#192030"/>
+              </g>
             </svg>
           </div>
-          <div style={{padding:"8px 12px",borderTop:"1px solid #0d1020",display:"flex",flexWrap:"wrap",gap:6}}>
+
+          {/* Légende */}
+          <div style={{padding:"8px 14px",borderTop:"1px solid #101828",display:"flex",flexWrap:"wrap",gap:8,background:"#060a10"}}>
             {Object.entries(STATUS_COLORS).map(([s,c])=>(
-              <div key={s} style={{display:"flex",alignItems:"center",gap:3}}>
-                <span style={{width:7,height:7,borderRadius:"50%",background:c}}/>
-                <span style={{fontSize:8,color:"#4b5563"}}>{s}</span>
+              <div key={s} style={{display:"flex",alignItems:"center",gap:4}}>
+                <span style={{width:6,height:6,borderRadius:"50%",background:c,flexShrink:0,boxShadow:`0 0 4px ${c}60`}}/>
+                <span style={{fontSize:9,color:"#2d4060"}}>{s}</span>
               </div>
             ))}
           </div>
