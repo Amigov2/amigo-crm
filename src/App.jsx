@@ -984,17 +984,17 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
   const [dragStart, setDragStart] = useState(null);
 
   const REGIONS = [
-    { id:"bordeaux",   label:"Bordeaux",        color:"#e05252", cx:108, cy:330 },
-    { id:"bourgogne",  label:"Bourgogne",       color:"#a855f7", cx:310, cy:252 },
-    { id:"champagne",  label:"Champagne",       color:"#eab308", cx:295, cy:118 },
-    { id:"alsace",     label:"Alsace",          color:"#f97316", cx:378, cy:165 },
-    { id:"loire",      label:"Loire",           color:"#22c55e", cx:188, cy:222 },
-    { id:"rhone",      label:"Vallée du Rhône", color:"#fb923c", cx:322, cy:320 },
-    { id:"languedoc",  label:"Languedoc",       color:"#14b8a6", cx:262, cy:390 },
-    { id:"provence",   label:"Provence",        color:"#f43f5e", cx:348, cy:378 },
-    { id:"beaujolais", label:"Beaujolais",      color:"#c084fc", cx:308, cy:282 },
-    { id:"jura",       label:"Jura/Savoie",     color:"#94a3b8", cx:355, cy:248 },
-    { id:"sw",         label:"Sud-Ouest",       color:"#d97706", cx:152, cy:372 },
+    { id:"bordeaux",   label:"Bordeaux",        color:"#e05252", cx:164, cy:318 },
+    { id:"bourgogne",  label:"Bourgogne",       color:"#a855f7", cx:314, cy:206 },
+    { id:"champagne",  label:"Champagne",       color:"#eab308", cx:292, cy:119 },
+    { id:"alsace",     label:"Alsace",          color:"#f97316", cx:385, cy:162 },
+    { id:"loire",      label:"Loire",           color:"#22c55e", cx:199, cy:203 },
+    { id:"rhone",      label:"Vallée du Rhône", color:"#fb923c", cx:315, cy:307 },
+    { id:"languedoc",  label:"Languedoc",       color:"#14b8a6", cx:288, cy:373 },
+    { id:"provence",   label:"Provence",        color:"#f43f5e", cx:340, cy:375 },
+    { id:"beaujolais", label:"Beaujolais",      color:"#c084fc", cx:310, cy:258 },
+    { id:"jura",       label:"Jura/Savoie",     color:"#94a3b8", cx:344, cy:229 },
+    { id:"sw",         label:"Sud-Ouest",       color:"#d97706", cx:220, cy:373 },
   ];
 
   const STATUS_COLORS = {
@@ -1042,18 +1042,9 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
   const handleMouseMove = (e) => { if (dragging&&dragStart) setPan({x:e.clientX-dragStart.x, y:e.clientY-dragStart.y}); };
   const handleMouseUp   = () => { setDragging(false); setDragStart(null); };
 
-  // France métropolitaine — contour SVG précis avec courbes
-  const FRANCE_PATH = "M 258,28 C 270,24 286,22 304,22 C 320,22 336,26 350,32 C 362,37 374,46 382,56 C 388,64 392,72 396,80 C 400,84 408,87 416,93 C 422,100 424,110 424,120 C 424,132 420,142 416,150 C 418,158 424,166 430,176 C 434,186 436,196 436,208 C 436,220 432,232 428,242 C 428,252 432,264 436,276 C 438,288 438,300 436,312 C 432,326 426,338 418,350 C 412,360 406,368 400,376 C 390,386 378,394 364,400 C 348,406 330,408 312,408 C 296,408 280,406 264,400 C 248,394 234,384 220,372 C 208,360 198,346 190,330 C 184,316 180,300 178,284 C 176,268 178,254 176,242 C 172,230 164,220 158,210 C 154,200 154,190 156,180 C 158,170 164,160 170,152 C 174,144 174,136 170,128 C 166,118 160,110 156,100 C 154,90 156,80 162,70 C 168,60 178,52 188,46 C 200,40 212,36 226,32 C 238,29 248,27 258,28 Z";
-  const BRETAGNE_PATH = "M 178,256 C 166,258 152,262 138,266 C 124,268 110,264 100,256 C 92,248 92,238 98,230 C 106,222 118,220 130,224 C 142,228 154,238 164,248 Z";
-  const COTENTIN_PATH = "M 196,100 C 188,94 180,86 176,76 C 174,68 176,60 184,58 C 192,56 200,62 204,72 C 206,82 204,94 196,100 Z";
-  const CORSE_PATH = "M 392,424 C 398,428 404,436 406,446 C 408,456 406,466 400,470 C 394,474 386,470 382,462 C 378,454 378,444 382,436 C 386,428 390,422 392,424 Z";
-
-  const RIVERS = [
-    { id:"loire",   d:"M 158,208 Q 192,205 222,200 Q 252,194 272,200 Q 292,206 310,202" },
-    { id:"rhone",   d:"M 314,222 Q 322,254 324,284 Q 326,314 332,342 Q 338,366 356,384" },
-    { id:"garonne", d:"M 157,196 Q 162,232 160,268 Q 158,300 144,334 Q 132,358 114,374" },
-    { id:"seine",   d:"M 232,114 Q 252,108 274,114 Q 294,118 304,124" },
-  ];
+  // Contour France métropolitaine — coordonnées géographiques réelles projetées
+  const FRANCE_PATH = "M 251,37 L 268,53 L 295,75 L 315,96 L 333,107 L 344,107 L 358,124 L 392,127 L 402,132 L 392,194 L 376,249 L 369,269 L 376,300 L 372,319 L 365,332 L 380,351 L 389,362 L 378,387 L 347,396 L 325,388 L 308,387 L 288,380 L 277,387 L 268,426 L 250,425 L 229,419 L 199,414 L 172,407 L 152,391 L 131,384 L 127,383 L 121,266 L 118,208 L 99,198 L 63,190 L 47,192 L 47,159 L 60,145 L 74,142 L 105,147 L 124,147 L 137,147 L 137,122 L 129,99 L 144,101 L 166,109 L 183,114 L 194,109 L 224,82 L 230,42 Z";
+  const CORSE_PATH = "M 418,399 L 446,399 L 446,473 L 418,473 Z";
 
   return (
     <div className="fade">
@@ -1082,21 +1073,19 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
               style={{transform:`translate(${pan.x}px,${pan.y}px) scale(${zoom})`,transformOrigin:"center center",transition:dragging?"none":"transform .12s ease"}}>
 
               <defs>
-                <radialGradient id="seaGrad" cx="30%" cy="50%" r="70%">
+                <radialGradient id="seaGrad" cx="25%" cy="45%" r="75%">
                   <stop offset="0%" stopColor="#091828"/>
-                  <stop offset="100%" stopColor="#04080f"/>
+                  <stop offset="100%" stopColor="#040710"/>
                 </radialGradient>
                 <linearGradient id="franceGrad" x1="10%" y1="0%" x2="90%" y2="100%">
-                  <stop offset="0%" stopColor="#151f30"/>
-                  <stop offset="50%" stopColor="#101828"/>
-                  <stop offset="100%" stopColor="#0d1420"/>
+                  <stop offset="0%" stopColor="#16213a"/>
+                  <stop offset="100%" stopColor="#0d1628"/>
                 </linearGradient>
-                <filter id="glow">
-                  <feGaussianBlur stdDeviation="4" result="blur"/>
-                  <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                <filter id="shadow">
+                  <feDropShadow dx="3" dy="5" stdDeviation="6" floodColor="#000" floodOpacity="0.6"/>
                 </filter>
                 <filter id="softglow">
-                  <feGaussianBlur stdDeviation="8" result="blur"/>
+                  <feGaussianBlur stdDeviation="7" result="blur"/>
                   <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
                 </filter>
               </defs>
@@ -1104,37 +1093,30 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
               {/* Fond mer */}
               <rect x="-100" y="-100" width="700" height="700" fill="url(#seaGrad)"/>
 
-              {/* Grille cartographique subtile */}
-              {[0,60,120,180,240,300,360,420,480].map(y=>(
-                <line key={"h"+y} x1="-100" y1={y} x2="600" y2={y} stroke="#0a1422" strokeWidth=".6"/>
+              {/* Grille cartographique */}
+              {[0,80,160,240,320,400,480].map(y=>(
+                <line key={"h"+y} x1="-100" y1={y} x2="600" y2={y} stroke="#0a1828" strokeWidth=".7"/>
               ))}
-              {[0,60,120,180,240,300,360,420,480].map(x=>(
-                <line key={"v"+x} x1={x} y1="-100" x2={x} y2="600" stroke="#0a1422" strokeWidth=".6"/>
-              ))}
-
-              {/* Ombre profondeur France */}
-              <path d={FRANCE_PATH} fill="#000" opacity="0.45" transform="translate(5,7)" filter="url(#softglow)"/>
-              <path d={BRETAGNE_PATH} fill="#000" opacity="0.4" transform="translate(5,7)"/>
-              <path d={COTENTIN_PATH} fill="#000" opacity="0.35" transform="translate(5,7)"/>
-
-              {/* Territoire France */}
-              <path d={FRANCE_PATH} fill="url(#franceGrad)" stroke="#1e3050" strokeWidth="2"/>
-              <path d={BRETAGNE_PATH} fill="url(#franceGrad)" stroke="#1e3050" strokeWidth="2"/>
-              <path d={COTENTIN_PATH} fill="url(#franceGrad)" stroke="#1e3050" strokeWidth="1.5"/>
-              <path d={CORSE_PATH} fill="url(#franceGrad)" stroke="#1e3050" strokeWidth="1.5"/>
-
-              {/* Rivières */}
-              {RIVERS.map(r=>(
-                <path key={r.id} d={r.d} fill="none" stroke="#142840" strokeWidth="1.2"
-                  strokeLinecap="round" opacity="0.7"/>
+              {[0,80,160,240,320,400,480].map(x=>(
+                <line key={"v"+x} x1={x} y1="-100" x2={x} y2="600" stroke="#0a1828" strokeWidth=".7"/>
               ))}
 
-              {/* Halos lumineux pour régions actives */}
+              {/* France — ombre */}
+              <path d={FRANCE_PATH} fill="#000" opacity="0.5" filter="url(#shadow)"/>
+
+              {/* France — territoire */}
+              <path d={FRANCE_PATH} fill="url(#franceGrad)" stroke="#2a4060" strokeWidth="1.8" strokeLinejoin="round"/>
+
+              {/* Corse */}
+              <path d={CORSE_PATH} fill="url(#franceGrad)" stroke="#2a4060" strokeWidth="1.5"/>
+              <text x="432" y="492" textAnchor="middle" fontSize="7" fill="#2a4060" fontFamily="system-ui">Corse</text>
+
+              {/* Halos régions actives */}
               {REGIONS.map(r => {
                 const has = (regionProspects[r.id]||[]).length > 0;
                 if (!has) return null;
-                return <circle key={"halo-"+r.id} cx={r.cx} cy={r.cy} r={32}
-                  fill={r.color} opacity="0.07" filter="url(#softglow)"/>;
+                return <circle key={"halo-"+r.id} cx={r.cx} cy={r.cy} r={34}
+                  fill={r.color} opacity="0.08" filter="url(#softglow)"/>;
               })}
 
               {/* Régions viticoles */}
@@ -1150,54 +1132,37 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
                     onMouseEnter={()=>setHoveredRegion(r.id)}
                     onMouseLeave={()=>setHoveredRegion(null)}
                     style={{cursor:"pointer"}}>
-
                     {has ? (
                       <>
-                        {/* Halo extérieur sélectionné */}
                         {isSel && <circle cx={r.cx} cy={r.cy} r={30}
-                          fill="none" stroke={r.color} strokeWidth="1" opacity="0.3"
-                          strokeDasharray="4,3"/>}
-
-                        {/* Cercle principal */}
-                        <circle cx={r.cx} cy={r.cy} r={active?23:17}
-                          fill={r.color+(active?"25":"14")}
-                          stroke={r.color}
+                          fill="none" stroke={r.color} strokeWidth="1" opacity="0.35" strokeDasharray="4,3"/>}
+                        <circle cx={r.cx} cy={r.cy} r={active?22:17}
+                          fill={r.color+(active?"28":"18")} stroke={r.color}
                           strokeWidth={isSel?2.5:active?2:1.5}
                           style={{transition:"all .2s ease"}}/>
-
-                        {/* Badge compteur */}
-                        <circle cx={r.cx+13} cy={r.cy-13} r={7.5}
-                          fill={r.color} opacity={active?1:0.85}
-                          style={{transition:"all .2s"}}/>
+                        <circle cx={r.cx+13} cy={r.cy-13} r={7.5} fill={r.color}/>
                         <text x={r.cx+13} y={r.cy-13+3.5} textAnchor="middle"
                           fontSize="8" fill="#fff" fontWeight="800" pointerEvents="none">
                           {pList.length}
                         </text>
-
-                        {/* Points prospects */}
                         {pList.map((p,i) => {
                           const angle = (i * 137.5) * Math.PI / 180;
                           const rad = active ? 9+(i%3)*6 : 6+(i%3)*5;
                           const c = STATUS_COLORS[p.status]||"#6b7280";
-                          return (
-                            <circle key={p.id}
-                              cx={r.cx+Math.cos(angle)*rad}
-                              cy={r.cy+Math.sin(angle)*rad}
-                              r={4.5} fill={c} stroke="#050810" strokeWidth={1.5}
-                              style={{cursor:"pointer",transition:"all .2s ease"}}
-                              onClick={e=>{e.stopPropagation();onOpenProspect(p);}}/>
-                          );
+                          return <circle key={p.id}
+                            cx={r.cx+Math.cos(angle)*rad} cy={r.cy+Math.sin(angle)*rad}
+                            r={4.5} fill={c} stroke="#050810" strokeWidth={1.5}
+                            style={{cursor:"pointer",transition:"all .2s"}}
+                            onClick={e=>{e.stopPropagation();onOpenProspect(p);}}/>;
                         })}
                       </>
                     ) : (
                       <circle cx={r.cx} cy={r.cy} r={5}
                         fill="#0d1828" stroke="#1e3050" strokeWidth="1"
-                        strokeDasharray="2,2" opacity="0.5"/>
+                        strokeDasharray="2,2" opacity="0.6"/>
                     )}
-
-                    {/* Label région */}
-                    <text x={r.cx} y={r.cy+(has?(active?33:27):17)} textAnchor="middle"
-                      fontSize={active?"9.5":"8"} fill={has?r.color+"dd":"#1e3050"}
+                    <text x={r.cx} y={r.cy+(has?(active?32:26):17)} textAnchor="middle"
+                      fontSize={active?"9.5":"8"} fill={has?r.color+"ee":"#1e3050"}
                       fontFamily="system-ui,sans-serif" fontWeight={active?"700":"600"}
                       pointerEvents="none" style={{transition:"all .15s"}}>
                       {r.label}
@@ -1206,21 +1171,16 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
                 );
               })}
 
-              {/* Label Corse */}
-              <text x="393" y="478" textAnchor="middle" fontSize="6.5" fill="#1e3050"
-                fontFamily="system-ui" fontWeight="500">Corse</text>
-
               {/* Boussole */}
-              <g transform="translate(428,34)" opacity="0.4">
+              <g transform="translate(428,36)" opacity="0.45">
                 <circle cx="0" cy="0" r="11" fill="none" stroke="#1e3050" strokeWidth="1"/>
-                <text x="0" y="-14" textAnchor="middle" fontSize="6.5" fill="#3d5070" fontWeight="700">N</text>
+                <text x="0" y="-14" textAnchor="middle" fontSize="7" fill="#3d6090" fontWeight="700">N</text>
                 <path d="M 0,-9 L 2.5,0 L 0,2.5 L -2.5,0 Z" fill="#3d6090"/>
                 <path d="M 0,9 L 2.5,0 L 0,-2.5 L -2.5,0 Z" fill="#192030"/>
               </g>
             </svg>
           </div>
 
-          {/* Légende */}
           <div style={{padding:"8px 14px",borderTop:"1px solid #101828",display:"flex",flexWrap:"wrap",gap:8,background:"#060a10"}}>
             {Object.entries(STATUS_COLORS).map(([s,c])=>(
               <div key={s} style={{display:"flex",alignItems:"center",gap:4}}>
