@@ -151,8 +151,8 @@ function StatCard({ label, value, sub, color, icon }) {
 }
 
 function KanbanCard({ prospect, accent, onOpen, prospectEmails }) {
-  const P = PROJECTS[prospect._proj] || Object.values(PROJECTS)[0];
-  const col = P.statusColors[prospect.status] || "#6b7280";
+  const P = PROJECTS[prospect._proj] || PROJECTS["vin"] || Object.values(PROJECTS)[0];
+  const col = (P.statusColors && P.statusColors[prospect.status]) || "#6b7280";
   const au = prospect.assignedTo ? USERS[prospect.assignedTo] : null;
 
   // Badge email
