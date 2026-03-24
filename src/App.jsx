@@ -157,10 +157,10 @@ function KanbanCard({ prospect, accent, onOpen, prospectEmails }) {
 
   // Badge email
   const emails = (prospectEmails||{})[prospect.id]||[];
-  const lastEmail = emails[0]; // déjà trié par date desc
+  const lastEmail = emails.length > 0 ? emails[0] : null;
   const hasSent = emails.some(e=>e.folder==="Envoyés");
   const hasReply = emails.some(e=>e.folder==="Reçus");
-  const daysSince = lastEmail ? Math.floor((Date.now()-lastEmail.timestamp)/86400000) : null;
+  const daysSince = lastEmail?.timestamp ? Math.floor((Date.now()-lastEmail.timestamp)/86400000) : null;
 
   // Alerte relance si contacté mais silence > 14 jours
   const needsFollowUp = hasSent && !hasReply && daysSince !== null && daysSince >= 14;
@@ -2002,7 +2002,11 @@ export default function AmigoCRM() {
                 {results.map(p=>{
                   const proj = PROJECTS[p._proj] || PROJECTS["vin"] || Object.values(PROJECTS)[0];
                   return (
-                    <div key={p.id} onMouseDown={()=>{setProjId(p._proj);setDetailProspect(p);setSearchQuery("");setSearchOpen(false);}}
+                    <div key={p.id} onMouseDown={()=>{
+                      const pid = p._proj==="vinClients"?"vin":p._proj;
+                      setProjId(pid);
+                      if(p._proj==="vinClients") setVinSubType("vinClients");
+                      setDetailProspect(p);setSearchQuery("");setSearchOpen(false);}}
                       style={{padding:"9px 14px",borderBottom:"1px solid #080a0f",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}
                       onMouseEnter={e=>e.currentTarget.style.background="#0f1520"}
                       onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
