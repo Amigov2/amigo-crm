@@ -1,5 +1,19 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
+
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(e) { return { error: e.message }; }
+  render() {
+    if (this.state.error) return (
+      <div style={{padding:40,color:"#f87171",fontFamily:"monospace",background:"#080a0f",minHeight:"100vh"}}>
+        <h2 style={{color:"#f87171"}}>🔴 Erreur :</h2>
+        <pre style={{whiteSpace:"pre-wrap",color:"#fbbf24"}}>{this.state.error}</pre>
+      </div>
+    );
+    return this.props.children;
+  }
+}
 
 const supabase = createClient(
   "https://sujdarqrksqwcmtapcjw.supabase.co",
@@ -1260,7 +1274,7 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 
-export default function AmigoCRM() {
+function AmigoCRM() {
   const [authUser, setAuthUser] = useState(null); // session Google
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError]   = useState("");
@@ -2509,7 +2523,6 @@ export default function AmigoCRM() {
       {showAddOrder!==undefined&&<AddOrderModal projId={projId} prospects={prospects} preselect={showAddOrder} onAdd={addOrder} onClose={()=>setShowAddOrder(undefined)}/>}
       {detailProspect&&<ProspectModal prospect={detailProspect} projId={effectiveProjId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} prospectEmails={data?.prospectEmails||{}} onSendEmail={sendGmail} onScanForProspect={scanForProspect} onClearEmails={clearProspectEmails} gmailLoading={gmailLoading}/>}
       {showAddEvent&&<AddEventModal onAdd={createCalEvent} onClose={()=>setShowAddEvent(null)} preDate={showAddEvent==="new"?null:showAddEvent} currentUser={user}/>}
-      {showEmailModal&&<EmailModal prospect={showEmailModal} projId={effectiveProjId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail} onUpdateStatus={updateProspect}/>}
-    </div>
-  );
+export default function AmigoCRMWithBoundary() {
+  return <ErrorBoundary><AmigoCRM/></ErrorBoundary>;
 }
