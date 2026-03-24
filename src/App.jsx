@@ -1,20 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-class ErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { error: null }; }
-  static getDerivedStateFromError(e) { return { error: e.message }; }
-  render() {
-    if (this.state.error) return (
-      <div style={{padding:40,color:"#f87171",fontFamily:"monospace",background:"#080a0f",minHeight:"100vh"}}>
-        <h2 style={{color:"#f87171"}}>🔴 Erreur :</h2>
-        <pre style={{whiteSpace:"pre-wrap",color:"#fbbf24"}}>{this.state.error}</pre>
-      </div>
-    );
-    return this.props.children;
-  }
-}
-
 
   "https://sujdarqrksqwcmtapcjw.supabase.co",
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN1amRhcnFya3Nxd2NtdGFwY2p3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNzI1NDgsImV4cCI6MjA4ODc0ODU0OH0.X1UaTAq6zdxwYCoAllUDE_GoTS-TlvgZrK1OWKkc_nM"
@@ -1274,7 +1260,7 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 
-function AmigoCRM() {
+export default function AmigoCRM() {
   const [authUser, setAuthUser] = useState(null); // session Google
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError]   = useState("");
@@ -2526,8 +2512,4 @@ function AmigoCRM() {
       {showEmailModal&&<EmailModal prospect={showEmailModal} projId={effectiveProjId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail} onUpdateStatus={updateProspect}/>}
     </div>
   );
-}
-
-export default function AmigoCRMWithBoundary() {
-  return <ErrorBoundary><AmigoCRM/></ErrorBoundary>;
 }
