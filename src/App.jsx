@@ -2523,6 +2523,11 @@ function AmigoCRM() {
       {showAddOrder!==undefined&&<AddOrderModal projId={projId} prospects={prospects} preselect={showAddOrder} onAdd={addOrder} onClose={()=>setShowAddOrder(undefined)}/>}
       {detailProspect&&<ProspectModal prospect={detailProspect} projId={effectiveProjId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} prospectEmails={data?.prospectEmails||{}} onSendEmail={sendGmail} onScanForProspect={scanForProspect} onClearEmails={clearProspectEmails} gmailLoading={gmailLoading}/>}
       {showAddEvent&&<AddEventModal onAdd={createCalEvent} onClose={()=>setShowAddEvent(null)} preDate={showAddEvent==="new"?null:showAddEvent} currentUser={user}/>}
+      {showEmailModal&&<EmailModal prospect={showEmailModal} projId={effectiveProjId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail} onUpdateStatus={updateProspect}/>}
+    </div>
+  );
+}
+
 export default function AmigoCRMWithBoundary() {
   return <ErrorBoundary><AmigoCRM/></ErrorBoundary>;
 }
