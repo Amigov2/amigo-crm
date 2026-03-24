@@ -2000,7 +2000,7 @@ export default function AmigoCRM() {
             return (
               <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,right:0,background:"#0b0d16",border:"1px solid #1a2035",borderRadius:9,overflow:"hidden",zIndex:200,boxShadow:"0 8px 24px #00000060"}}>
                 {results.map(p=>{
-                  const proj = PROJECTS[p._proj];
+                  const proj = PROJECTS[p._proj] || PROJECTS["vin"] || Object.values(PROJECTS)[0];
                   return (
                     <div key={p.id} onMouseDown={()=>{setProjId(p._proj);setDetailProspect(p);setSearchQuery("");setSearchOpen(false);}}
                       style={{padding:"9px 14px",borderBottom:"1px solid #080a0f",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}
