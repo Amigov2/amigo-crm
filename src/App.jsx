@@ -1751,6 +1751,8 @@ export default function AmigoCRM() {
     nd = addAct(nd, user, p.name, "ajouté");
     setShowAddProspect(false);
     await save(nd);
+    // Ouvrir la fiche immédiatement après création
+    setDetailProspect(p);
   };
 
   const addOrder = async o => {
