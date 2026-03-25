@@ -157,14 +157,17 @@ function KanbanCard({ prospect, accent, onOpen, prospectEmails }) {
 
   const isVinClient = (p) => {
     const tel = (p.phone||"").replace(/\s/g,"");
-    const email = (p.email||"").toLowerCase();
+    const em = (p.email||"").toLowerCase();
     if (tel.startsWith("+55") || tel.startsWith("55")) return true;
-    if (email.endsWith(".br")) return true;
+    if (em.endsWith(".br")) return true;
     if ((p.geo||"").includes("🇧🇷")) return true;
     return false;
   };
   const isVin = prospect._proj === "vin" || prospect._proj === "vinClients";
   const vinType = isVin ? (isVinClient(prospect) ? "client" : "fournisseur") : null;
+
+  // Badge email
+  const emails = (prospectEmails||{})[prospect.id]||[];
   const lastEmail = emails.length > 0 ? emails[0] : null;
   const hasSent = emails.some(e=>e.folder==="Envoyés");
   const hasReply = emails.some(e=>e.folder==="Reçus");
@@ -2164,9 +2167,17 @@ export default function AmigoCRM() {
 
             {/* KANBAN */}
             <div style={{display:"flex",gap:11,overflowX:"auto",paddingBottom:14}}>
-              {P.statuses.map(status=>{
+              {(()=>{
+                // Pour vin : fusionner les statuts fournisseurs + clients
+                const allStatuses = projId==="vin"
+                  ? [...new Set([...PROJECTS.vin.statuses, ...PROJECTS.vinClients.statuses])]
+                  : P.statuses;
+                const allStatusColors = projId==="vin"
+                  ? {...PROJECTS.vin.statusColors, ...PROJECTS.vinClients.statusColors}
+                  : P.statusColors;
+                return allStatuses.map(status=>{
                 const cards = prospects.filter(p=>p.status===status);
-                const col = P.statusColors[status]||"#6b7280";
+                const col = allStatusColors[status]||"#6b7280";
                 const colVal = cards.reduce((s,p)=>s+p.valeur,0);
                 return (
                   <div key={status} style={{minWidth:215,maxWidth:235,flexShrink:0}}>
@@ -2190,12 +2201,10 @@ export default function AmigoCRM() {
                     </div>
                   </div>
                 );
-              })}
+              });})()}
             </div>
           </div>
         )}
-
-        {/* ══ COMMANDES ══ */}
         {view==="commandes"&&(
           <div className="fade">
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
