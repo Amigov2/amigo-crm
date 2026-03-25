@@ -654,93 +654,111 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
 
       {/* ── EMAILS ── */}
       {tab==="emails"&&<>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <button onClick={()=>onScanForProspect&&onScanForProspect(prospect)}
               disabled={gmailLoading}
               style={{padding:"6px 12px",background:"#3b82f618",border:"1px solid #3b82f628",borderRadius:6,color:"#60a5fa",fontSize:11,fontWeight:600,cursor:gmailLoading?"default":"pointer",opacity:gmailLoading?0.6:1,display:"flex",alignItems:"center",gap:6}}>
               {gmailLoading
-                ? <><span style={{display:"inline-block",width:10,height:10,border:"2px solid #60a5fa",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>Scan en cours…</>
-                : "🔍 Scanner mes emails"
+                ? <><span style={{display:"inline-block",width:10,height:10,border:"2px solid #60a5fa",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>Scan…</>
+                : "🔍 Scanner"
               }
             </button>
             <button onClick={()=>onClearEmails&&onClearEmails(prospect)}
-              disabled={gmailLoading}
-              style={{padding:"6px 10px",background:"#ef444415",border:"1px solid #ef444425",borderRadius:6,color:"#f87171",fontSize:11,fontWeight:500,cursor:"pointer"}}>
-              🗑 Vider
+              style={{padding:"6px 10px",background:"#ef444415",border:"1px solid #ef444425",borderRadius:6,color:"#f87171",fontSize:11,cursor:"pointer"}}>
+              🗑
             </button>
-            {!gmailLoading&&myEmails.length>0&&<span style={{fontSize:10,color:"#4b5563"}}>{myEmails.length} email{myEmails.length>1?"s":""}</span>}
+            {myEmails.length>0&&<span style={{fontSize:10,color:"#4b5563"}}>{myEmails.length} message{myEmails.length>1?"s":""}</span>}
           </div>
-          <button onClick={()=>onEmail&&onEmail(prospect)} style={{padding:"6px 12px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:6,color:P.color,fontSize:11,fontWeight:600,cursor:"pointer"}}>✉️ Nouvel email</button>
+          <button onClick={()=>onEmail&&onEmail(prospect)}
+            style={{padding:"6px 14px",background:`linear-gradient(135deg,${P.color},${P.color}cc)`,border:"none",borderRadius:6,color:"white",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+            ✉️ Nouveau message
+          </button>
         </div>
 
         {myEmails.length===0&&(
-          <div style={{textAlign:"center",padding:"30px 20px",color:"#2d3748"}}>
+          <div style={{textAlign:"center",padding:"30px 20px"}}>
             <p style={{fontSize:28,marginBottom:8}}>📭</p>
-            <p style={{fontSize:12,color:"#4b5563"}}>Aucun email trouvé pour ce contact.</p>
-            <p style={{fontSize:11,color:"#2d3748",marginTop:4}}>Clique sur "Scanner mes emails" pour charger les échanges avec {prospect.name}.</p>
+            <p style={{fontSize:12,color:"#4b5563"}}>Aucun échange trouvé.</p>
+            <p style={{fontSize:11,color:"#2d3748",marginTop:4}}>Clique sur Scanner pour chercher dans Gmail.</p>
           </div>
         )}
 
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {myEmails.map(email=>{
           const isOut = email.folder==="Envoyés";
           const isReply = replyTo?.id===email.id;
           const isExpanded = expandedEmail===email.id;
+          const content = emailBodies[email.id] || email.body || email.snippet || "";
           return (
-            <div key={email.id} style={{marginBottom:10,borderRadius:9,border:`1px solid ${isExpanded?(isOut?"#22c55e55":"#3b82f655"):(isOut?"#22c55e22":"#1a2035")}`,overflow:"hidden",transition:"border .15s"}}>
-              {/* Header email — clic pour ouvrir */}
-              <div onClick={()=>{const next=isExpanded?null:email.id;setExpandedEmail(next);if(next)loadEmailBody(email);}}
-                style={{padding:"10px 12px",background:isOut?"#22c55e08":"#0b0d16",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}
-                onMouseEnter={e=>e.currentTarget.style.background=isOut?"#22c55e12":"#0f1520"}
-                onMouseLeave={e=>e.currentTarget.style.background=isOut?"#22c55e08":"#0b0d16"}>
+            <div key={email.id} style={{borderRadius:10,border:`1px solid ${isOut?"#22c55e30":"#1e293b"}`,overflow:"hidden",background:isOut?"#052010":"#0b0f1a"}}>
+              {/* Header cliquable */}
+              <div onClick={()=>setExpandedEmail(isExpanded?null:email.id)}
+                style={{padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",borderBottom:isExpanded?"1px solid #1e293b":"none"}}
+                onMouseEnter={e=>e.currentTarget.style.background=isOut?"#0a3020":"#0f1520"}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                 <div style={{flex:1,minWidth:0}}>
-                  <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{email.subject||"(sans objet)"}</p>
-                  <p style={{fontSize:10,color:"#4b5563"}}>{isOut?`→ ${email.to}`:`← ${email.from}`}</p>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                    <span style={{fontSize:9,padding:"2px 7px",borderRadius:10,background:isOut?"#22c55e20":"#3b82f620",color:isOut?"#4ade80":"#60a5fa",fontWeight:700,flexShrink:0}}>
+                      {isOut?"↗ Envoyé":"↙ Reçu"}
+                    </span>
+                    <span style={{fontSize:12,fontWeight:600,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{email.subject||"(sans objet)"}</span>
+                  </div>
+                  <p style={{fontSize:10,color:"#4b5563"}}>
+                    {isOut ? `À : ${email.to}` : `De : ${email.from}`}
+                    {email.cc && <span style={{marginLeft:8,color:"#374151"}}>CC : {email.cc}</span>}
+                  </p>
                 </div>
-                <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,marginLeft:8}}>
-                  <span style={{fontSize:10,color:"#4b5563"}}>{email.timestamp?new Date(email.timestamp).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}):""}</span>
-                  <span style={{fontSize:9,padding:"2px 6px",borderRadius:3,background:isOut?"#22c55e15":"#3b82f615",color:isOut?"#4ade80":"#60a5fa",fontWeight:600}}>{email.folder}</span>
-                  <span style={{fontSize:12,color:"#4b5563",transition:"transform .15s",display:"inline-block",transform:isExpanded?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,marginLeft:10}}>
+                  <span style={{fontSize:10,color:"#374151"}}>
+                    {email.timestamp ? new Date(email.timestamp).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}) : ""}
+                  </span>
+                  <span style={{fontSize:11,color:"#374151",transform:isExpanded?"rotate(180deg)":"none",transition:"transform .15s",display:"inline-block"}}>▾</span>
                 </div>
               </div>
-              {/* Contenu expandé */}
-              {isExpanded&&<>
-                <div style={{padding:"12px 14px",background:"#06080d",borderTop:"1px solid #0d1020",maxHeight:320,overflowY:"auto"}}>
-                  {loadingBody===email.id
-                    ? <p style={{fontSize:11,color:"#4b5563"}}>⏳ Chargement…</p>
-                    : <p style={{fontSize:12,color:"#cbd5e1",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{emailBodies[email.id]||email.body||email.snippet||"(contenu vide)"}</p>
+
+              {/* Corps toujours visible si expanded */}
+              {isExpanded&&(
+                <div style={{padding:"14px 16px",borderBottom:"1px solid #1e293b"}}>
+                  {content
+                    ? <p style={{fontSize:12,color:"#cbd5e1",lineHeight:1.9,whiteSpace:"pre-wrap",fontFamily:"inherit"}}>{content}</p>
+                    : <p style={{fontSize:11,color:"#374151",fontStyle:"italic"}}>Rescanne ce contact pour voir le contenu complet.</p>
                   }
-                  {!emailBodies[email.id]&&!email.body&&(
-                    <button onClick={()=>loadEmailBody(email)} style={{fontSize:10,color:"#3b82f6",background:"none",border:"none",cursor:"pointer",marginTop:6,padding:0}}>
-                      🔄 Charger le message complet
-                    </button>
-                  )}
                 </div>
-                {/* Zone réponse */}
-                <div style={{padding:"10px 12px",background:"#0b0d16",borderTop:"1px solid #0d1020",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              )}
+
+              {/* Répondre */}
+              {isExpanded&&(
+                <div style={{padding:"10px 14px"}}>
                   {!isReply
                     ? <button onClick={e=>{e.stopPropagation();setReplyTo(email);setReplyBody("");}}
-                        style={{padding:"6px 14px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:6,color:P.color,fontSize:11,fontWeight:600,cursor:"pointer"}}>↩ Répondre</button>
-                    : <div style={{width:"100%"}}>
+                        style={{padding:"5px 14px",background:`${P.color}18`,border:`1px solid ${P.color}28`,borderRadius:6,color:P.color,fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                        ↩ Répondre
+                      </button>
+                    : <div>
                         <p style={{fontSize:10,color:"#4b5563",marginBottom:6,fontWeight:600}}>↩ Répondre à {email.from}</p>
                         <textarea value={replyBody} onChange={e=>setReplyBody(e.target.value)}
                           placeholder="Votre réponse..."
-                          style={{width:"100%",padding:"8px",borderRadius:6,fontSize:11,resize:"none",height:90,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",lineHeight:1.6,marginBottom:8}}/>
+                          style={{width:"100%",padding:"10px",borderRadius:7,fontSize:12,resize:"vertical",minHeight:100,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",lineHeight:1.7,marginBottom:8}}/>
                         {sent&&<p style={{fontSize:11,color:"#4ade80",marginBottom:6}}>✅ Réponse envoyée !</p>}
                         <div style={{display:"flex",gap:8}}>
                           <button onClick={handleReply} disabled={sending||!replyBody.trim()}
-                            style={{padding:"6px 14px",background:`linear-gradient(135deg,${P.color},${P.color}aa)`,border:"none",borderRadius:6,color:"white",fontSize:11,fontWeight:600,cursor:"pointer",opacity:sending?0.6:1}}>
+                            style={{padding:"7px 16px",background:`linear-gradient(135deg,${P.color},${P.color}aa)`,border:"none",borderRadius:6,color:"white",fontSize:12,fontWeight:600,cursor:"pointer",opacity:sending?0.6:1}}>
                             {sending?"Envoi…":"📤 Envoyer"}
                           </button>
-                          <button onClick={()=>setReplyTo(null)} style={{padding:"6px 10px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:6,color:"#6b7280",fontSize:11,cursor:"pointer"}}>Annuler</button>
+                          <button onClick={()=>setReplyTo(null)}
+                            style={{padding:"7px 12px",background:"transparent",border:"1px solid #1e293b",borderRadius:6,color:"#6b7280",fontSize:11,cursor:"pointer"}}>
+                            Annuler
+                          </button>
                         </div>
                       </div>
                   }
                 </div>
-              </>}
+              )}
             </div>
           );
         })}
+        </div>
       </>}
 
       {/* ── COMMANDES ── */}
