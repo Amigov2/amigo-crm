@@ -1893,22 +1893,25 @@ export default function AmigoCRM() {
             `https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages/${id}?format=full`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
-          const snippet=decodeSnippet(msg.snippet);
+          const msg = await r.json();
+          const headers = msg.payload?.headers||[];
+          const get = n => headers.find(h=>h.name===n)?.value||"";
+          const from=get("From"), to=get("To"), subject=get("Subject"), date=get("Date"), cc=get("Cc");
+          const snippet=decodeSnippet(msg.snippet||"");
           const labelIds=msg.labelIds||[];
           const folder=labelIds.includes("SENT")?"Envoyés":labelIds.includes("DRAFT")?"Brouillons":labelIds.includes("INBOX")?"Reçus":"Autre";
           const timestamp=msg.internalDate?parseInt(msg.internalDate):0;
           const hasPJ = pjIds.has(id);
-          // Extraire le corps du message et le sauvegarder
           const extractBody = (parts=[]) => {
             for (const p of parts) {
               if (p.mimeType==="text/plain" && p.body?.data) {
                 try { return decodeSnippet(atob(p.body.data.replace(/-/g,"+").replace(/_/g,"/"))); } catch(e){}
               }
-              if (p.parts) { const r=extractBody(p.parts); if(r) return r; }
+              if (p.parts) { const r2=extractBody(p.parts); if(r2) return r2; }
             }
             return null;
           };
-          const body = msg.payload?.parts ? extractBody(msg.payload.parts) 
+          const body = msg.payload?.parts ? extractBody(msg.payload.parts)
             : (msg.payload?.body?.data ? decodeSnippet(atob(msg.payload.body.data.replace(/-/g,"+").replace(/_/g,"/"))) : null);
           return { id, from, to, cc, subject, date, timestamp, prospectId:prospect.id, proj:prospect._proj||projId, folder, snippet, body:body||snippet, scannedBy:user, hasPJ };
         })
