@@ -707,13 +707,14 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
               {isExpanded&&<>
                 <div style={{padding:"12px 14px",background:"#06080d",borderTop:"1px solid #0d1020",maxHeight:320,overflowY:"auto"}}>
                   {loadingBody===email.id
-                    ? <p style={{fontSize:11,color:"#4b5563"}}>⏳ Chargement du message…</p>
-                    : <p style={{fontSize:12,color:"#cbd5e1",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{emailBodies[email.id]||email.snippet||"(contenu vide)"}</p>
+                    ? <p style={{fontSize:11,color:"#4b5563"}}>⏳ Chargement…</p>
+                    : <p style={{fontSize:12,color:"#cbd5e1",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{emailBodies[email.id]||email.body||email.snippet||"(contenu vide)"}</p>
                   }
-                  <a href={`https://mail.google.com/mail/u/0/#search/${encodeURIComponent(email.subject||"")}`} target="_blank" rel="noopener noreferrer"
-                    style={{fontSize:10,color:"#3b82f6",display:"inline-block",marginTop:8}}>
-                    📧 Ouvrir dans Gmail →
-                  </a>
+                  {!emailBodies[email.id]&&!email.body&&(
+                    <button onClick={()=>loadEmailBody(email)} style={{fontSize:10,color:"#3b82f6",background:"none",border:"none",cursor:"pointer",marginTop:6,padding:0}}>
+                      🔄 Charger le message complet
+                    </button>
+                  )}
                 </div>
                 {/* Zone réponse */}
                 <div style={{padding:"10px 12px",background:"#0b0d16",borderTop:"1px solid #0d1020",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -1497,16 +1498,25 @@ export default function AmigoCRM() {
 
   const matchEmailToProspect = (from, to, subject, snippet, allProspects) => {
     const haystack = `${from} ${to} ${subject} ${snippet}`.toLowerCase();
+    // 1. Match par email exact — le plus fiable
     for (const p of allProspects) {
       if (p.email) {
-        const domain = p.email.split("@")[1]?.toLowerCase();
-        if (domain && haystack.includes(domain)) return p;
+        const em = p.email.toLowerCase();
+        const domain = em.split("@")[1];
+        const GENERIC = ["gmail.com","hotmail.com","yahoo.com","outlook.com","orange.fr","wanadoo.fr","free.fr","sfr.fr","laposte.net"];
+        if (GENERIC.includes(domain)) {
+          // Domaine générique → match sur l'adresse complète uniquement
+          if (haystack.includes(em)) return p;
+        } else if (domain && haystack.includes(domain)) {
+          return p;
+        }
       }
     }
+    // 2. Match par nom — uniquement si le nom est long et spécifique (>7 chars)
     for (const p of allProspects) {
-      const names = [p.name, p.producteur, p.contact].filter(Boolean).map(n=>n.toLowerCase().trim());
+      const names = [p.name, p.producteur].filter(Boolean).map(n=>n.toLowerCase().trim());
       for (const n of names) {
-        if (n.length > 4 && haystack.includes(n)) return p;
+        if (n.length > 7 && haystack.includes(n)) return p;
       }
     }
     return null;
@@ -1858,7 +1868,7 @@ export default function AmigoCRM() {
       const threads = await Promise.all(
         [...emailIds].map(async id => {
           const r = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           const msg = await r.json();
@@ -1869,9 +1879,20 @@ export default function AmigoCRM() {
           const labelIds=msg.labelIds||[];
           const folder=labelIds.includes("SENT")?"Envoyés":labelIds.includes("DRAFT")?"Brouillons":labelIds.includes("INBOX")?"Reçus":"Autre";
           const timestamp=msg.internalDate?parseInt(msg.internalDate):0;
-          // PJ uniquement si l'email est dans notre liste ET dans la liste PJ Gmail
           const hasPJ = pjIds.has(id);
-          return { id, from, to, subject, date, timestamp, prospectId:prospect.id, proj:prospect._proj||projId, folder, snippet, scannedBy:user, hasPJ };
+          // Extraire le corps du message et le sauvegarder
+          const extractBody = (parts=[]) => {
+            for (const p of parts) {
+              if (p.mimeType==="text/plain" && p.body?.data) {
+                try { return decodeSnippet(atob(p.body.data.replace(/-/g,"+").replace(/_/g,"/"))); } catch(e){}
+              }
+              if (p.parts) { const r=extractBody(p.parts); if(r) return r; }
+            }
+            return null;
+          };
+          const body = msg.payload?.parts ? extractBody(msg.payload.parts) 
+            : (msg.payload?.body?.data ? decodeSnippet(atob(msg.payload.body.data.replace(/-/g,"+").replace(/_/g,"/"))) : null);
+          return { id, from, to, subject, date, timestamp, prospectId:prospect.id, proj:prospect._proj||projId, folder, snippet, body:body||snippet, scannedBy:user, hasPJ };
         })
       );
 
