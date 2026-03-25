@@ -665,11 +665,17 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
               }
             </button>
             {/* Sélecteur boîte mail */}
-            <select value={scanMailbox||"me"} onChange={e=>onChangeScanMailbox&&onChangeScanMailbox(e.target.value)}
-              style={{padding:"6px 10px",borderRadius:6,fontSize:11,background:"#0b0d16",border:"1px solid #3b82f630",color:"#60a5fa",cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
-              <option value="me">📬 Ma boîte</option>
-              <option value="jade.investissement@gmail.com">📬 Boîte Jade</option>
-            </select>
+            <div style={{display:"flex",gap:3,background:"#0b0d16",borderRadius:6,padding:2,border:"1px solid #1a2035"}}>
+              {[["me","Moi"],["jade.investissement@gmail.com","Jade"]].map(([v,l])=>(
+                <button key={v} onClick={()=>onChangeScanMailbox&&onChangeScanMailbox(v)}
+                  style={{padding:"4px 10px",borderRadius:4,fontSize:10,fontWeight:600,cursor:"pointer",
+                    background:(scanMailbox||"me")===v?"#3b82f630":"transparent",
+                    color:(scanMailbox||"me")===v?"#60a5fa":"#4b5563",
+                    border:"none"}}>
+                  📬 {l}
+                </button>
+              ))}
+            </div>
             <button onClick={()=>onClearEmails&&onClearEmails(prospect)}
               style={{padding:"6px 10px",background:"#ef444415",border:"1px solid #ef444425",borderRadius:6,color:"#f87171",fontSize:11,cursor:"pointer"}}>
               🗑
