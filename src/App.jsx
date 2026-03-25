@@ -1266,6 +1266,7 @@ export default function AmigoCRM() {
   const [authError, setAuthError]   = useState("");
   const [user,    setUser]    = useState(null);
   const [projId,  setProjId]  = useState("makeup");
+  const [vinSubType, setVinSubType] = useState("vin");
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastSync,setLastSync]= useState(null);
@@ -1913,7 +1914,6 @@ export default function AmigoCRM() {
   );
 
   const U = USERS[user];
-  const [vinSubType, setVinSubType] = useState("vin"); // "vin" | "vinClients"
 
   const effectiveProjId = projId === "vin" ? vinSubType : projId;
   const P = PROJECTS[effectiveProjId] || PROJECTS[projId] || Object.values(PROJECTS)[0];
