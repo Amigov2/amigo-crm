@@ -666,7 +666,7 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
             </button>
             {/* Sélecteur boîte mail */}
             <select value={scanMailbox||"me"} onChange={e=>onChangeScanMailbox&&onChangeScanMailbox(e.target.value)}
-              style={{padding:"5px 8px",borderRadius:6,fontSize:10,background:"#0b0d16",border:"1px solid #1a2035",color:"#94a3b8",cursor:"pointer",fontFamily:"inherit"}}>
+              style={{padding:"6px 10px",borderRadius:6,fontSize:11,background:"#0b0d16",border:"1px solid #3b82f630",color:"#60a5fa",cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
               <option value="me">📬 Ma boîte</option>
               <option value="jade.investissement@gmail.com">📬 Boîte Jade</option>
             </select>
