@@ -155,8 +155,16 @@ function KanbanCard({ prospect, accent, onOpen, prospectEmails }) {
   const col = (P.statusColors && P.statusColors[prospect.status]) || "#6b7280";
   const au = prospect.assignedTo ? USERS[prospect.assignedTo] : null;
 
-  // Badge email
-  const emails = (prospectEmails||{})[prospect.id]||[];
+  const isVinClient = (p) => {
+    const tel = (p.phone||"").replace(/\s/g,"");
+    const email = (p.email||"").toLowerCase();
+    if (tel.startsWith("+55") || tel.startsWith("55")) return true;
+    if (email.endsWith(".br")) return true;
+    if ((p.geo||"").includes("🇧🇷")) return true;
+    return false;
+  };
+  const isVin = prospect._proj === "vin" || prospect._proj === "vinClients";
+  const vinType = isVin ? (isVinClient(prospect) ? "client" : "fournisseur") : null;
   const lastEmail = emails.length > 0 ? emails[0] : null;
   const hasSent = emails.some(e=>e.folder==="Envoyés");
   const hasReply = emails.some(e=>e.folder==="Reçus");
@@ -176,6 +184,8 @@ function KanbanCard({ prospect, accent, onOpen, prospectEmails }) {
           {needsFollowUp && <span title={`Silence depuis ${daysSince}j`} style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"#ef444420",color:"#f87171",fontWeight:700}}>🔔 {daysSince}j</span>}
           {hasReply && <span title="Réponse reçue" style={{fontSize:9}}>💬</span>}
           {hasSent && !hasReply && !needsFollowUp && <span title="Email envoyé" style={{fontSize:9}}>✉️</span>}
+          {vinType==="client" && <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"#f59e0b20",color:"#fbbf24",fontWeight:600}}>🥂 Client</span>}
+          {vinType==="fournisseur" && <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"#8b5cf620",color:"#a78bfa",fontWeight:600}}>🍷 Four.</span>}
         </div>
       </div>
       {prospect.geo && <p style={{fontSize:10,color:"#4b5563",marginBottom:4}}>{prospect.geo}{prospect.sub?` · ${prospect.sub}`:""}</p>}
@@ -1267,6 +1277,7 @@ export default function AmigoCRM() {
   const [user,    setUser]    = useState(null);
   const [projId,  setProjId]  = useState("makeup");
   const [vinSubType, setVinSubType] = useState("vin");
+  const [vinFilter, setVinFilter] = useState("tous"); // "tous" | "fournisseurs" | "clients"
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastSync,setLastSync]= useState(null);
@@ -1918,7 +1929,30 @@ export default function AmigoCRM() {
   const effectiveProjId = projId === "vin" ? vinSubType : projId;
   const P = PROJECTS[effectiveProjId] || PROJECTS[projId] || Object.values(PROJECTS)[0];
   const accent = P?.color || "#8b5cf6";
-  const prospects = (data?.[effectiveProjId]||[]).map(p=>({...p,_proj:effectiveProjId}));
+
+  // Détection auto client/fournisseur vin
+  const isVinClient = (p) => {
+    const tel = (p.phone||"").replace(/\s/g,"");
+    const email = (p.email||"").toLowerCase();
+    if (tel.startsWith("+55") || tel.startsWith("55")) return true;
+    if (email.endsWith(".br")) return true;
+    if ((p.geo||"").includes("🇧🇷")) return true;
+    return false;
+  };
+
+  // Prospects : fusionner vin + vinClients si on est sur vin
+  const allVinProspects = projId === "vin" ? [
+    ...(data?.vin||[]).map(p=>({...p,_proj:"vin"})),
+    ...(data?.vinClients||[]).map(p=>({...p,_proj:"vinClients"})),
+  ] : [];
+
+  const prospects = projId === "vin"
+    ? allVinProspects.filter(p => {
+        if (vinFilter === "fournisseurs") return !isVinClient(p);
+        if (vinFilter === "clients") return isVinClient(p);
+        return true;
+      })
+    : (data?.[effectiveProjId]||[]).map(p=>({...p,_proj:effectiveProjId}));
   const projOrders = (data?.orders||[]).filter(o=>o.proj===projId);
   const activity = (data?.activity||[]).filter(a=>a.proj===projId).slice(-12).reverse();
   const totalCA = projOrders.filter(o=>["Confirmée","En production","Livré","Facturé","Accepté"].includes(o.status)).reduce((s,o)=>s+o.amount,0);
@@ -2077,9 +2111,9 @@ export default function AmigoCRM() {
         <span style={{fontSize:11,color:"#2d3748"}}>· {P.icon} {P.label}</span>
         {projId==="vin"&&(
           <div style={{display:"flex",background:"#0b0d16",borderRadius:6,padding:2,border:"1px solid #0f1520",gap:1,marginLeft:8}}>
-            {[["vin","🍷 Fournisseurs"],["vinClients","🥂 Clients"]].map(([v,l])=>(
-              <button key={v} onClick={()=>setVinSubType(v)} className="btn"
-                style={{padding:"2px 10px",borderRadius:4,fontSize:10,fontWeight:600,cursor:"pointer",background:vinSubType===v?"#8b5cf618":"transparent",color:vinSubType===v?"#a78bfa":"#4b5563",border:vinSubType===v?"1px solid #8b5cf628":"1px solid transparent",transition:"all .12s"}}>
+            {[["tous","🍷🥂 Tous"],["fournisseurs","🍷 Fournisseurs"],["clients","🥂 Clients Brésil"]].map(([v,l])=>(
+              <button key={v} onClick={()=>setVinFilter(v)} className="btn"
+                style={{padding:"2px 10px",borderRadius:4,fontSize:10,fontWeight:600,cursor:"pointer",background:vinFilter===v?"#8b5cf618":"transparent",color:vinFilter===v?"#a78bfa":"#4b5563",border:vinFilter===v?"1px solid #8b5cf628":"1px solid transparent",transition:"all .12s"}}>
                 {l}
               </button>
             ))}
