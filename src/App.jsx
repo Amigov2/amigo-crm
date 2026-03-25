@@ -1757,7 +1757,8 @@ export default function AmigoCRM() {
     // Scan séquentiel silencieux — 1 prospect toutes les 2s pour ne pas surcharger
     let i = 0;
     const next = async () => {
-      if (i >= allProspects.length) return;
+      if (i >= allProspects.length) { setScanProgress(null); return; }
+      setScanProgress(`🔄 Scan ${i+1}/${allProspects.length} — ${allProspects[i].name}`);
       try { await scanForProspect(allProspects[i], true); } catch(e) {}
       i++;
       setTimeout(next, 2000);
@@ -1838,6 +1839,8 @@ export default function AmigoCRM() {
     await save(nd);
   };
 
+  const [scanProgress, setScanProgress] = useState(null); // "Scan 3/12…"
+
   const scanForProspect = async (prospect, silent=false) => {
     setGmailLoading(true);
     try {
@@ -1846,13 +1849,13 @@ export default function AmigoCRM() {
       const domain = prospect.email?.split("@")[1]?.toLowerCase();
       if (!domain) { setGmailLoading(false); return; }
 
-      // Si domaine générique (orange, gmail, hotmail...) → utiliser l'adresse complète
       const GENERIC_DOMAINS = ["gmail.com","orange.fr","hotmail.com","hotmail.fr","yahoo.com","yahoo.fr","outlook.com","outlook.fr","free.fr","sfr.fr","laposte.net","wanadoo.fr","icloud.com","live.fr","live.com","bbox.fr","numericable.fr"];
       const emailAddr = prospect.email.toLowerCase();
       const useFullEmail = GENERIC_DOMAINS.includes(domain);
+      // Inclure CC dans la recherche
       const query = useFullEmail
-        ? `from:${emailAddr} OR to:${emailAddr}`
-        : `from:${domain} OR to:${domain}`;
+        ? `from:${emailAddr} OR to:${emailAddr} OR cc:${emailAddr}`
+        : `from:${domain} OR to:${domain} OR cc:${domain}`;
       const queryPJ1 = useFullEmail ? `has:attachment from:${emailAddr}` : `has:attachment from:${domain}`;
       const queryPJ2 = useFullEmail ? `has:attachment to:${emailAddr}` : `has:attachment to:${domain}`;
 
@@ -1875,6 +1878,7 @@ export default function AmigoCRM() {
           const headers = msg.payload?.headers||[];
           const get = n => headers.find(h=>h.name===n)?.value||"";
           const from=get("From"), to=get("To"), subject=get("Subject"), date=get("Date");
+          const cc=get("Cc");
           const snippet=decodeSnippet(msg.snippet);
           const labelIds=msg.labelIds||[];
           const folder=labelIds.includes("SENT")?"Envoyés":labelIds.includes("DRAFT")?"Brouillons":labelIds.includes("INBOX")?"Reçus":"Autre";
@@ -1892,7 +1896,7 @@ export default function AmigoCRM() {
           };
           const body = msg.payload?.parts ? extractBody(msg.payload.parts) 
             : (msg.payload?.body?.data ? decodeSnippet(atob(msg.payload.body.data.replace(/-/g,"+").replace(/_/g,"/"))) : null);
-          return { id, from, to, subject, date, timestamp, prospectId:prospect.id, proj:prospect._proj||projId, folder, snippet, body:body||snippet, scannedBy:user, hasPJ };
+          return { id, from, to, cc, subject, date, timestamp, prospectId:prospect.id, proj:prospect._proj||projId, folder, snippet, body:body||snippet, scannedBy:user, hasPJ };
         })
       );
 
@@ -2170,6 +2174,11 @@ export default function AmigoCRM() {
             <span className="pulse" style={{width:5,height:5,borderRadius:"50%",background:"#22c55e",display:"inline-block"}}/>
             <span style={{fontSize:10,color:"#4b5563"}}>{lastSync?ago(lastSync):"–"}</span>
           </div>
+          {scanProgress&&(
+            <div style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",background:"#3b82f615",borderRadius:5,border:"1px solid #3b82f628"}}>
+              <span style={{fontSize:10,color:"#60a5fa"}}>{scanProgress}</span>
+            </div>
+          )}
           {Object.entries(USERS).map(([id,u])=>(
             <div key={id} onClick={()=>user!==id&&setUser(id)} title={u.label}
               style={{width:24,height:24,borderRadius:"50%",background:`linear-gradient(135deg,${u.color}70,${u.color})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"white",border:user===id?`2px solid ${u.color}`:"2px solid transparent",cursor:user!==id?"pointer":"default",opacity:user===id?1:0.45}}>
