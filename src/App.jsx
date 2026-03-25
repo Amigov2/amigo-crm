@@ -1885,8 +1885,8 @@ export default function AmigoCRM() {
       const nd = {...latestData, prospectEmails:{...(latestData.prospectEmails||{}), [prospect.id]:allEmails}};
       await save(nd);
 
-      // ── Mise à jour automatique du statut — uniquement si scan manuel (pas silent)
-      if (!silent) {
+      // ── Mise à jour automatique du statut — toujours, même en silent
+      {
         const hasEmailSent     = allEmails.some(e=>e.folder==="Envoyés");
         const hasEmailReceived = allEmails.some(e=>e.folder==="Reçus");
         const currentStatus    = prospect.status;
@@ -2225,6 +2225,31 @@ export default function AmigoCRM() {
                   <input type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={e=>{if(e.target.files[0])importXLS(e.target.files[0]);e.target.value="";}}/>
                 </label>
               )}
+              <button onClick={async()=>{
+                // Sync statuts depuis emails sauvegardés
+                const emails = data?.prospectEmails||{};
+                const projs = ["makeup","vin","vinClients","print3d"];
+                let nd = {...data}; let changed=false;
+                projs.forEach(pk=>{
+                  if(!nd[pk]) return;
+                  nd[pk]=nd[pk].map(p=>{
+                    const pe=emails[p.id]||[];
+                    if(!pe.length) return p;
+                    const sent=pe.some(e=>e.folder==="Envoyés");
+                    const recu=pe.some(e=>e.folder==="Reçus");
+                    const P2=PROJECTS[pk]||PROJECTS.vin;
+                    let ns=p.status;
+                    if(sent&&recu&&p.status==="Contacté"){const neg=P2.statuses?.find(s=>s.match(/négociation|discussion/i));if(neg)ns=neg;}
+                    else if(sent&&p.status==="À contacter")ns="Contacté";
+                    if(ns!==p.status){changed=true;return{...p,status:ns};}
+                    return p;
+                  });
+                });
+                if(changed){await save(nd);setNotif("✅ Statuts mis à jour !");}
+                else setNotif("✓ Statuts déjà à jour");
+              }} className="btn" style={{padding:"8px 13px",background:"#3b82f615",border:"1px solid #3b82f628",borderRadius:8,color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                🔄 Sync statuts
+              </button>
             </div>
 
             {/* KANBAN */}
