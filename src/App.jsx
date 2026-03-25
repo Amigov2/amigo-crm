@@ -1700,6 +1700,41 @@ export default function AmigoCRM() {
 
   useEffect(() => { load(); pollRef.current=setInterval(load,8000); return()=>clearInterval(pollRef.current); }, [load]);
 
+  // Sync statuts depuis emails déjà sauvegardés — sans rescanner Gmail
+  useEffect(() => {
+    if (!data || !user) return;
+    const emails = data.prospectEmails || {};
+    if (!Object.keys(emails).length) return;
+
+    const allProjects = ["makeup","vin","vinClients","print3d"];
+    let changed = false;
+    const newData = {...data};
+
+    allProjects.forEach(projKey => {
+      if (!newData[projKey]) return;
+      newData[projKey] = newData[projKey].map(p => {
+        const pEmails = emails[p.id] || [];
+        if (!pEmails.length) return p;
+        const hasSent    = pEmails.some(e=>e.folder==="Envoyés");
+        const hasReply   = pEmails.some(e=>e.folder==="Reçus");
+        const P2 = PROJECTS[projKey] || PROJECTS["vin"];
+        const statuses = P2?.statuses || [];
+
+        let newStatus = p.status;
+        if (hasSent && hasReply && p.status === "Contacté") {
+          const neg = statuses.find(s=>s.match(/négociation|discussion/i));
+          if (neg) newStatus = neg;
+        } else if (hasSent && p.status === "À contacter") {
+          newStatus = "Contacté";
+        }
+        if (newStatus !== p.status) { changed = true; return {...p, status:newStatus}; }
+        return p;
+      });
+    });
+
+    if (changed) save(newData);
+  }, [data?.prospectEmails, user]);
+
   // Auto-scan à la connexion — tourne en arrière-plan
   useEffect(() => {
     if (!authUser || !data) return;
