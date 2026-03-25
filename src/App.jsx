@@ -477,7 +477,7 @@ function WineFinancePanel({ prospect }) {
   );
 }
 
-function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder, onEmail, gmailThreads, prospectEmails, onSendEmail, onScanForProspect, onClearEmails, gmailLoading }) {
+function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder, onEmail, gmailThreads, prospectEmails, onSendEmail, onScanForProspect, onClearEmails, gmailLoading, scanMailbox, onChangeScanMailbox }) {
   const P = PROJECTS[projId] || PROJECTS[prospect._proj] || PROJECTS["vin"] || Object.values(PROJECTS)[0];
   const isVin = projId === "vin";
   const [status,    setStatus]    = useState(prospect.status);
@@ -664,6 +664,12 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
                 : "🔍 Scanner"
               }
             </button>
+            {/* Sélecteur boîte mail */}
+            <select value={scanMailbox||"me"} onChange={e=>onChangeScanMailbox&&onChangeScanMailbox(e.target.value)}
+              style={{padding:"5px 8px",borderRadius:6,fontSize:10,background:"#0b0d16",border:"1px solid #1a2035",color:"#94a3b8",cursor:"pointer",fontFamily:"inherit"}}>
+              <option value="me">📬 Ma boîte</option>
+              <option value="jade.investissement@gmail.com">📬 Boîte Jade</option>
+            </select>
             <button onClick={()=>onClearEmails&&onClearEmails(prospect)}
               style={{padding:"6px 10px",background:"#ef444415",border:"1px solid #ef444425",borderRadius:6,color:"#f87171",fontSize:11,cursor:"pointer"}}>
               🗑
@@ -1513,6 +1519,7 @@ export default function AmigoCRM() {
   // ── Gmail scan (règles fixes, pas d'IA) ───────────────────────────────────
   const [gmailThreads, setGmailThreads] = useState([]);
   const [gmailLoading, setGmailLoading] = useState(false);
+  const [scanMailbox, setScanMailbox] = useState("me"); // "me" ou "jade.investissement@gmail.com"
 
   const matchEmailToProspect = (from, to, subject, snippet, allProspects) => {
     const haystack = `${from} ${to} ${subject} ${snippet}`.toLowerCase();
@@ -1877,10 +1884,11 @@ export default function AmigoCRM() {
       const queryPJ1 = useFullEmail ? `has:attachment from:${emailAddr}` : `has:attachment from:${domain}`;
       const queryPJ2 = useFullEmail ? `has:attachment to:${emailAddr}` : `has:attachment to:${domain}`;
 
+      const mailbox = scanMailbox; // "me" ou email délégué
       const [res1, res2, res3] = await Promise.all([
-        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&q=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=${encodeURIComponent(queryPJ1)}`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=${encodeURIComponent(queryPJ2)}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages?maxResults=30&q=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages?maxResults=20&q=${encodeURIComponent(queryPJ1)}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages?maxResults=20&q=${encodeURIComponent(queryPJ2)}`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       const [d1, d2, d3] = await Promise.all([res1.json(), res2.json(), res3.json()]);
       const emailIds = new Set((d1.messages||[]).map(m=>m.id));
@@ -1889,14 +1897,9 @@ export default function AmigoCRM() {
       const threads = await Promise.all(
         [...emailIds].map(async id => {
           const r = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,
+            `https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages/${id}?format=full`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
-          const msg = await r.json();
-          const headers = msg.payload?.headers||[];
-          const get = n => headers.find(h=>h.name===n)?.value||"";
-          const from=get("From"), to=get("To"), subject=get("Subject"), date=get("Date");
-          const cc=get("Cc");
           const snippet=decodeSnippet(msg.snippet);
           const labelIds=msg.labelIds||[];
           const folder=labelIds.includes("SENT")?"Envoyés":labelIds.includes("DRAFT")?"Brouillons":labelIds.includes("INBOX")?"Reçus":"Autre";
@@ -1955,11 +1958,9 @@ export default function AmigoCRM() {
       for (const id of threadIdsWithPJ) {
         try {
           const r = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,
+            `https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages/${id}?format=full`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
-          const msg = await r.json();
-          const findAtts = (parts=[]) => {
             const found = [];
             for (const part of parts) {
               if (part.filename?.length>0 && part.body?.attachmentId)
@@ -2686,7 +2687,7 @@ export default function AmigoCRM() {
       {/* ══ MODALS ══ */}
       {showAddProspect&&<AddProspectModal projId={effectiveProjId} onAdd={addProspect} onClose={()=>setShowAddProspect(false)}/>}
       {showAddOrder!==undefined&&<AddOrderModal projId={projId} prospects={prospects} preselect={showAddOrder} onAdd={addOrder} onClose={()=>setShowAddOrder(undefined)}/>}
-      {detailProspect&&<ProspectModal prospect={detailProspect} projId={effectiveProjId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} prospectEmails={data?.prospectEmails||{}} onSendEmail={sendGmail} onScanForProspect={scanForProspect} onClearEmails={clearProspectEmails} gmailLoading={gmailLoading}/>}
+      {detailProspect&&<ProspectModal prospect={detailProspect} projId={effectiveProjId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} prospectEmails={data?.prospectEmails||{}} onSendEmail={sendGmail} onScanForProspect={scanForProspect} onClearEmails={clearProspectEmails} gmailLoading={gmailLoading} scanMailbox={scanMailbox} onChangeScanMailbox={setScanMailbox}/>}
       {showAddEvent&&<AddEventModal onAdd={createCalEvent} onClose={()=>setShowAddEvent(null)} preDate={showAddEvent==="new"?null:showAddEvent} currentUser={user}/>}
       {showEmailModal&&<EmailModal prospect={showEmailModal} projId={effectiveProjId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail} onUpdateStatus={updateProspect}/>}
     </div>
