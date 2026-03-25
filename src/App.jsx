@@ -1992,7 +1992,7 @@ export default function AmigoCRM() {
           <span style={{fontSize:15,fontWeight:600,color:"#f1f5f9"}}>amigo</span>
           <span style={{width:1,height:12,background:"#1a2030",margin:"0 4px"}}/>
           <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
-            {Object.values(PROJECTS).map(p=>(
+            {Object.values(PROJECTS).filter(p=>p.id!=="vinClients").map(p=>(
               <button key={p.id} onClick={()=>{setProjId(p.id);setView("kanban");}} className="btn"
                 style={{padding:"4px 10px",borderRadius:5,fontSize:12,fontWeight:500,cursor:"pointer",background:projId===p.id?`${p.color}18`:"transparent",color:projId===p.id?p.color:"#94a3b8",border:projId===p.id?`1px solid ${p.color}22`:"1px solid transparent",display:"flex",alignItems:"center",gap:4}}>
                 {p.icon} {p.label}
