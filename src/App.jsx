@@ -239,7 +239,7 @@ function Field({ label, value, onChange, placeholder, type, options }) {
 }
 
 function AddProspectModal({ projId, onAdd, onClose }) {
-  const P = PROJECTS[projId];
+  const P = PROJECTS[projId] || Object.values(PROJECTS)[0];
   const isVin = projId === "vin";
   const [name,             setName]             = useState("");
   const [geo,              setGeo]              = useState(projId==="print3d"?"Rio de Janeiro 🇧🇷":"France 🇫🇷");
@@ -476,7 +476,7 @@ function WineFinancePanel({ prospect }) {
 }
 
 function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder, onEmail, gmailThreads, prospectEmails, onSendEmail, onScanForProspect, onClearEmails, gmailLoading }) {
-  const P = PROJECTS[projId];
+  const P = PROJECTS[projId] || PROJECTS[prospect._proj] || PROJECTS["vin"] || Object.values(PROJECTS)[0];
   const isVin = projId === "vin";
   const [status,    setStatus]    = useState(prospect.status);
   const [assigned,  setAssigned]  = useState(prospect.assignedTo||"");
