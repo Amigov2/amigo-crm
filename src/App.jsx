@@ -1967,6 +1967,8 @@ export default function AmigoCRM() {
             `https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages/${id}?format=full`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
+          const msg = await r.json();
+          const findAtts = (parts=[]) => {
             const found = [];
             for (const part of parts) {
               if (part.filename?.length>0 && part.body?.attachmentId)
