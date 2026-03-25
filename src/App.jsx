@@ -1905,14 +1905,27 @@ export default function AmigoCRM() {
           const extractBody = (parts=[]) => {
             for (const p of parts) {
               if (p.mimeType==="text/plain" && p.body?.data) {
-                try { return decodeSnippet(atob(p.body.data.replace(/-/g,"+").replace(/_/g,"/"))); } catch(e){}
+                try {
+                  const bin = atob(p.body.data.replace(/-/g,"+").replace(/_/g,"/"));
+                  const bytes = new Uint8Array(bin.length);
+                  for (let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+                  return new TextDecoder("utf-8").decode(bytes);
+                } catch(e){}
               }
               if (p.parts) { const r2=extractBody(p.parts); if(r2) return r2; }
             }
             return null;
           };
+          const decodeBase64Body = (data) => {
+            try {
+              const bin = atob(data.replace(/-/g,"+").replace(/_/g,"/"));
+              const bytes = new Uint8Array(bin.length);
+              for (let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+              return new TextDecoder("utf-8").decode(bytes);
+            } catch(e) { return null; }
+          };
           const body = msg.payload?.parts ? extractBody(msg.payload.parts)
-            : (msg.payload?.body?.data ? decodeSnippet(atob(msg.payload.body.data.replace(/-/g,"+").replace(/_/g,"/"))) : null);
+            : (msg.payload?.body?.data ? decodeBase64Body(msg.payload.body.data) : null);
           return { id, from, to, cc, subject, date, timestamp, prospectId:prospect.id, proj:prospect._proj||projId, folder, snippet, body:body||snippet, scannedBy:user, hasPJ };
         })
       );
