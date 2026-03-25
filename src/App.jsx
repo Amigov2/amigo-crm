@@ -1916,8 +1916,8 @@ export default function AmigoCRM() {
   const [vinSubType, setVinSubType] = useState("vin"); // "vin" | "vinClients"
 
   const effectiveProjId = projId === "vin" ? vinSubType : projId;
-  const P = PROJECTS[effectiveProjId] || PROJECTS[projId];
-  const accent = P.color;
+  const P = PROJECTS[effectiveProjId] || PROJECTS[projId] || Object.values(PROJECTS)[0];
+  const accent = P?.color || "#8b5cf6";
   const prospects = (data?.[effectiveProjId]||[]).map(p=>({...p,_proj:effectiveProjId}));
   const projOrders = (data?.orders||[]).filter(o=>o.proj===projId);
   const activity = (data?.activity||[]).filter(a=>a.proj===projId).slice(-12).reverse();
