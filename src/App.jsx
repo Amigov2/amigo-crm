@@ -32,7 +32,7 @@ const PROJECTS = {
     statusColors: { "À contacter":"#3b82f6","Contacté":"#f59e0b","En discussion":"#22c55e","Qualifié":"#8b5cf6","Relance urgente":"#ef4444","Prospect froid":"#4b5563" },
   },
   vin: {
-    id: "vin", label: "Import Vin", icon: "🍷", color: "#8b5cf6",
+    id: "vin", label: "Vin", icon: "🍷", color: "#8b5cf6",
     statuses: ["À contacter","Contacté","En négociation","Commande passée","Livraison en cours","Partenaire actif"],
     statusColors: { "À contacter":"#3b82f6","Contacté":"#f59e0b","En négociation":"#22c55e","Commande passée":"#8b5cf6","Livraison en cours":"#f97316","Partenaire actif":"#14b8a6" },
   },
@@ -269,15 +269,28 @@ function AddProspectModal({ projId, onAdd, onClose }) {
 
   const submit = () => {
     if (!name.trim()) return;
+    // Détection auto client Brésil vs fournisseur France
+    const isBresil = phone.replace(/\s/g,"").startsWith("+55")
+      || phone.replace(/\s/g,"").startsWith("55")
+      || email.toLowerCase().endsWith(".br")
+      || geo.includes("🇧🇷");
+    const _proj = (isVin && isBresil) ? "vinClients" : projId;
+    const P2 = PROJECTS[_proj] || P;
     onAdd({ id: projId.slice(0,2)+uid(), name, geo, sub, contact, email, phone,
       valeur: parseInt(valeur)||0, note, tags:[tag1,tag2].filter(Boolean),
-      status: P.statuses[0], assignedTo:null, lastEditBy:null, lastEditAt:null,
+      status: P2.statuses[0], assignedTo:null, lastEditBy:null, lastEditAt:null,
+      _proj,
       ...(isVin && { type, producteur, cepage, appellation, millesime, certificat, alcool, bio,
         incoterm, prixProducteur, prixMagasinFr, prixVenteBresil, prixMercadoLivre, minCommande }) });
   };
 
   return (
     <ModalWrap title={`➕ Nouveau — ${P.label}`} onClose={onClose} wide={isVin}>
+      {isVin && (
+        <div style={{marginBottom:12,padding:"7px 12px",borderRadius:7,background:(phone.includes("+55")||email.endsWith(".br")||geo.includes("🇧🇷"))?"#f59e0b18":"#8b5cf618",border:`1px solid ${(phone.includes("+55")||email.endsWith(".br")||geo.includes("🇧🇷"))?"#f59e0b30":"#8b5cf630"}`,fontSize:11,color:(phone.includes("+55")||email.endsWith(".br")||geo.includes("🇧🇷"))?"#fbbf24":"#a78bfa",fontWeight:600}}>
+          {(phone.includes("+55")||email.endsWith(".br")||geo.includes("🇧🇷")) ? "🥂 Prospect client — Brésil (détecté automatiquement)" : "🍷 Fournisseur — France (détecté automatiquement)"}
+        </div>
+      )}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
         <div style={{gridColumn:"span 2"}}><Field label="Nom domaine / château *" value={name} onChange={setName} placeholder={isVin?"Château Pichon Baron...":projId==="print3d"?"Studio Durand Architecture...":"Académie du Maquillage..."}/></div>
         <Field label="Pays / Région" value={geo} onChange={setGeo} placeholder="France 🇫🇷"/>
