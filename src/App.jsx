@@ -1873,7 +1873,7 @@ export default function AmigoCRM() {
       // Inclure CC dans la recherche
       const query = useFullEmail
         ? `from:${emailAddr} OR to:${emailAddr} OR cc:${emailAddr}`
-        : `from:${domain} OR to:${domain} OR cc:${domain}`;
+        : `from:${domain} OR to:${domain} OR cc:${emailAddr}`;
       const queryPJ1 = useFullEmail ? `has:attachment from:${emailAddr}` : `has:attachment from:${domain}`;
       const queryPJ2 = useFullEmail ? `has:attachment to:${emailAddr}` : `has:attachment to:${domain}`;
 
