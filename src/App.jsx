@@ -1808,25 +1808,22 @@ export default function AmigoCRM() {
       const nd = {...latestData, prospectEmails:{...(latestData.prospectEmails||{}), [prospect.id]:allEmails}};
       await save(nd);
 
-      // ── Mise à jour automatique du statut selon les emails ─────────────────
-      const hasEmailSent    = allEmails.some(e=>e.folder==="Envoyés");
-      const hasEmailReceived = allEmails.some(e=>e.folder==="Reçus");
-      const currentStatus   = prospect.status;
-      const P_statuses      = PROJECTS[prospect._proj||projId]?.statuses||[];
-
-      let newStatus = null;
-      if (hasEmailSent && hasEmailReceived) {
-        // Échange bidirectionnel → En négociation/discussion
-        const negStatus = P_statuses.find(s=>s.match(/négociation|discussion/i));
-        if (negStatus && currentStatus === "Contacté") newStatus = negStatus;
-      } else if (hasEmailSent && currentStatus === "À contacter") {
-        // Email envoyé → Contacté
-        newStatus = "Contacté";
-      }
-
-      if (newStatus && newStatus !== currentStatus) {
-        await updateProspect(prospect.id, { status: newStatus });
-        console.log(`✅ Statut auto : ${prospect.name} → ${newStatus}`);
+      // ── Mise à jour automatique du statut — uniquement si scan manuel (pas silent)
+      if (!silent) {
+        const hasEmailSent     = allEmails.some(e=>e.folder==="Envoyés");
+        const hasEmailReceived = allEmails.some(e=>e.folder==="Reçus");
+        const currentStatus    = prospect.status;
+        const P_statuses       = PROJECTS[prospect._proj||projId]?.statuses||[];
+        let newStatus = null;
+        if (hasEmailSent && hasEmailReceived) {
+          const negStatus = P_statuses.find(s=>s.match(/négociation|discussion/i));
+          if (negStatus && currentStatus === "Contacté") newStatus = negStatus;
+        } else if (hasEmailSent && currentStatus === "À contacter") {
+          newStatus = "Contacté";
+        }
+        if (newStatus && newStatus !== currentStatus) {
+          await updateProspect(prospect.id, { status: newStatus });
+        }
       }
 
       // Étape 2 — PJ uniquement sur les emails qui sont dans notre liste de threads
