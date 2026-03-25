@@ -208,10 +208,12 @@ function KanbanCard({ prospect, accent, onOpen, prospectEmails }) {
 }
 
 function ModalWrap({ title, onClose, children, wide }) {
+  const ref = useRef(null);
+  useEffect(()=>{ if(ref.current) ref.current.scrollTop=0; },[]);
   return (
     <div style={{position:"fixed",inset:0,background:"#000000c0",display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:200,overflowY:"auto",padding:"20px 0"}}
       onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div style={{background:"#0d1020",border:"1px solid #1a2035",borderRadius:14,padding:22,width:wide?660:500,maxWidth:"94vw",maxHeight:"90vh",overflow:"auto",animation:"fi .2s ease"}}
+      <div ref={ref} style={{background:"#0d1020",border:"1px solid #1a2035",borderRadius:14,padding:22,width:wide?660:500,maxWidth:"94vw",maxHeight:"90vh",overflow:"auto",animation:"fi .2s ease"}}
         onClick={e=>e.stopPropagation()}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <p style={{fontSize:14,fontWeight:600,color:"#f1f5f9"}}>{title}</p>
