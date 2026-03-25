@@ -292,17 +292,40 @@ function AddProspectModal({ projId, onAdd, onClose }) {
         </div>
       )}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
-        <div style={{gridColumn:"span 2"}}><Field label="Nom domaine / château *" value={name} onChange={setName} placeholder={isVin?"Château Pichon Baron...":projId==="print3d"?"Studio Durand Architecture...":"Académie du Maquillage..."}/></div>
-        <Field label="Pays / Région" value={geo} onChange={setGeo} placeholder="France 🇫🇷"/>
-        <Field label={isVin?"Sous-région / Appellation zone":"Secteur / Détail"} value={sub} onChange={setSub} placeholder={isVin?"Bordeaux, Bourgogne...":"8ème arr."}/>
+        <div style={{gridColumn:"span 2"}}><Field label="Nom *" value={name} onChange={setName} placeholder={isVin?"Château Pichon Baron / Restaurant Fasano...":projId==="print3d"?"Studio Durand Architecture...":"Académie du Maquillage..."}/></div>
+
+        {/* Dropdown pays pour vin */}
+        {isVin ? (
+          <div style={{marginBottom:8}}>
+            <p style={{fontSize:10,color:"#4b5563",fontWeight:600,marginBottom:4,textTransform:"uppercase",letterSpacing:".4px"}}>Pays</p>
+            <div style={{display:"flex",gap:6}}>
+              {[["France 🇫🇷","🇫🇷 France"],["Rio de Janeiro 🇧🇷","🇧🇷 Brésil"],["Autre","🌍 Autre"]].map(([v,l])=>(
+                <button key={v} type="button" onClick={()=>setGeo(v)}
+                  style={{flex:1,padding:"7px 4px",borderRadius:7,fontSize:11,fontWeight:600,cursor:"pointer",
+                    background:geo===v?"#8b5cf620":"#0b0d16",
+                    border:`1px solid ${geo===v?"#8b5cf6":"#1a2035"}`,
+                    color:geo===v?"#a78bfa":"#4b5563",transition:"all .15s"}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <Field label="Pays / Région" value={geo} onChange={setGeo} placeholder="France 🇫🇷"/>
+        )}
+
+        <Field label={isVin?"Région / Ville":"Secteur / Détail"} value={sub} onChange={setSub} placeholder={isVin?"Bordeaux, São Paulo...":"8ème arr."}/>
+
+        {/* Champs contact rapides — toujours visibles */}
+        <Field label="Email" value={email} onChange={setEmail} placeholder="contact@..."/>
+        <Field label="Téléphone" value={phone} onChange={setPhone} placeholder={geo.includes("🇧🇷")?"+55 21...":"+33 1..."}/>
 
         {isVin && <>
           <Field label="Type" value={type} onChange={setType} options={["Rouge","Blanc","Rosé","Pétillant","Mousseux","Orange"]}/>
-          <Field label="Nom producteur" value={producteur} onChange={setProducteur} placeholder="Famille Martin..."/>
-          <Field label="Cépage(s)" value={cepage} onChange={setCepage} placeholder="Cabernet Sauvignon, Merlot..."/>
-          <Field label="Appellation officielle" value={appellation} onChange={setAppellation} placeholder="Saint-Émilion Grand Cru AOC"/>
+          <Field label="Producteur" value={producteur} onChange={setProducteur} placeholder="Famille Martin..."/>
+          <Field label="Cépage(s)" value={cepage} onChange={setCepage} placeholder="Cabernet Sauvignon..."/>
+          <Field label="Appellation" value={appellation} onChange={setAppellation} placeholder="Saint-Émilion Grand Cru AOC"/>
           <Field label="Millésime" value={millesime} onChange={setMillesime} placeholder="2021"/>
-          <Field label="Certificat" value={certificat} onChange={setCertificat} placeholder="AOC, DOC, DOCG, DO..."/>
           <Field label="Alcool (%)" value={alcool} onChange={setAlcool} placeholder="13.5"/>
 
           <div style={{gridColumn:"span 2",margin:"4px 0 10px"}}>
@@ -310,20 +333,8 @@ function AddProspectModal({ projId, onAdd, onClose }) {
               <div onClick={()=>setBio(!bio)} style={{width:36,height:20,borderRadius:10,background:bio?"#22c55e":"#1a2035",position:"relative",cursor:"pointer",transition:"background .2s",flexShrink:0}}>
                 <div style={{position:"absolute",top:2,left:bio?18:2,width:16,height:16,borderRadius:"50%",background:"white",transition:"left .2s"}}/>
               </div>
-              <span style={{fontSize:11,color:bio?"#4ade80":"#6b7280",fontWeight:600}}>🌿 Certification Bio / Biodynamique</span>
+              <span style={{fontSize:11,color:bio?"#4ade80":"#6b7280",fontWeight:600}}>🌿 Bio / Biodynamique</span>
             </label>
-          </div>
-
-          <div style={{gridColumn:"span 2",marginBottom:10,padding:"10px 12px",background:"#080a0f",border:"1px solid #0f1520",borderRadius:8}}>
-            <p style={{fontSize:10,color:"#8b5cf6",fontWeight:600,textTransform:"uppercase",letterSpacing:".4px",marginBottom:10}}>💰 Tarifs & Logistique</p>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 12px"}}>
-              <Field label="Incoterm" value={incoterm} onChange={setIncoterm} options={["FOB","CIF","DDP","EXW","DAP"]}/>
-              <Field label="Min. commande (caisses)" value={minCommande} onChange={setMinCommande} placeholder="6"/>
-              <Field label="Prix producteur (€/caisse)" value={prixProducteur} onChange={setPrixProducteur} placeholder="180"/>
-              <Field label="Prix magasin France (€/btl)" value={prixMagasinFr} onChange={setPrixMagasinFr} placeholder="45"/>
-              <Field label="Prix vente Brésil (R$/btl)" value={prixVenteBresil} onChange={setPrixVenteBresil} placeholder="350"/>
-              <Field label="Prix Mercado Livre (R$/btl)" value={prixMercadoLivre} onChange={setPrixMercadoLivre} placeholder="320"/>
-            </div>
           </div>
 
           <Field label="Tag 1" value={tag1} onChange={setTag1} placeholder="Bio"/>
@@ -332,8 +343,6 @@ function AddProspectModal({ projId, onAdd, onClose }) {
 
         {!isVin && <>
           <Field label="Contact" value={contact} onChange={setContact} placeholder="Prénom Nom"/>
-          <Field label="Email" value={email} onChange={setEmail} placeholder="contact@..."/>
-          <Field label="Téléphone" value={phone} onChange={setPhone} placeholder="+33 1 ..."/>
           <Field label="Valeur estimée (€)" value={valeur} onChange={setValeur} placeholder="15000"/>
           <Field label="Tag 1" value={tag1} onChange={setTag1} placeholder={projId==="print3d"?"Architecture":"Artistique"}/>
           <Field label="Tag 2" value={tag2} onChange={setTag2} placeholder={projId==="print3d"?"Sur mesure":"Scénique"}/>
@@ -1736,8 +1745,9 @@ export default function AmigoCRM() {
 
   const addProspect = async p => {
     if (!data||!user) return;
-    p.lastEditBy=user; p.lastEditAt=Date.now(); p._proj=effectiveProjId;
-    let nd = {...data, [effectiveProjId]:[...(data[effectiveProjId]||[]), p]};
+    const targetProj = p._proj || effectiveProjId;
+    p.lastEditBy=user; p.lastEditAt=Date.now(); p._proj=targetProj;
+    let nd = {...data, [targetProj]:[...(data[targetProj]||[]), p]};
     nd = addAct(nd, user, p.name, "ajouté");
     setShowAddProspect(false);
     await save(nd);
