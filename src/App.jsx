@@ -285,10 +285,10 @@ function AddProspectModal({ projId, onAdd, onClose }) {
   };
 
   return (
-    <ModalWrap title={`➕ Nouveau — ${P.label}`} onClose={onClose} wide={isVin}>
+    <ModalWrap title={`➕ ${isVin?"Nouveau contact Vin":P.label}`} onClose={onClose} wide={isVin}>
       {isVin && (
         <div style={{marginBottom:12,padding:"7px 12px",borderRadius:7,background:(phone.includes("+55")||email.endsWith(".br")||geo.includes("🇧🇷"))?"#f59e0b18":"#8b5cf618",border:`1px solid ${(phone.includes("+55")||email.endsWith(".br")||geo.includes("🇧🇷"))?"#f59e0b30":"#8b5cf630"}`,fontSize:11,color:(phone.includes("+55")||email.endsWith(".br")||geo.includes("🇧🇷"))?"#fbbf24":"#a78bfa",fontWeight:600}}>
-          {(phone.includes("+55")||email.endsWith(".br")||geo.includes("🇧🇷")) ? "🥂 Prospect client — Brésil (détecté automatiquement)" : "🍷 Fournisseur — France (détecté automatiquement)"}
+          {(phone.includes("+55")||email.endsWith(".br")||geo.includes("🇧🇷")) ? "🥂 Sera classé Prospect client Brésil" : "🍷 Sera classé Fournisseur France"}
         </div>
       )}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
@@ -2164,7 +2164,7 @@ export default function AmigoCRM() {
             <div style={{display:"flex",gap:8,marginBottom:14}}>
               <button onClick={()=>setShowAddProspect(true)} className="btn"
                 style={{padding:"8px 13px",background:`${accent}18`,border:`1px solid ${accent}28`,borderRadius:8,color:accent,fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                + {projId==="print3d"?"Nouveau client":projId==="vin"?"Fournisseur":"École"}
+                + {projId==="print3d"?"Nouveau client":projId==="vin"?"Nouveau contact":"École"}
               </button>
               <button onClick={()=>setShowAddOrder(null)} className="btn"
                 style={{padding:"8px 13px",background:"#22c55e15",border:"1px solid #22c55e28",borderRadius:8,color:"#4ade80",fontSize:12,fontWeight:600,cursor:"pointer"}}>
