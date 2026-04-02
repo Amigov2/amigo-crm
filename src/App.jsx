@@ -49,7 +49,52 @@ const PROJECTS = {
 };
 
 const ORDER_STATUSES = ["En attente","Confirmée","En production","Livré","Facturé","Annulée"];
-const QUOTE_STATUSES = ["Brouillon","Envoyé","Accepté","Refusé","Expiré"];
+const QUOTE_STATUSES = ["Brouillon","Envoyé","Accepté","Refusé","Expiré","Annulé"];
+
+// ── Données entreprise pour facturation / PIX ───────────────────────────────
+// Email expéditeur par projet (alias "Envoyer en tant que" dans Gmail)
+const PROJECT_EMAIL = {
+  vin: "3abresil@gmail.com",
+  vinClients: "3abresil@gmail.com",
+  print3d: "labo3drio@gmail.com",
+  makeup: "formationcarnaval@gmail.com",
+};
+
+const EMPRESA = {
+  nome: "3A IMPORT",
+  cnpj: "21496846000134",
+  pixKey: "21496846000134", // Clé PIX = CNPJ
+  pixType: "CNPJ",
+  email: "3abresil@gmail.com",
+  tel: "+5521998755498",
+  cidade: "RIO DE JANEIRO",
+};
+
+// Génération payload PIX EMV (statique avec montant)
+function pixPayload(amount, txid) {
+  const f = (id, val) => id + String(val.length).padStart(2,"0") + val;
+  const merchantAccount = f("00","BR.GOV.BCB.PIX") + f("01", EMPRESA.pixKey);
+  let payload =
+    f("00","01") +                              // Format indicator
+    f("01","12") +                              // Static QR
+    f("26", merchantAccount) +                  // Merchant account
+    f("52","0000") +                            // MCC
+    f("53","986") +                             // BRL
+    f("54", amount.toFixed(2)) +                // Amount
+    f("58","BR") +                              // Country
+    f("59", EMPRESA.nome.slice(0,25)) +         // Merchant name
+    f("60", EMPRESA.cidade.slice(0,15)) +       // City
+    f("62", f("05", (txid||"AMIGO").slice(0,25))); // TxID
+  // CRC16-CCITT
+  payload += "6304";
+  let crc = 0xFFFF;
+  for (let i = 0; i < payload.length; i++) {
+    crc ^= payload.charCodeAt(i) << 8;
+    for (let j = 0; j < 8; j++) crc = crc & 0x8000 ? (crc << 1) ^ 0x1021 : crc << 1;
+    crc &= 0xFFFF;
+  }
+  return payload.slice(0,-4) + "6304" + crc.toString(16).toUpperCase().padStart(4,"0");
+}
 
 const INIT_DATA = {
   makeup: [
@@ -72,7 +117,15 @@ const INIT_DATA = {
   orders: [],
   activity: [],
   vinClients: [],
-  prospectEmails: {}, // { prospectId: [{id, from, to, subject, date, timestamp, folder, snippet}] }
+  prospectEmails: {},
+  filamentStock: [
+    { id:"fil1", color:"Vert",     hex:"#22c55e", material:"PLA", weightTotal:1000, weightUsed:0 },
+    { id:"fil2", color:"Jaune",    hex:"#fbbf24", material:"PLA", weightTotal:1000, weightUsed:0 },
+    { id:"fil3", color:"Marron",   hex:"#92400e", material:"PLA", weightTotal:1000, weightUsed:0 },
+    { id:"fil4", color:"Vermelho", hex:"#ef4444", material:"PLA", weightTotal:1000, weightUsed:0 },
+    { id:"fil5", color:"Beige",    hex:"#d4a574", material:"PLA", weightTotal:1000, weightUsed:0 },
+    { id:"fil6", color:"Noir",     hex:"#1e1e1e", material:"PLA", weightTotal:1000, weightUsed:0 },
+  ],
 };
 
 const uid = () => Math.random().toString(36).slice(2, 8);
@@ -121,8 +174,70 @@ const decodeSnippet = s => {
     .replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(n))
     .replace(/&#x([0-9a-f]+);/gi,(_,h)=>String.fromCharCode(parseInt(h,16)));
 };
-const fmt = n => !n ? "€0" : n >= 1000000 ? `€${(n/1000000).toFixed(1)}M` : n >= 1000 ? `€${Math.round(n/1000)}k` : `€${Math.round(n)}`;
+const fmtEur = n => !n ? "€0" : n >= 1000000 ? `€${(n/1000000).toFixed(1)}M` : n >= 1000 ? `€${Math.round(n/1000)}k` : `€${Math.round(n)}`;
+const fmtBrl = n => !n ? "R$0" : n >= 1000000 ? `R$${(n/1000000).toFixed(1)}M` : n >= 1000 ? `R$${(n/1000).toFixed(1)}k` : `R$${Math.round(n)}`;
+const fmt = fmtEur; // défaut euro, utilisé par vin/makeup
 const ago = ts => { if(!ts) return "–"; const m=Math.floor((Date.now()-ts)/60000); if(m<1) return "maintenant"; if(m<60) return `${m}min`; const h=Math.floor(m/60); if(h<24) return `${h}h`; return `${Math.floor(h/24)}j`; };
+
+// ── Célébration confettis + son ─────────────────────────────────────────────
+function celebrate() {
+  // Son de victoire (accord majeur synthétisé)
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const playNote = (freq, start, dur) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.3, ctx.currentTime + start);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + start + dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + dur);
+    };
+    playNote(523, 0, 0.15);    // C5
+    playNote(659, 0.1, 0.15);  // E5
+    playNote(784, 0.2, 0.15);  // G5
+    playNote(1047, 0.3, 0.4);  // C6
+    playNote(784, 0.3, 0.4);   // G5
+    playNote(1047, 0.5, 0.6);  // C6 long
+  } catch(_) {}
+
+  // Confettis DOM
+  const container = document.createElement("div");
+  container.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:99999;overflow:hidden";
+  document.body.appendChild(container);
+  const colors = ["#22c55e","#f59e0b","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#ef4444","#fbbf24"];
+  const emojis = ["GOOOL","GOOOL","GOOOL","GOOOL"];
+  for (let i = 0; i < 80; i++) {
+    const el = document.createElement("div");
+    const isEmoji = i < 4;
+    const x = Math.random() * 100;
+    const delay = Math.random() * 0.8;
+    const dur = 1.5 + Math.random() * 1.5;
+    const size = isEmoji ? 28 : (6 + Math.random() * 8);
+    const rot = Math.random() * 720 - 360;
+    el.textContent = isEmoji ? emojis[i] : "";
+    el.style.cssText = `position:absolute;top:-20px;left:${x}%;width:${size}px;height:${isEmoji?"auto":size+"px"};
+      background:${isEmoji?"none":colors[i%colors.length]};border-radius:${Math.random()>0.5?"50%":"2px"};
+      font-size:${isEmoji?size:0}px;font-weight:900;color:#4ade80;text-shadow:0 2px 8px #00000080;
+      animation:confetti-fall ${dur}s ease-in ${delay}s forwards`;
+    container.appendChild(el);
+  }
+  // Animation keyframes
+  if (!document.getElementById("confetti-style")) {
+    const style = document.createElement("style");
+    style.id = "confetti-style";
+    style.textContent = `@keyframes confetti-fall {
+      0% { transform: translateY(0) rotate(0deg) scale(1); opacity: 1; }
+      80% { opacity: 1; }
+      100% { transform: translateY(105vh) rotate(${360}deg) scale(0.5); opacity: 0; }
+    }`;
+    document.head.appendChild(style);
+  }
+  setTimeout(() => container.remove(), 4000);
+}
 const today = () => new Date().toISOString().slice(0,10);
 
 const calcTax = (fob, eurBrl=5.40) => {
@@ -135,9 +250,9 @@ const calcTax = (fob, eurBrl=5.40) => {
 
 // ─── COMPONENTS (defined outside App to fix the typing bug) ──────────────────
 
-function StatCard({ label, value, sub, color, icon }) {
+function StatCard({ label, value, sub, color, icon, onClick }) {
   return (
-    <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:10,padding:"11px 14px"}}>
+    <div onClick={onClick} style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:10,padding:"11px 14px",cursor:onClick?"pointer":"default"}}>
       <div style={{display:"flex",justifyContent:"space-between"}}>
         <div>
           <p style={{fontSize:10,color:"#3d4f6b",marginBottom:4,letterSpacing:".4px",textTransform:"uppercase",fontWeight:600}}>{label}</p>
@@ -177,8 +292,10 @@ function KanbanCard({ prospect, accent, onOpen, prospectEmails }) {
   const needsFollowUp = hasSent && !hasReply && daysSince !== null && daysSince >= 14;
 
   return (
-    <div onClick={() => onOpen(prospect)}
-      style={{background:"#0d1120",border:`1px solid ${needsFollowUp?"#ef444440":col+"25"}`,borderLeft:`3px solid ${needsFollowUp?"#ef4444":col}`,borderRadius:9,padding:"10px 12px",marginBottom:7,cursor:"pointer",transition:"background .12s"}}
+    <div onClick={() => onOpen(prospect)} draggable
+      onDragStart={e=>{e.dataTransfer.setData("prospectId",prospect.id);e.dataTransfer.setData("prospectProj",prospect._proj||"");e.dataTransfer.effectAllowed="move";e.currentTarget.style.opacity="0.4";}}
+      onDragEnd={e=>{e.currentTarget.style.opacity="1";}}
+      style={{background:"#0d1120",border:`1px solid ${needsFollowUp?"#ef444440":col+"25"}`,borderLeft:`3px solid ${needsFollowUp?"#ef4444":col}`,borderRadius:9,padding:"10px 12px",marginBottom:7,cursor:"grab",transition:"background .12s"}}
       onMouseEnter={e=>e.currentTarget.style.background="#111828"}
       onMouseLeave={e=>e.currentTarget.style.background="#0d1120"}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
@@ -433,6 +550,536 @@ function AddOrderModal({ projId, prospects, preselect, onAdd, onClose }) {
         <button onClick={onClose} style={{padding:"9px 14px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:7,color:"#6b7280",fontSize:12,cursor:"pointer"}}>Annuler</button>
       </div>
     </ModalWrap>
+  );
+}
+
+// ── Slider réutilisable ─────────────────────────────────────────────────────
+
+function SliderField({ label, value, onChange, min, max, step, color }) {
+  const ls = {fontSize:9,color:"#4b5563",marginBottom:3,fontWeight:600,textTransform:"uppercase",letterSpacing:".3px"};
+  return (
+    <div style={{marginBottom:2}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+        <p style={ls}>{label}</p>
+        <input type="number" value={value} onChange={e=>onChange(e.target.value)} step={step} min={0}
+          style={{width:80,padding:"2px 6px",borderRadius:5,fontSize:11,fontWeight:700,color:color||"#e2e8f0",background:"#080a0f",border:"1px solid #1a2035",textAlign:"right",fontFamily:"inherit",outline:"none"}}/>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={Math.min(value, max)}
+        onChange={e=>onChange(e.target.value)}
+        style={{width:"100%",accentColor:color||"#14b8a6",height:4,cursor:"pointer"}}/>
+    </div>
+  );
+}
+
+// ── Calculateur de Devis Impression 3D ──────────────────────────────────────
+
+function Print3DCalculator({ prospects, orders, onSaveQuote, onSaveWithNewClient, filamentStock, onUpdateStock }) {
+  const [poids, setPoids]             = useState("");
+  const [poidsSupports, setPoidsSupports] = useState("");
+  const [heures, setHeures]           = useState("");
+  const [qty, setQty]                   = useState("1");
+  const [coutFilament, setCoutFilament] = useState("100");
+  const [coutKwh, setCoutKwh]         = useState("0.98");
+  const [puissanceW, setPuissanceW]   = useState("350");
+  const [tauxMO, setTauxMO]           = useState("0");
+  const [coutsFixes, setCoutsFixes]   = useState("0");
+  const [hMoisMachine, setHMoisMachine] = useState("160");
+  const [margeMode, setMargeMode]       = useState("pct"); // "pct" | "mult"
+  const [margePct, setMargePct]         = useState("30");
+  const [margeMult, setMargeMult]       = useState("2");
+  const [clientId, setClientId]         = useState("");
+  const [projetNom, setProjetNom]       = useState("");
+  const [fileName, setFileName]         = useState("");
+  const [copied, setCopied]             = useState(false);
+  const [saved, setSaved]               = useState(false);
+  const [thumbnail, setThumbnail]       = useState("");
+  const [newClientMode, setNewClientMode] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [selectedSpool, setSelectedSpool] = useState("");
+
+  // Extraction poids et temps depuis G-code (commentaires en tête de fichier)
+  const [parseStatus, setParseStatus] = useState("");
+
+  // Parse gcode text content (head + tail)
+  const parseGcodeText = (head, tail) => {
+    const text = head + "\n" + tail;
+
+      // ── Extraction thumbnail (prendre la plus grande) ──
+      // OrcaSlicer : ; thumbnail begin 300x300 29724
+      // Creality Print : ; png begin 300*300 30380 7 253 1000
+      const thumbs = [...head.matchAll(/; (?:thumbnail|png) begin (\d+)[x*](\d+)[^\r\n]*\r?\n([\s\S]*?); (?:thumbnail|png) end/g)];
+      if (thumbs.length > 0) {
+        const best = thumbs.reduce((a, b) => parseInt(a[1]) > parseInt(b[1]) ? a : b);
+        const b64 = best[3].replace(/^; /gm, "").replace(/[\r\n]/g, "");
+        setThumbnail("data:image/png;base64," + b64);
+      }
+      const infos = [];
+      let tm;
+
+      // ── Temps d'impression ──
+      // OrcaSlicer/PrusaSlicer : ; estimated printing time (normal mode) = 2h 14m 51s
+      tm = text.match(/;\s*estimated printing time[^=]*=\s*([^\n]+)/i);
+      if (tm) {
+        const ts = tm[1];
+        const d = ts.match(/(\d+)\s*d/), h = ts.match(/(\d+)\s*h/), m = ts.match(/(\d+)\s*m/), s = ts.match(/(\d+)\s*s/);
+        const sec = (d?parseInt(d[1])*86400:0) + (h?parseInt(h[1])*3600:0) + (m?parseInt(m[1])*60:0) + (s?parseInt(s[1]):0);
+        if (sec > 0) {
+          const hrs = Math.round(sec / 360) / 10;
+          setHeures(String(hrs));
+          infos.push(`${hrs}h`);
+        }
+      }
+      // Cura : ;TIME:1234 (secondes)
+      if (!infos.some(i => i.includes("h"))) {
+        tm = text.match(/;\s*TIME\s*:\s*(\d+)/);
+        if (tm) {
+          const hrs = Math.round(parseInt(tm[1]) / 360) / 10;
+          setHeures(String(hrs));
+          infos.push(`${hrs}h`);
+        }
+      }
+
+      // ── Poids filament ──
+      // OrcaSlicer/PrusaSlicer : ; total filament used [g] = 26.63
+      let totalG = 0;
+      tm = text.match(/;\s*total filament used \[g\]\s*=\s*([\d.]+)/i);
+      if (!tm) tm = text.match(/;\s*filament used \[g\]\s*=\s*([\d.]+)/i);
+      if (tm) totalG = parseFloat(tm[1]);
+      // Cura : ;Filament used: 5.4321m → ~3g/m PLA 1.75mm
+      if (!totalG) {
+        tm = text.match(/;\s*Filament used:\s*([\d.]+)\s*m/i);
+        if (tm) totalG = Math.round(parseFloat(tm[1]) * 3);
+      }
+
+      // ── Supports activés ? ──
+      const hasSupports = /;\s*enable_support\s*=\s*1/.test(text);
+
+      if (totalG > 0) {
+        if (hasSupports) {
+          // Supports activés — estimer 15% de chutes/supports
+          const supG = Math.round(totalG * 0.15);
+          const pieceG = Math.round(totalG - supG);
+          setPoids(String(pieceG));
+          setPoidsSupports(String(supG));
+          infos.push(`${pieceG}g pièce + ${supG}g supports (est.)`);
+        } else {
+          setPoids(String(Math.round(totalG)));
+          infos.push(`${Math.round(totalG)}g filament`);
+        }
+      }
+
+      // ── Layers ──
+      tm = text.match(/;\s*total layer(?:s| number)\s*[:=]\s*(\d+)/i);
+      if (tm) infos.push(`${tm[1]} layers`);
+
+      if (infos.length > 0) {
+        setParseStatus("✓ " + infos.join(" · "));
+      } else {
+        setParseStatus("Aucune donnée trouvée — saisis manuellement");
+      }
+  };
+
+  const handleGcode = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    setParseStatus("Lecture...");
+
+    const is3MF = file.name.toLowerCase().endsWith(".3mf");
+
+    if (is3MF) {
+      // 3MF = ZIP — extraire le gcode dans un Worker
+      const workerCode = `
+        async function inflate(raw) {
+          const ds = new DecompressionStream("deflate-raw");
+          const w = ds.writable.getWriter(); w.write(raw); w.close();
+          const r = ds.readable.getReader(); const parts = [];
+          while (true) { const {done,value} = await r.read(); if (done) break; parts.push(value); }
+          const t = parts.reduce((s,c)=>s+c.length,0); const m = new Uint8Array(t);
+          let p = 0; for (const c of parts) { m.set(c,p); p+=c.length; } return m;
+        }
+        self.onmessage = async (e) => {
+          try {
+            const bytes = new Uint8Array(e.data); const len = bytes.length;
+            let eocd = -1;
+            for (let i = len-22; i >= Math.max(0,len-65557); i--) { if (bytes[i]===0x50&&bytes[i+1]===0x4B&&bytes[i+2]===0x05&&bytes[i+3]===0x06) { eocd=i; break; } }
+            if (eocd===-1) { self.postMessage({error:"ZIP non reconnu"}); return; }
+            const cdCount = bytes[eocd+8]|(bytes[eocd+9]<<8);
+            const cdOff = bytes[eocd+16]|(bytes[eocd+17]<<8)|(bytes[eocd+18]<<16)|(bytes[eocd+19]<<24);
+            let pos = cdOff; let gcodeHead = "", gcodeTail = "";
+            for (let i = 0; i < cdCount && pos+46 <= len; i++) {
+              if (bytes[pos]!==0x50||bytes[pos+1]!==0x4B||bytes[pos+2]!==0x01||bytes[pos+3]!==0x02) break;
+              const method = bytes[pos+10]|(bytes[pos+11]<<8);
+              const compSz = bytes[pos+20]|(bytes[pos+21]<<8)|(bytes[pos+22]<<16)|(bytes[pos+23]<<24);
+              const nmLen = bytes[pos+28]|(bytes[pos+29]<<8);
+              const exLen = bytes[pos+30]|(bytes[pos+31]<<8);
+              const cmLen = bytes[pos+32]|(bytes[pos+33]<<8);
+              const locOff = bytes[pos+42]|(bytes[pos+43]<<8)|(bytes[pos+44]<<16)|(bytes[pos+45]<<24);
+              const name = new TextDecoder().decode(bytes.slice(pos+46,pos+46+nmLen)).toLowerCase();
+              pos += 46+nmLen+exLen+cmLen;
+              if (!name.endsWith(".gcode")) continue;
+              const lnL = bytes[locOff+26]|(bytes[locOff+27]<<8);
+              const leL = bytes[locOff+28]|(bytes[locOff+29]<<8);
+              const dStart = locOff+30+lnL+leL;
+              const raw = bytes.slice(dStart, dStart+compSz);
+              let dec;
+              if (method===0) dec = raw;
+              else if (method===8) { try { dec = await inflate(raw); } catch(_) { continue; } }
+              else continue;
+              const full = new TextDecoder().decode(dec);
+              gcodeHead = full.slice(0, 60000);
+              gcodeTail = full.slice(-30000);
+              break;
+            }
+            self.postMessage({gcodeHead, gcodeTail});
+          } catch(err) { self.postMessage({error: err.message}); }
+        };
+      `;
+      const blob = new Blob([workerCode], { type: "application/javascript" });
+      const worker = new Worker(URL.createObjectURL(blob));
+      worker.onmessage = (ev) => {
+        worker.terminate();
+        if (ev.data.error) { setParseStatus(ev.data.error); return; }
+        if (!ev.data.gcodeHead && !ev.data.gcodeTail) { setParseStatus("Aucun gcode trouvé dans le 3MF"); return; }
+        parseGcodeText(ev.data.gcodeHead, ev.data.gcodeTail);
+      };
+      worker.onerror = () => { worker.terminate(); setParseStatus("Erreur lecture 3MF"); };
+      file.arrayBuffer().then(buf => worker.postMessage(buf, [buf]));
+    } else {
+      // Gcode direct — lire début + fin
+      const size = file.size;
+      const tailSize = Math.min(size, 30000);
+      const readSlice = (start, end) => new Promise((resolve) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => resolve("");
+        r.readAsText(file.slice(start, end));
+      });
+      Promise.all([readSlice(0, 60000), readSlice(size - tailSize, size)]).then(([head, tail]) => {
+        parseGcodeText(head, tail);
+      });
+    }
+  };
+
+  const p  = parseFloat(poids) || 0;
+  const ps = parseFloat(poidsSupports) || 0;
+  const pTotal = p + ps;
+  const h  = parseFloat(heures) || 0;
+  const q  = Math.max(1, parseInt(qty) || 1);
+  const cf = parseFloat(coutFilament) || 0;
+  const ck = parseFloat(coutKwh) || 0;
+  const pw = parseFloat(puissanceW) || 0;
+  const mo = parseFloat(tauxMO) || 0;
+  const fx = parseFloat(coutsFixes) || 0;
+  const hm = parseFloat(hMoisMachine) || 1;
+  // Coûts unitaires
+  const custoMatPiece1    = p / 1000 * cf;
+  const custoMatSupports1 = ps / 1000 * cf;
+  const custoMaterial1    = custoMatPiece1 + custoMatSupports1;
+  const custoEnergia1  = (pw / 1000) * h * ck;
+  const custoMO1       = h * mo;
+  const custoFixo1     = (fx / hm) * h;
+  const custoUnit      = custoMaterial1 + custoEnergia1 + custoMO1 + custoFixo1;
+  // Totaux × quantité
+  const custoMatPiece    = custoMatPiece1 * q;
+  const custoMatSupports = custoMatSupports1 * q;
+  const custoMaterial    = custoMaterial1 * q;
+  const custoEnergia  = custoEnergia1 * q;
+  const custoMO       = custoMO1 * q;
+  const custoFixo     = custoFixo1 * q;
+  const custoTotal    = custoUnit * q;
+  const prixVente     = margeMode === "mult"
+    ? custoTotal * (parseFloat(margeMult) || 1)
+    : custoTotal * (1 + (parseFloat(margePct) || 0) / 100);
+  const lucro         = prixVente - custoTotal;
+  const lucroPct      = prixVente > 0 ? (lucro / prixVente * 100) : 0;
+  const prixUnitVente = q > 0 ? prixVente / q : 0;
+
+  const R = v => `R$${v.toFixed(2)}`;
+
+  const whatsappText = () => {
+    const client = prospects.find(x=>x.id===clientId);
+    return `*Orçamento Impressão 3D*\n` +
+      (client ? `Cliente: ${client.name}\n` : "") +
+      (projetNom ? `Projeto: ${projetNom}\n` : "") +
+      (fileName ? `Arquivo: ${fileName}\n` : "") +
+      `Qtd: ${q} peça(s)\n` +
+      `Peso peça: ${p}g` + (ps ? ` + suportes: ${ps}g` : "") + ` · Tempo: ${h}h/peça\n` +
+      `───────────────\n` +
+      `Material peça: ${R(custoMatPiece)}\n` +
+      (ps ? `Material suportes: ${R(custoMatSupports)}\n` : "") +
+      `Energia: ${R(custoEnergia)}\n` +
+      `Mão de obra: ${R(custoMO)}\n` +
+      `Custos fixos: ${R(custoFixo)}\n` +
+      `*Custo total: ${R(custoTotal)}*\n` +
+      `───────────────\n` +
+      `Preço total: *${R(prixVente)}*` + (q>1?` (${R(prixUnitVente)}/un.)` :"") + `\n` +
+      `Lucro: ${R(lucro)} (${lucroPct.toFixed(1)}%)\n` +
+      `\n_Orçamento válido por 7 dias_`;
+  };
+
+  const copyWhatsApp = () => {
+    navigator.clipboard.writeText(whatsappText());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const hasClient = newClientMode ? newClientName.trim() : clientId;
+
+  const saveQuote = async () => {
+    if (!hasClient) return;
+    let finalClientId = clientId;
+    let finalClientName = "";
+    let newProspect = null;
+
+    if (newClientMode && newClientName.trim()) {
+      const newId = "p3d" + Math.random().toString(36).slice(2, 8);
+      newProspect = {
+        id: newId, name: newClientName.trim(), geo: "Rio de Janeiro", sub: "",
+        contact: "", email: "", phone: "", valeur: 0, tags: [], status: "Prospect",
+        assignedTo: null, lastEditBy: null, lastEditAt: Date.now(), note: "", _proj: "print3d"
+      };
+      finalClientId = newId;
+      finalClientName = newClientName.trim();
+      setNewClientMode(false);
+      setNewClientName("");
+      setClientId(newId);
+    } else {
+      const client = prospects.find(x => x.id === clientId);
+      finalClientName = client?.name || "–";
+    }
+
+    const order = {
+      id: "ord" + Math.random().toString(36).slice(2, 8),
+      proj: "print3d",
+      prospectId: finalClientId,
+      prospectName: finalClientName,
+      type: "devis",
+      product: projetNom || fileName || "Pièce 3D",
+      qty: q,
+      amount: prixVente,
+      date: new Date().toISOString().slice(0, 10),
+      deliveryDate: "",
+      status: "Brouillon",
+      thumbnail: thumbnail || "",
+      spoolId: selectedSpool || "",
+      spoolColor: (filamentStock||[]).find(s=>s.id===selectedSpool)?.color || "",
+      notes: `Pièce: ${p}g` + (ps ? ` · Supports: ${ps}g` : "") + ` · ${h}h · Mat pièce: ${R(custoMatPiece)}` + (ps ? ` · Mat supports: ${R(custoMatSupports)}` : "") + ` · Énergie: ${R(custoEnergia)} · MO: ${R(custoMO)} · Fixe: ${R(custoFixo)} · Custo: ${R(custoTotal)} · Prix: ${R(prixVente)} (${margeMode==="mult"?"x"+margeMult:margePct+"%"}) · Lucro: ${R(lucro)}`,
+    };
+
+    // Déduire le stock de filament si une bobine est sélectionnée
+    if (selectedSpool && pTotal * q > 0 && onUpdateStock) {
+      onUpdateStock(selectedSpool, pTotal * q);
+    }
+
+    if (newProspect) {
+      await onSaveWithNewClient(newProspect, order);
+    } else {
+      await onSaveQuote(order);
+    }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  const inputStyle = {width:"100%",padding:"7px 9px",borderRadius:7,fontSize:12,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"};
+  const labelStyle = {fontSize:9,color:"#4b5563",marginBottom:3,fontWeight:600,textTransform:"uppercase",letterSpacing:".3px"};
+  const cellStyle  = {background:"#080a0f",borderRadius:7,padding:"8px 10px",border:"1px solid #0f1520"};
+
+  return (
+    <div className="fade" style={{display:"grid",gridTemplateColumns:"340px 1fr",gap:16,alignItems:"start"}}>
+      {/* ── Panneau gauche : inputs ── */}
+      <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:16}}>
+        <p style={{fontSize:12,fontWeight:700,color:"#14b8a6",marginBottom:14,textTransform:"uppercase",letterSpacing:".5px"}}>🧊 Calculateur de Devis</p>
+
+        {/* Upload G-code */}
+        <div style={{marginBottom:12}}>
+          <p style={labelStyle}>Fichier G-code ou 3MF (optionnel)</p>
+          <label style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:7,border:"1px dashed #1a2035",background:"#080a0f",cursor:"pointer"}}>
+            <span style={{fontSize:11,color:fileName?"#14b8a6":"#4b5563"}}>{fileName||"Cliquer pour charger un .gcode ou .3mf"}</span>
+            <input type="file" accept=".gcode,.gco,.g,.3mf" onChange={handleGcode} style={{display:"none"}}/>
+          </label>
+          {parseStatus&&<p style={{fontSize:10,color:parseStatus.startsWith("✓")?"#4ade80":"#f59e0b",marginTop:5}}>{parseStatus}</p>}
+          {thumbnail&&<img src={thumbnail} alt="Aperçu" style={{width:"100%",borderRadius:7,marginTop:8,border:"1px solid #1a2035"}}/>}
+        </div>
+
+        {/* Client + Projet */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+              <p style={labelStyle}>{newClientMode?"Nouveau client":"Client"}</p>
+              <button onClick={()=>{setNewClientMode(m=>!m);setNewClientName("");}} style={{fontSize:9,color:"#14b8a6",background:"none",border:"none",cursor:"pointer",fontWeight:600,padding:0}}>
+                {newClientMode?"← Existant":"+ Nouveau"}
+              </button>
+            </div>
+            {newClientMode ? (
+              <input value={newClientName} onChange={e=>setNewClientName(e.target.value)} placeholder="Nom du client" style={{...inputStyle,borderColor:newClientName?"#14b8a640":"#1a2035"}}/>
+            ) : (
+              <select value={clientId} onChange={e=>setClientId(e.target.value)} style={inputStyle}>
+                <option value="">— Sélectionner</option>
+                {prospects.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            )}
+          </div>
+          <div>
+            <p style={{...labelStyle,marginBottom:3}}>Nom du projet</p>
+            <input value={projetNom} onChange={e=>setProjetNom(e.target.value)} placeholder="Ex: Support caméra" style={inputStyle}/>
+          </div>
+        </div>
+
+        {/* Poids + Supports + Heures + Quantité */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:4}}>
+          <div>
+            <p style={labelStyle}>Poids pièce (g)</p>
+            <input type="number" value={poids} onChange={e=>setPoids(e.target.value)} placeholder="0" style={inputStyle}/>
+          </div>
+          <div>
+            <p style={labelStyle}>Supports (g)</p>
+            <input type="number" value={poidsSupports} onChange={e=>setPoidsSupports(e.target.value)} placeholder="0" style={inputStyle}/>
+          </div>
+          <div>
+            <p style={labelStyle}>Temps (h)</p>
+            <input type="number" value={heures} onChange={e=>setHeures(e.target.value)} placeholder="0" style={inputStyle}/>
+          </div>
+          <div>
+            <p style={labelStyle}>Quantité</p>
+            <input type="number" value={qty} onChange={e=>setQty(e.target.value)} placeholder="1" min="1" style={inputStyle}/>
+          </div>
+        </div>
+        {(p>0||ps>0)&&<p style={{fontSize:10,color:"#4b5563",marginBottom:8}}>Total filament: {pTotal*q}g ({p*q}g pièce{ps>0?` + ${ps*q}g supports`:""}){q>1?` · ${q} pièces · ${h*q}h total`:""}</p>}
+        {h===0&&p>0&&<p style={{fontSize:10,color:"#f59e0b",marginBottom:8}}>⚠ Remplis le temps d'impression pour calculer énergie, MO et coûts fixes</p>}
+
+        {/* Sélection bobine */}
+        {filamentStock&&filamentStock.length>0&&(
+          <div style={{marginBottom:12}}>
+            <p style={labelStyle}>Bobine filament</p>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {filamentStock.map(s=>{
+                const remaining = s.weightTotal - s.weightUsed;
+                const needed = pTotal * q;
+                const low = needed > 0 && remaining < needed;
+                const sel = selectedSpool === s.id;
+                return (
+                  <div key={s.id} onClick={()=>setSelectedSpool(sel?"":s.id)}
+                    style={{padding:"5px 10px",borderRadius:7,cursor:"pointer",display:"flex",alignItems:"center",gap:6,
+                      background:sel?`${s.hex}20`:"#080a0f",border:`1px solid ${sel?s.hex+"60":low?"#ef444440":"#1a2035"}`,transition:"all .15s"}}>
+                    <span style={{width:14,height:14,borderRadius:"50%",background:s.hex,border:"2px solid #ffffff30",flexShrink:0}}/>
+                    <div>
+                      <p style={{fontSize:10,fontWeight:600,color:sel?s.hex:"#94a3b8"}}>{s.color}</p>
+                      <p style={{fontSize:9,color:low?"#f87171":"#4b5563"}}>{remaining}g{low?" ⚠ insuffisant":""}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Sliders */}
+        <div style={{borderTop:"1px solid #0f1520",paddingTop:12,display:"flex",flexDirection:"column",gap:10}}>
+          <SliderField label="Filament R$/kg"        value={coutFilament}  onChange={setCoutFilament} min={50}  max={400}   step={5}    color="#f59e0b"/>
+          <SliderField label="Électricité R$/kWh"    value={coutKwh}       onChange={setCoutKwh}      min={0.3} max={2}     step={0.05} color="#f87171"/>
+          <SliderField label="Puissance machine (W)" value={puissanceW}    onChange={setPuissanceW}   min={50}  max={600}   step={10}   color="#60a5fa"/>
+          <SliderField label="Main d'oeuvre R$/h"     value={tauxMO}       onChange={setTauxMO}       min={10}  max={100}   step={5}    color="#a78bfa"/>
+          <SliderField label="Coûts fixes R$/mois"    value={coutsFixes}   onChange={setCoutsFixes}   min={500} max={10000} step={100}  color="#f87171"/>
+          <SliderField label="Heures/mois machine"    value={hMoisMachine} onChange={setHMoisMachine} min={40}  max={720}   step={10}   color="#6b7280"/>
+        </div>
+
+        {/* Marges */}
+        <div style={{borderTop:"1px solid #0f1520",paddingTop:12,marginTop:12}}>
+          <div style={{display:"flex",gap:4,marginBottom:8}}>
+            {[["pct","% Marge"],["mult","x Multiplicateur"]].map(([m,l])=>(
+              <button key={m} onClick={()=>setMargeMode(m)}
+                style={{flex:1,padding:"4px 8px",borderRadius:5,fontSize:10,fontWeight:600,cursor:"pointer",
+                  background:margeMode===m?"#22c55e18":"transparent",color:margeMode===m?"#4ade80":"#4b5563",
+                  border:margeMode===m?"1px solid #22c55e28":"1px solid #0f1520"}}>{l}</button>
+            ))}
+          </div>
+          {margeMode==="pct"
+            ? <SliderField label="Marge %" value={margePct} onChange={setMargePct} min={0} max={500} step={1} color="#22c55e"/>
+            : <SliderField label="Multiplicateur" value={margeMult} onChange={setMargeMult} min={1} max={10} step={0.5} color="#22c55e"/>
+          }
+        </div>
+      </div>
+
+      {/* ── Panneau droit : résultats ── */}
+      <div>
+        {/* Décomposition coûts */}
+        <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:16,marginBottom:12}}>
+          <p style={{fontSize:11,fontWeight:700,color:"#f1f5f9",marginBottom:12,textTransform:"uppercase",letterSpacing:".4px"}}>Decomposição de custos</p>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:9}}>
+            {[
+              {l:"Mat. pièce",    v:R(custoMatPiece),    c:"#f59e0b", sub:`${p}g × R$${cf}/kg`},
+              {l:"Mat. supports", v:R(custoMatSupports), c:"#fb923c", sub:ps?`${ps}g × R$${cf}/kg`:"—"},
+              {l:"Custo energia", v:R(custoEnergia),     c:"#f87171", sub:`${pw}W × ${h}h`},
+              {l:"Custo MO",      v:R(custoMO),          c:"#a78bfa", sub:`${h}h × R$${mo}/h`},
+              {l:"Custo fixo",    v:R(custoFixo),        c:"#6b7280", sub:`R$${fx}/${hm}h × ${h}h`},
+            ].map(x=>(
+              <div key={x.l} style={cellStyle}>
+                <p style={{fontSize:9,color:"#4b5563",marginBottom:3,textTransform:"uppercase",letterSpacing:".3px"}}>{x.l}</p>
+                <p style={{fontSize:14,fontWeight:700,color:x.c}}>{x.v}</p>
+                <p style={{fontSize:9,color:"#374151",marginTop:1}}>{x.sub}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Total + Prix */}
+        <div style={{background:"#0b0d16",border:"1px solid #14b8a622",borderRadius:11,padding:16,marginBottom:12}}>
+          <div style={{display:"grid",gridTemplateColumns:q>1?"1fr 1fr 1fr":"1fr 1fr",gap:9}}>
+            <div style={{...cellStyle,border:"1px solid #fbbf2422"}}>
+              <p style={{fontSize:9,color:"#4b5563",marginBottom:3,textTransform:"uppercase"}}>Custo total {q>1?`(${q} pièces)`:""}</p>
+              <p style={{fontSize:20,fontWeight:700,color:"#fbbf24"}}>{R(custoTotal)}</p>
+              {q>1&&<p style={{fontSize:10,color:"#a8893a",marginTop:2}}>Unit: {R(custoUnit)}</p>}
+            </div>
+            <div style={{...cellStyle,border:"1px solid #22c55e22"}}>
+              <p style={{fontSize:9,color:"#4b5563",marginBottom:3,textTransform:"uppercase"}}>Preço de venda {margeMode==="mult"?`(x${margeMult})`:`(+${margePct}%)`}</p>
+              <p style={{fontSize:20,fontWeight:700,color:"#22c55e"}}>{R(prixVente)}</p>
+              <p style={{fontSize:10,color:"#4ade80",marginTop:2}}>Lucro: {R(lucro)} ({lucroPct.toFixed(1)}%)</p>
+            </div>
+            {q>1&&(
+              <div style={{...cellStyle,border:"1px solid #60a5fa22"}}>
+                <p style={{fontSize:9,color:"#4b5563",marginBottom:3,textTransform:"uppercase"}}>Prix unitaire</p>
+                <p style={{fontSize:20,fontWeight:700,color:"#60a5fa"}}>{R(prixUnitVente)}</p>
+                <p style={{fontSize:10,color:"#93c5fd",marginTop:2}}>Custo: {R(custoUnit)}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Barre graphique proportionnelle */}
+        {custoTotal > 0 && (
+          <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:16,marginBottom:12}}>
+            <p style={{fontSize:10,fontWeight:600,color:"#4b5563",marginBottom:8,textTransform:"uppercase"}}>Répartition des coûts</p>
+            <div style={{display:"flex",height:22,borderRadius:6,overflow:"hidden"}}>
+              {[
+                {v:custoMatPiece,   c:"#f59e0b",l:"Pièce"},
+                {v:custoMatSupports,c:"#fb923c",l:"Supports"},
+                {v:custoEnergia,    c:"#f87171",l:"Énergie"},
+                {v:custoMO,         c:"#a78bfa",l:"MO"},
+                {v:custoFixo,       c:"#6b7280",l:"Fixe"},
+              ].filter(x=>x.v>0).map(x=>(
+                <div key={x.l} title={`${x.l}: ${R(x.v)} (${(x.v/custoTotal*100).toFixed(0)}%)`}
+                  style={{width:`${x.v/custoTotal*100}%`,background:x.c,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,color:"#000",minWidth:x.v/custoTotal>0.08?"auto":0,overflow:"hidden",whiteSpace:"nowrap"}}>
+                  {x.v/custoTotal>0.12?`${x.l} ${(x.v/custoTotal*100).toFixed(0)}%`:""}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={copyWhatsApp} disabled={custoTotal===0}
+            style={{flex:1,padding:"10px",background:copied?"#22c55e":"linear-gradient(135deg,#25d366,#128c7e)",border:"none",borderRadius:7,color:"white",fontSize:12,fontWeight:600,cursor:custoTotal===0?"not-allowed":"pointer",opacity:custoTotal===0?0.4:1}}>
+            {copied?"✓ Copié !":"📋 Copier pour WhatsApp"}
+          </button>
+          <button onClick={saveQuote} disabled={custoTotal===0||!hasClient}
+            style={{flex:1,padding:"10px",background:saved?"#22c55e":"linear-gradient(135deg,#14b8a6,#0d9488)",border:"none",borderRadius:7,color:"white",fontSize:12,fontWeight:600,cursor:(custoTotal===0||!hasClient)?"not-allowed":"pointer",opacity:(custoTotal===0||!hasClient)?0.4:1}}>
+            {saved?"✓ Devis sauvegardé !":!hasClient?"Sélectionne ou crée un client":"💾 Sauvegarder devis"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -691,9 +1338,9 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
           const isExpanded = expandedEmail===email.id;
           const content = emailBodies[email.id] || email.body || email.snippet || "";
           return (
-            <div key={email.id} style={{borderRadius:10,border:`1px solid ${isOut?"#22c55e30":"#1e293b"}`,overflow:"hidden",background:isOut?"#052010":"#0b0f1a"}}>
+            <div key={email.id} style={{borderRadius:10,border:`1px solid ${isOut?"#22c55e30":"#1e293b"}`,background:isOut?"#052010":"#0b0f1a"}}>
               {/* Header cliquable */}
-              <div onClick={()=>setExpandedEmail(isExpanded?null:email.id)}
+              <div onClick={()=>{setExpandedEmail(isExpanded?null:email.id);if(!isExpanded)loadEmailBody(email);}}
                 style={{padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",borderBottom:isExpanded?"1px solid #1e293b":"none"}}
                 onMouseEnter={e=>e.currentTarget.style.background=isOut?"#0a3020":"#0f1520"}
                 onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -719,7 +1366,7 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
 
               {/* Corps toujours visible si expanded */}
               {isExpanded&&(
-                <div style={{padding:"14px 16px",borderBottom:"1px solid #1e293b"}}>
+                <div style={{padding:"14px 16px",borderBottom:"1px solid #1e293b",maxHeight:400,overflowY:"auto"}}>
                   {content
                     ? <p style={{fontSize:12,color:"#cbd5e1",lineHeight:1.9,whiteSpace:"pre-wrap",fontFamily:"inherit"}}>{content}</p>
                     : <p style={{fontSize:11,color:"#374151",fontStyle:"italic"}}>Rescanne ce contact pour voir le contenu complet.</p>
@@ -794,6 +1441,9 @@ const ALLOWED_EMAILS = [
   "anthony.donzel@gmail.com",
   "harold.grenouilleau@gmail.com",
   "jade.investissement@gmail.com",
+  "3abresil@gmail.com",
+  "labo3drio@gmail.com",
+  "formationcarnaval@gmail.com",
 ];
 
 const emailToUser = email => {
@@ -802,6 +1452,9 @@ const emailToUser = email => {
   if (lower === "anthony.donzel@gmail.com")       return "anthony";
   if (lower === "harold.grenouilleau@gmail.com")  return "harold";
   if (lower === "jade.investissement@gmail.com")  return "jade";
+  if (lower === "3abresil@gmail.com")             return "anthony"; // compte partagé Vin
+  if (lower === "labo3drio@gmail.com")            return "anthony"; // compte partagé Impression 3D
+  if (lower === "formationcarnaval@gmail.com")   return "anthony"; // compte partagé Carnaval
   return null;
 };
 
@@ -931,6 +1584,7 @@ const EMAIL_TEMPLATES = {
 
 function EmailModal({ prospect, projId, onClose, onSend, onUpdateStatus }) {
   const P = PROJECTS[projId];
+  const senderEmail = PROJECT_EMAIL[projId] || null;
   const templates = EMAIL_TEMPLATES[projId]||[];
   const defaultTpl = templates[0];
   const [to,      setTo]      = useState(prospect.email||"");
@@ -944,24 +1598,30 @@ function EmailModal({ prospect, projId, onClose, onSend, onUpdateStatus }) {
     setBody(tpl.body(prospect));
   };
 
+  const [sendError, setSendError] = useState("");
+
   const handleSend = async () => {
     if (!to) return;
     setSending(true);
-    const ok = await onSend({ to, subject, body });
+    setSendError("");
+    const ok = await onSend({ to, subject, body, from: senderEmail });
     setSending(false);
     if (ok) {
       setSent(true);
-      // Mettre à jour le statut à "Contacté" si encore "À contacter"
       if (prospect.status === "À contacter" && onUpdateStatus) {
         onUpdateStatus(prospect.id, { status: "Contacté" });
       }
+    } else {
+      setSendError(senderEmail
+        ? `Échec envoi. L'alias "${senderEmail}" est-il configuré dans Gmail → Paramètres → Comptes → Envoyer en tant que ?`
+        : "Échec envoi. Vérifie ta connexion et tes permissions Gmail.");
     }
   };
 
   if (sent) return (
     <ModalWrap title="✅ Email envoyé" onClose={onClose}>
       <p style={{fontSize:12,color:"#4ade80",textAlign:"center",padding:"20px 0"}}>Email envoyé à {to} avec succès !</p>
-      <p style={{fontSize:11,color:"#4b5563",textAlign:"center",marginBottom:16}}>Il apparaît dans ton dossier "Envoyés" Gmail.</p>
+      <p style={{fontSize:11,color:"#4b5563",textAlign:"center",marginBottom:16}}>{senderEmail?`Envoyé depuis ${senderEmail}`:"Envoyé depuis ton compte Gmail"}</p>
       <button onClick={onClose} style={{width:"100%",padding:"9px",background:"#22c55e15",border:"1px solid #22c55e28",borderRadius:7,color:"#4ade80",fontSize:13,fontWeight:600,cursor:"pointer"}}>Fermer</button>
     </ModalWrap>
   );
@@ -984,6 +1644,12 @@ function EmailModal({ prospect, projId, onClose, onSend, onUpdateStatus }) {
           </div>
         </div>
       )}
+      {senderEmail&&(
+        <div style={{marginBottom:11,padding:"6px 10px",background:"#14b8a610",borderRadius:7,border:"1px solid #14b8a620",display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:10,color:"#4b5563",fontWeight:600}}>De :</span>
+          <span style={{fontSize:11,color:"#14b8a6",fontWeight:600}}>{senderEmail}</span>
+        </div>
+      )}
       <Field label="À" value={to} onChange={setTo} placeholder="email@domaine.com"/>
       <Field label="Objet" value={subject} onChange={setSubject} placeholder="Objet..."/>
       <div style={{marginBottom:12}}>
@@ -991,6 +1657,7 @@ function EmailModal({ prospect, projId, onClose, onSend, onUpdateStatus }) {
         <textarea value={body} onChange={e=>setBody(e.target.value)}
           style={{width:"100%",padding:"9px",borderRadius:7,fontSize:12,resize:"vertical",height:220,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",lineHeight:1.7}}/>
       </div>
+      {sendError&&<p style={{fontSize:11,color:"#f87171",marginBottom:8,padding:"8px 10px",background:"#ef444412",borderRadius:7,border:"1px solid #ef444420"}}>{sendError}</p>}
       <div style={{display:"flex",gap:8}}>
         <button onClick={handleSend} disabled={sending||!to}
           style={{flex:1,padding:"9px",background:`linear-gradient(135deg,${P.color},${P.color}aa)`,border:"none",borderRadius:7,color:"white",fontSize:13,fontWeight:600,cursor:"pointer",opacity:sending?0.6:1}}>
@@ -1096,18 +1763,19 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
   const [dragging, setDragging] = useState(false);
   const [dragStart, setDragStart] = useState(null);
 
+  // Régions positionnées par projection géographique réelle
   const REGIONS = [
-    { id:"bordeaux",   label:"Bordeaux",        color:"#e74c3c", cx:118, cy:342 },
-    { id:"bourgogne",  label:"Bourgogne",       color:"#9b59b6", cx:322, cy:248 },
-    { id:"champagne",  label:"Champagne",       color:"#f1c40f", cx:308, cy:112 },
-    { id:"alsace",     label:"Alsace",          color:"#e67e22", cx:398, cy:155 },
-    { id:"loire",      label:"Loire",           color:"#27ae60", cx:192, cy:218 },
-    { id:"rhone",      label:"Vallée du Rhône", color:"#d35400", cx:338, cy:318 },
-    { id:"languedoc",  label:"Languedoc",       color:"#16a085", cx:278, cy:402 },
-    { id:"provence",   label:"Provence",        color:"#c0392b", cx:368, cy:388 },
-    { id:"beaujolais", label:"Beaujolais",      color:"#8e44ad", cx:328, cy:278 },
-    { id:"jura",       label:"Jura/Savoie",     color:"#7f8c8d", cx:368, cy:242 },
-    { id:"sw",         label:"Sud-Ouest",       color:"#795548", cx:168, cy:382 },
+    { id:"bordeaux",   label:"Bordeaux",        color:"#e74c3c", cx:144, cy:286 },
+    { id:"bourgogne",  label:"Bourgogne",       color:"#9b59b6", cx:273, cy:198 },
+    { id:"champagne",  label:"Champagne",       color:"#f1c40f", cx:271, cy:110 },
+    { id:"alsace",     label:"Alsace",          color:"#e67e22", cx:366, cy:138 },
+    { id:"loire",      label:"Loire",           color:"#27ae60", cx:180, cy:184 },
+    { id:"rhone",      label:"Vallée du Rhône", color:"#d35400", cx:294, cy:272 },
+    { id:"languedoc",  label:"Languedoc",       color:"#16a085", cx:258, cy:336 },
+    { id:"provence",   label:"Provence",        color:"#c0392b", cx:325, cy:340 },
+    { id:"beaujolais", label:"Beaujolais",      color:"#8e44ad", cx:289, cy:236 },
+    { id:"jura",       label:"Jura/Savoie",     color:"#7f8c8d", cx:325, cy:212 },
+    { id:"sw",         label:"Sud-Ouest",       color:"#795548", cx:199, cy:336 },
   ];
 
   const STATUS_COLORS = {
@@ -1155,10 +1823,9 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
   const handleMouseMove = (e) => { if (dragging&&dragStart) setPan({x:e.clientX-dragStart.x, y:e.clientY-dragStart.y}); };
   const handleMouseUp   = () => { setDragging(false); setDragStart(null); };
 
-  // Vrai tracé SVG de la France métropolitaine (source IGN simplifié)
-  const FRANCE_PATH = "M248,52 L268,46 L292,48 L316,50 L338,46 L360,52 L380,62 L398,74 L412,90 L420,108 L422,128 L416,148 L424,162 L436,174 L444,192 L442,210 L432,224 L430,242 L436,258 L440,278 L438,296 L430,312 L420,326 L412,342 L406,360 L396,376 L382,390 L364,400 L344,408 L322,412 L300,414 L278,410 L258,402 L240,390 L224,376 L210,360 L198,342 L190,322 L184,302 L182,280 L184,260 L180,242 L172,226 L166,210 L164,192 L168,174 L176,158 L186,142 L196,128 L204,114 L212,100 L222,88 L234,78 L246,68 Z";
-  const BRETAGNE_PATH = "M182,260 L165,265 L148,270 L132,266 L118,256 L115,244 L125,236 L142,232 L158,238 L170,248 Z";
-  const CORSE_PATH = "M406,432 L414,438 L418,450 L414,462 L406,466 L398,460 L396,448 L400,438 Z";
+  // Tracé SVG France — projeté depuis GeoJSON réel (Natural Earth / world.geo.json)
+  const FRANCE_PATH = "M260,65 L280,84 L294,81 L319,99 L325,102 L333,101 L346,112 L387,119 L373,147 L369,175 L361,182 L349,178 L350,188 L329,211 L329,229 L342,223 L352,240 L350,252 L359,267 L349,279 L356,310 L371,315 L368,332 L343,355 L288,344 L247,357 L244,381 L211,386 L180,368 L169,377 L118,359 L107,343 L121,319 L127,239 L98,197 L77,177 L34,162 L31,133 L68,124 L115,134 L106,89 L132,106 L197,75 L206,42 L230,34 L234,48 L247,49 L260,65 Z";
+  const CORSE_PATH = "M428,394 L418,425 L406,417 L399,390 L405,375 L423,360 L428,394 Z";
 
   return (
     <div className="fade">
@@ -1181,9 +1848,11 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
             <svg viewBox="0 0 460 480" width={450} height={500}
               style={{transform:`translate(${pan.x}px,${pan.y}px) scale(${zoom})`,transformOrigin:"center center",transition:dragging?"none":"transform .1s"}}>
               {/* France */}
-              <path d={FRANCE_PATH} fill="#111827" stroke="#334155" strokeWidth="1.5"/>
-              <path d={BRETAGNE_PATH} fill="#111827" stroke="#334155" strokeWidth="1.5"/>
-              <path d={CORSE_PATH} fill="#111827" stroke="#334155" strokeWidth="1.5"/>
+              <path d={FRANCE_PATH} fill="#111827" stroke="#475569" strokeWidth="1.5" strokeLinejoin="round"/>
+              <path d={CORSE_PATH} fill="#111827" stroke="#475569" strokeWidth="1.5" strokeLinejoin="round"/>
+              {/* Paris */}
+              <text x="215" y="120" fontSize="8" fill="#475569" fontFamily="sans-serif">Paris</text>
+              <circle cx="226" cy="126" r="2.5" fill="#64748b"/>
 
               {/* Régions viticoles */}
               {REGIONS.map(r => {
@@ -1342,6 +2011,9 @@ export default function AmigoCRM() {
 
   const [showAddProspect, setShowAddProspect] = useState(false);
   const [showAddOrder,    setShowAddOrder]    = useState(undefined);
+  const [showCalculateur, setShowCalculateur] = useState(false);
+  const [detailOrder,     setDetailOrder]     = useState(null);
+  const [sortMode,        setSortMode]        = useState("alpha"); // "alpha" | "recent"
   const [detailProspect,  setDetailProspect]  = useState(null);
   const [showAddEvent,    setShowAddEvent]    = useState(null);
   const [searchQuery,     setSearchQuery]     = useState("");
@@ -1349,6 +2021,7 @@ export default function AmigoCRM() {
 
   const KEY = "amigo-v9";
   const pollRef  = useRef(null);
+  const savingRef = useRef(false);
   const prevLen  = useRef(0);
 
   // ── Auth Google ──────────────────────────────────────────────────────────
@@ -1471,6 +2144,7 @@ export default function AmigoCRM() {
         description: ev.note || "",
         start: ev.time ? { dateTime: `${ev.date}T${ev.time}:00`, timeZone: "America/Sao_Paulo" } : { date: ev.date },
         end:   ev.time ? { dateTime: `${ev.date}T${ev.time}:00`, timeZone: "America/Sao_Paulo" } : { date: ev.date },
+        visibility: "public",
       };
       await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
         method: "POST",
@@ -1481,7 +2155,7 @@ export default function AmigoCRM() {
     } catch(e) { console.error(e); }
   };
 
-  const sendGmail = async ({ to, subject, body }) => {
+  const sendGmail = async ({ to, subject, body, from }) => {
     try {
       const token = await getGToken();
       if (!token) return false;
@@ -1491,15 +2165,17 @@ export default function AmigoCRM() {
         bytes.forEach(b => bin += String.fromCharCode(b));
         return btoa(bin);
       };
-      const raw = [
-        `To: ${to}`,
-        `Subject: =?UTF-8?B?${toB64(subject)}?=`,
-        "MIME-Version: 1.0",
-        "Content-Type: text/plain; charset=UTF-8",
-        "Content-Transfer-Encoding: base64",
-        "",
-        toB64(body)
-      ].join("\r\n");
+      const senderEmail = from || PROJECT_EMAIL[projId] || null;
+      const headers = [];
+      if (senderEmail) headers.push(`From: ${senderEmail}`);
+      headers.push(`To: ${to}`);
+      headers.push(`Subject: =?UTF-8?B?${toB64(subject)}?=`);
+      headers.push("MIME-Version: 1.0");
+      headers.push("Content-Type: text/plain; charset=UTF-8");
+      headers.push("Content-Transfer-Encoding: base64");
+      headers.push("");
+      headers.push(toB64(body));
+      const raw = headers.join("\r\n");
       const encoded = toB64(raw).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
       const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
         method: "POST",
@@ -1513,6 +2189,7 @@ export default function AmigoCRM() {
   // ── Gmail scan (règles fixes, pas d'IA) ───────────────────────────────────
   const [gmailThreads, setGmailThreads] = useState([]);
   const [gmailLoading, setGmailLoading] = useState(false);
+  const scanningRef = useRef(false);
 
   const matchEmailToProspect = (from, to, subject, snippet, allProspects) => {
     const haystack = `${from} ${to} ${subject} ${snippet}`.toLowerCase();
@@ -1523,18 +2200,31 @@ export default function AmigoCRM() {
         const domain = em.split("@")[1];
         const GENERIC = ["gmail.com","hotmail.com","yahoo.com","outlook.com","orange.fr","wanadoo.fr","free.fr","sfr.fr","laposte.net"];
         if (GENERIC.includes(domain)) {
-          // Domaine générique → match sur l'adresse complète uniquement
           if (haystack.includes(em)) return p;
         } else if (domain && haystack.includes(domain)) {
           return p;
         }
       }
     }
-    // 2. Match par nom — uniquement si le nom est long et spécifique (>7 chars)
+    // 2. Match par nom d'entreprise / producteur (>5 chars)
     for (const p of allProspects) {
       const names = [p.name, p.producteur].filter(Boolean).map(n=>n.toLowerCase().trim());
       for (const n of names) {
-        if (n.length > 7 && haystack.includes(n)) return p;
+        if (n.length > 5 && haystack.includes(n)) return p;
+      }
+    }
+    // 3. Match par contact / appellation / cépage (mails transférés — dans le snippet)
+    for (const p of allProspects) {
+      const terms = [p.contact, p.appellation, p.cepage].filter(Boolean).map(n=>n.toLowerCase().trim());
+      for (const t of terms) {
+        if (t.length > 5 && haystack.includes(t)) return p;
+      }
+    }
+    // 4. Match par téléphone (format +33, +55, etc.)
+    for (const p of allProspects) {
+      if (p.phone) {
+        const tel = p.phone.replace(/\s/g,"");
+        if (tel.length > 8 && haystack.includes(tel)) return p;
       }
     }
     return null;
@@ -1562,30 +2252,54 @@ export default function AmigoCRM() {
   };
 
   const [gmailFilter, setGmailFilter] = useState("projets"); // "projets" | "tous"
+  const [expandedGlobalEmail, setExpandedGlobalEmail] = useState(null);
 
   const scanGmail = async (filter) => {
     const f = filter || gmailFilter;
     setGmailLoading(true);
+    scanningRef.current = true;
     try {
       const token = await getGToken();
-      if (!token) { setGmailLoading(false); return; }
-
+      if (!token) { setGmailLoading(false);scanningRef.current=false; return; }
       const allProspects = [...(data?.makeup||[]), ...(data?.vin||[]), ...(data?.print3d||[])];
 
       let query;
       if (f === "tous") {
         query = "in:anywhere";
       } else {
-        const domains = allProspects
+        // Domaines des prospects — chercher dans headers ET body (pour les forwards)
+        const domainSet = new Set(allProspects
           .map(p => p.email?.split("@")[1]?.toLowerCase())
           .filter(Boolean)
-          .map(d => `from:${d} OR to:${d}`);
+          .filter(d => !["gmail.com","hotmail.com","yahoo.com","outlook.com","orange.fr","free.fr","sfr.fr","laposte.net","wanadoo.fr"].includes(d)));
+        const domainTerms = [...domainSet].map(d => `"${d}"`); // Cherche partout (body inclus)
+        // Noms des prospects/producteurs pour matcher les mails transférés
+        const prospectNames = allProspects
+          .flatMap(p => [p.name, p.producteur, p.contact].filter(Boolean))
+          .filter(n => n.length > 5)
+          .slice(0, 30)
+          .map(n => `"${n}"`);
+        // Emails complets des prospects
+        const emails = allProspects
+          .map(p => p.email?.toLowerCase())
+          .filter(Boolean)
+          .slice(0, 20)
+          .map(e => `"${e}"`);
         const keywords = [
-          "carnaval","gall","maquillage",
-          "vin","wine","domaine","château","chateau","bodega","import",
-          "impression 3d","print 3d","maquette","prototype"
+          "carnaval","gall","maquillage","formation",
+          "vin","wine","domaine","château","chateau","bodega","import","importation","conditions",
+          "impression 3d","print 3d","maquette","prototype","filament"
         ].map(k=>`"${k}"`);
-        query = [...domains, ...keywords].join(" OR ");
+        // Limiter la taille totale de la query (Gmail max ~1500 chars)
+        const allTerms = [...domainTerms, ...emails, ...prospectNames, ...keywords];
+        const maxLen = 1400;
+        let q = "";
+        for (const t of allTerms) {
+          const next = q ? q + " OR " + t : t;
+          if (next.length > maxLen) break;
+          q = next;
+        }
+        query = q || "in:anywhere";
       }
 
       const res = await fetch(
@@ -1593,20 +2307,34 @@ export default function AmigoCRM() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const d = await res.json();
-      if (!d.messages) { setGmailThreads([]); setGmailLoading(false); return; }
+      if (!d.messages) { setGmailLoading(false);scanningRef.current=false; return; }
 
       const threads = await Promise.all(
         d.messages.map(async m => {
+          // D'abord récupérer en format full pour avoir le snippet + body
           const r = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           const msg = await r.json();
           const headers = msg.payload?.headers||[];
-          const get = name => headers.find(h=>h.name===name)?.value||"";
-          const from = get("From"), to = get("To"), subject = get("Subject"), date = get("Date");
+          const get = name => headers.find(h=>h.name.toLowerCase()===name.toLowerCase())?.value||"";
+          const from = get("From"), to = get("To"), cc = get("Cc"), replyTo = get("Reply-To"), subject = get("Subject"), date = get("Date");
           const snippet = decodeSnippet(msg.snippet);
-          const prospect = matchEmailToProspect(from, to, subject, snippet, allProspects);
+          // Extraire le body texte pour le matching (mails transférés)
+          let bodyText = "";
+          try {
+            const parts = msg.payload?.parts || [msg.payload];
+            for (const part of parts) {
+              if (part?.mimeType === "text/plain" && part?.body?.data) {
+                bodyText = atob(part.body.data.replace(/-/g,"+").replace(/_/g,"/"));
+                break;
+              }
+            }
+          } catch(_) {}
+          // Chercher dans tous les champs + body pour les forwards
+          const searchText = `${from} ${to} ${cc} ${replyTo} ${subject} ${snippet} ${bodyText.slice(0,1000)}`;
+          const prospect = matchEmailToProspect(searchText, "", "", "", allProspects);
           const proj = prospect ? (prospect._proj||"vin") : matchEmailToProj(from, to, subject, snippet);
           if (f === "projets" && !proj) return null;
           const labelIds = msg.labelIds||[];
@@ -1621,8 +2349,31 @@ export default function AmigoCRM() {
         .sort((a,b) => b.timestamp - a.timestamp);
 
       setGmailThreads(sorted);
+
+      // Sauvegarder les emails matchés dans Supabase (prospectEmails)
+      if (data) {
+        const newProspectEmails = {...(data.prospectEmails||{})};
+        sorted.forEach(t => {
+          if (t.prospect) {
+            if (!newProspectEmails[t.prospect.id]) newProspectEmails[t.prospect.id] = [];
+            const existing = new Set(newProspectEmails[t.prospect.id].map(e=>e.id));
+            if (!existing.has(t.id)) {
+              newProspectEmails[t.prospect.id].push({
+                id:t.id, from:t.from, to:t.to, subject:t.subject, date:t.date,
+                timestamp:t.timestamp, folder:t.folder, snippet:t.snippet
+              });
+            }
+          }
+        });
+        const nd = {...data, prospectEmails: newProspectEmails};
+        savingRef.current = true;
+        setData({...nd});
+        try { await storage.set(KEY, JSON.stringify(nd)); setLastSync(Date.now()); }
+        catch(e) { console.error(e); }
+        finally { setTimeout(()=>{ savingRef.current = false; }, 6000); }
+      }
     } catch(e) { console.error(e); }
-    setGmailLoading(false);
+    setGmailLoading(false);scanningRef.current=false;
   };
 
   useEffect(() => { if (authUser && view==="agenda") loadCalendar(calMonth, calYear); }, [view, calMonth, calYear, authUser]);
@@ -1697,6 +2448,7 @@ export default function AmigoCRM() {
   };
 
   const load = useCallback(async () => {
+    if (savingRef.current || scanningRef.current) return; // Ne pas écraser pendant un save ou scan
     try {
       const r = await storage.get(KEY);
       const d = r ? JSON.parse(r.value) : {...INIT_DATA};
@@ -1705,17 +2457,9 @@ export default function AmigoCRM() {
       if (!d.prospectEmails) d.prospectEmails = {};
       if (!d.orders)        d.orders        = [];
       if (!d.activity)      d.activity      = [];
-      // Sync emails à chaque poll — capte les scans d'Harold
-      const allSavedEmails = Object.values(d.prospectEmails).flat();
-      // Ne mettre à jour que si on a plus d'emails ou si c'est le premier chargement
-      setGmailThreads(prev => {
-        if (allSavedEmails.length >= prev.length || prev.length === 0)
-          return allSavedEmails.sort((a,b)=>b.timestamp-a.timestamp);
-        // Fusionner — garder ce qu'on avait + ce qui est nouveau
-        const prevIds = new Set(prev.map(e=>e.id));
-        const newOnes = allSavedEmails.filter(e=>!prevIds.has(e.id));
-        return [...prev, ...newOnes].sort((a,b)=>b.timestamp-a.timestamp);
-      });
+      if (!d.filamentStock) d.filamentStock = INIT_DATA.filamentStock;
+      if (!d.sharedTokens)  d.sharedTokens  = {};
+      // NE PAS toucher gmailThreads ici — géré uniquement par scanGmail et loadInitialThreads
       setData(d);
       setLastSync(Date.now());
     } catch { setData({...INIT_DATA}); }
@@ -1723,10 +2467,32 @@ export default function AmigoCRM() {
   }, []);
 
   const save = useCallback(async d => {
-    try { await storage.set(KEY, JSON.stringify(d)); setData({...d}); setLastSync(Date.now()); } catch(e){console.error(e);}
+    savingRef.current = true;
+    try {
+      await storage.set(KEY, JSON.stringify(d));
+      setData({...d});
+      setLastSync(Date.now());
+    } catch(e){console.error(e);}
+    finally { setTimeout(()=>{ savingRef.current = false; }, 6000); }
   }, []);
 
-  useEffect(() => { load(); pollRef.current=setInterval(load,8000); return()=>clearInterval(pollRef.current); }, [load]);
+  useEffect(() => {
+    // Premier chargement : charger data + threads depuis Supabase
+    (async () => {
+      await load();
+      // Charger les threads sauvés après le premier load
+      try {
+        const r = await storage.get(KEY);
+        const d = r ? (typeof r.value === "string" ? JSON.parse(r.value) : r.value) : null;
+        if (d?.prospectEmails) {
+          const all = Object.values(d.prospectEmails).flat();
+          if (all.length > 0) setGmailThreads(all.sort((a,b)=>b.timestamp-a.timestamp));
+        }
+      } catch(_){}
+    })();
+    pollRef.current=setInterval(load,8000);
+    return()=>clearInterval(pollRef.current);
+  }, [load]);
 
   // Sync statuts depuis emails déjà sauvegardés — sans rescanner Gmail
   useEffect(() => {
@@ -1763,26 +2529,7 @@ export default function AmigoCRM() {
     if (changed) save(newData);
   }, [data?.prospectEmails, user]);
 
-  // Auto-scan à la connexion — tourne en arrière-plan
-  useEffect(() => {
-    if (!authUser || !data) return;
-    const allProspects = [
-      ...(data.makeup||[]).map(p=>({...p,_proj:"makeup"})),
-      ...(data.vin||[]).map(p=>({...p,_proj:"vin"})),
-      ...(data.print3d||[]).map(p=>({...p,_proj:"print3d"})),
-    ].filter(p=>p.email);
-    if (!allProspects.length) return;
-    // Scan séquentiel silencieux — 1 prospect toutes les 2s pour ne pas surcharger
-    let i = 0;
-    const next = async () => {
-      if (i >= allProspects.length) { setScanProgress(null); return; }
-      setScanProgress(`🔄 Scan ${i+1}/${allProspects.length} — ${allProspects[i].name}`);
-      try { await scanForProspect(allProspects[i], true); } catch(e) {}
-      i++;
-      setTimeout(next, 2000);
-    };
-    setTimeout(next, 3000); // Attendre 3s que l'interface soit chargée
-  }, [authUser?.uid, data?.vin?.length]);
+  // Scan uniquement via le bouton Scanner — pas d'auto-scan
 
   useEffect(() => {
     if (!data||!user) return;
@@ -1798,7 +2545,7 @@ export default function AmigoCRM() {
 
   const updateProspect = async (pid, fields) => {
     if (!data||!user) return;
-    // Cherche dans vin ou vinClients selon où est le prospect
+    // Update optimiste — state local immédiat
     const srcKey = data[effectiveProjId]?.find(x=>x.id===pid) ? effectiveProjId
       : Object.keys(data).find(k=>Array.isArray(data[k])&&data[k].find(x=>x.id===pid)) || effectiveProjId;
     const p = (data[srcKey]||[]).find(x=>x.id===pid);
@@ -1806,7 +2553,12 @@ export default function AmigoCRM() {
     let nd = {...data, [srcKey]:(data[srcKey]||[]).map(x=>x.id===pid?{...x,...upd}:x)};
     nd = addAct(nd, user, p?.name, fields.status?`→ ${fields.status}`:"modifié");
     setDetailProspect(s=>s?.id===pid?{...s,...upd}:s);
-    await save(nd);
+    setData({...nd}); // UI se met à jour instantanément
+    // Save en arrière-plan
+    savingRef.current = true;
+    try { await storage.set(KEY, JSON.stringify(nd)); setLastSync(Date.now()); }
+    catch(e) { console.error(e); }
+    finally { setTimeout(()=>{ savingRef.current = false; }, 6000); }
   };
 
   const addProspect = async p => {
@@ -1825,14 +2577,59 @@ export default function AmigoCRM() {
     if (!data||!user) return;
     o.createdBy=user; o.createdAt=Date.now();
     let nd = {...data, orders:[...(data.orders||[]), o]};
-    nd = addAct(nd, user, o.prospectName, `${o.type||"commande"} ${fmt(o.amount)}`);
+    nd = addAct(nd, user, o.prospectName, `${o.type||"commande"} ${$(o.amount)}`);
     setShowAddOrder(undefined);
     await save(nd);
   };
 
+  const addProspectAndOrder = async (prospect, order) => {
+    if (!data||!user) return;
+    const targetProj = prospect._proj || effectiveProjId;
+    prospect.lastEditBy=user; prospect.lastEditAt=Date.now();
+    order.createdBy=user; order.createdAt=Date.now();
+    let nd = {...data, [targetProj]:[...(data[targetProj]||[]), prospect], orders:[...(data.orders||[]), order]};
+    nd = addAct(nd, user, prospect.name, "ajouté");
+    nd = addAct(nd, user, order.prospectName, `${order.type||"commande"} ${$(order.amount)}`);
+    await save(nd);
+  };
+
+  const updateFilamentStock = async (spoolId, gramsUsed) => {
+    if (!data) return;
+    const nd = {...data, filamentStock:(data.filamentStock||[]).map(s=>
+      s.id===spoolId ? {...s, weightUsed: Math.min(s.weightTotal, (s.weightUsed||0) + gramsUsed)} : s
+    )};
+    setData({...nd});
+    savingRef.current = true;
+    try { await storage.set(KEY, JSON.stringify(nd)); setLastSync(Date.now()); }
+    catch(e) { console.error(e); }
+    finally { setTimeout(()=>{ savingRef.current = false; }, 6000); }
+  };
+
   const updateOrder = async (oid, fields) => {
     if (!data) return;
-    await save({...data, orders:data.orders.map(o=>o.id===oid?{...o,...fields}:o)});
+    let nd = {...data, orders:(data.orders||[]).map(o=>o.id===oid?{...o,...fields}:o)};
+
+    // Sync statut prospect pour print3d
+    if (fields.status || fields.type) {
+      const order = nd.orders.find(o=>o.id===oid);
+      if (order && order.proj==="print3d" && order.prospectId) {
+        const statusMap = {
+          "Brouillon":"Prospect", "Envoyé":"Devis envoyé", "Accepté":"Devis accepté",
+          "En attente":"Devis accepté", "Confirmée":"En production", "En production":"En production",
+          "Livré":"Livré", "Facturé":"Facturé"
+        };
+        const newProspectStatus = statusMap[order.status];
+        if (newProspectStatus) {
+          nd = {...nd, print3d:(nd.print3d||[]).map(p=>p.id===order.prospectId?{...p,status:newProspectStatus}:p)};
+        }
+      }
+    }
+    // Update optimiste
+    setData({...nd});
+    savingRef.current = true;
+    try { await storage.set(KEY, JSON.stringify(nd)); setLastSync(Date.now()); }
+    catch(e) { console.error(e); }
+    finally { setTimeout(()=>{ savingRef.current = false; }, 6000); }
   };
 
   const addEvent = async (ev) => {
@@ -1851,10 +2648,20 @@ export default function AmigoCRM() {
 
   const clearProspectEmails = async (prospect) => {
     if (!confirm(`Vider tous les emails de ${prospect.name} ?`)) return;
-    const freshSupabase = await storage.get(KEY);
-    const latestData = freshSupabase ? JSON.parse(freshSupabase.value) : data;
-    const nd = {...latestData, prospectEmails:{...(latestData.prospectEmails||{}), [prospect.id]:[]}};
+    const freshRaw = await storage.get(KEY);
+    const fresh = freshRaw ? (typeof freshRaw.value === "string" ? JSON.parse(freshRaw.value) : freshRaw.value) : data;
+    const nd = {...fresh, prospectEmails:{...(fresh.prospectEmails||{}), [prospect.id]:[]}};
     await save(nd);
+  };
+
+  const clearAllEmails = async () => {
+    if (!confirm("Vider TOUS les emails synchronisés ? Les nouveaux seront re-scannés depuis le nouveau compte.")) return;
+    try {
+      const freshRaw = await storage.get(KEY);
+      const fresh = freshRaw ? (typeof freshRaw.value === "string" ? JSON.parse(freshRaw.value) : freshRaw.value) : data;
+      setGmailThreads([]);
+      await save({...fresh, prospectEmails:{}});
+    } catch(e) { console.error("clearAllEmails error:", e); }
   };
 
   const [scanProgress, setScanProgress] = useState(null); // "Scan 3/12…"
@@ -1863,9 +2670,9 @@ export default function AmigoCRM() {
     setGmailLoading(true);
     try {
       const token = await getGToken();
-      if (!token) { setGmailLoading(false); return; }
+      if (!token) { setGmailLoading(false);scanningRef.current=false; return; }
       const domain = prospect.email?.split("@")[1]?.toLowerCase();
-      if (!domain) { setGmailLoading(false); return; }
+      if (!domain) { setGmailLoading(false);scanningRef.current=false; return; }
 
       const GENERIC_DOMAINS = ["gmail.com","orange.fr","hotmail.com","hotmail.fr","yahoo.com","yahoo.fr","outlook.com","outlook.fr","free.fr","sfr.fr","laposte.net","wanadoo.fr","icloud.com","live.fr","live.com","bbox.fr","numericable.fr"];
       const emailAddr = prospect.email.toLowerCase();
@@ -2008,7 +2815,7 @@ export default function AmigoCRM() {
       if (!silent) alert(`✅ ${fresh.length} email(s)${nbDocs>0?` · ${nbDocs} pièce(s) jointe(s) dans Docs`:""}`);
 
     } catch(e) { console.error(e); alert("Erreur : "+e.message); }
-    setGmailLoading(false);
+    setGmailLoading(false);scanningRef.current=false;
   };
 
   if (authLoading || (authUser && loading)) return (
@@ -2073,8 +2880,19 @@ export default function AmigoCRM() {
         return true;
       })
     : (data?.[effectiveProjId]||[]).map(p=>({...p,_proj:effectiveProjId}));
-  const projOrders = (data?.orders||[]).filter(o=>o.proj===projId);
+
+  const sortFn = sortMode === "alpha"
+    ? (a, b) => (a.name || a.prospectName || "").localeCompare(b.name || b.prospectName || "", "fr")
+    : (a, b) => (b.lastEditAt || b.createdAt || 0) - (a.lastEditAt || a.createdAt || 0);
+
+  prospects.sort(sortFn);
+  const projOrders = (data?.orders||[]).filter(o=>o.proj===projId).sort(
+    sortMode === "alpha"
+      ? (a, b) => (a.prospectName || "").localeCompare(b.prospectName || "", "fr")
+      : (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+  );
   const activity = (data?.activity||[]).filter(a=>a.proj===projId).slice(-12).reverse();
+  const $  = projId==="print3d" ? fmtBrl : fmtEur; // formatter monnaie selon projet
   const totalCA = projOrders.filter(o=>["Confirmée","En production","Livré","Facturé","Accepté"].includes(o.status)).reduce((s,o)=>s+o.amount,0);
   const pipeline = prospects.reduce((s,p)=>s+p.valeur,0);
 
@@ -2176,13 +2994,18 @@ export default function AmigoCRM() {
         </div>
 
         <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
-          {[["kanban","Kanban"],["commandes","Commandes"],["finance","Finance"],["agenda","Agenda"],["activite","Activité"],...(projId==="vin"?[["carte","🗺 Carte"]]:[])]
+          {[["kanban","Pipeline"],["commandes","Commandes"],["finance","Finance"],...(projId==="print3d"?[["stock","Stock"]]:[]),["emails","Emails"],["agenda","Agenda"],["activite","Activité"],...(projId==="vin"?[["carte","🗺 Carte"]]:[])]
           .map(([v,l])=>(
             <button key={v} onClick={()=>setView(v)} className="btn"
               style={{padding:"4px 11px",borderRadius:5,fontSize:12,fontWeight:500,background:view===v?`${accent}18`:"transparent",color:view===v?accent:"#94a3b8",border:view===v?`1px solid ${accent}22`:"1px solid transparent",cursor:"pointer"}}>
               {l}
             </button>
           ))}
+          <div style={{width:1,height:14,background:"#1a2030",margin:"0 2px"}}/>
+          <button onClick={()=>setSortMode(s=>s==="alpha"?"recent":"alpha")} className="btn"
+            style={{padding:"4px 10px",borderRadius:5,fontSize:11,fontWeight:500,cursor:"pointer",background:"#0b0d16",color:"#94a3b8",border:"1px solid #0f1520",display:"flex",alignItems:"center",gap:4}}>
+            {sortMode==="alpha"?"A→Z":"Récents"}
+          </button>
         </div>
 
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -2266,8 +3089,8 @@ export default function AmigoCRM() {
             )}
 
             <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:14}}>
-              <StatCard label="Prospects" value={prospects.length} sub="au total" color="#60a5fa" icon="👥"/>
-              <StatCard label="Commandes" value={projOrders.length} sub={`${projOrders.length>0?fmt(projOrders.reduce((s,o)=>s+o.amount,0)):"-"} total`} color="#f59e0b" icon="📦"/>
+              <StatCard label="Prospects" value={prospects.length} sub="au total" color="#60a5fa" icon="👥" onClick={()=>setView("kanban")}/>
+              <StatCard label="Commandes" value={projOrders.length} sub={`${projOrders.length>0?$(projOrders.reduce((s,o)=>s+o.amount,0)):"-"} total`} color="#f59e0b" icon="📦" onClick={()=>setView("commandes")}/>
             </div>
 
             <div style={{display:"flex",gap:8,marginBottom:14}}>
@@ -2322,23 +3145,48 @@ export default function AmigoCRM() {
                 const allStatusColors = projId==="vin"
                   ? {...PROJECTS.vin.statusColors, ...PROJECTS.vinClients.statusColors}
                   : P.statusColors;
+                // Statuts valides par sous-projet (vin: fournisseurs vs clients)
+                const vinFourStatuses = new Set(PROJECTS.vin.statuses);
+                const vinClientStatuses = new Set(PROJECTS.vinClients.statuses);
+
+                const handleDrop = (targetStatus) => (e) => {
+                  e.preventDefault();
+                  e.currentTarget.style.background = "";
+                  const pid = e.dataTransfer.getData("prospectId");
+                  const pProj = e.dataTransfer.getData("prospectProj");
+                  if (!pid) return;
+
+                  // Vin : vérifier que le statut cible est valide pour le type de prospect
+                  if (projId === "vin") {
+                    const isFour = pProj === "vin";
+                    const isCli = pProj === "vinClients";
+                    if (isFour && !vinFourStatuses.has(targetStatus)) return;
+                    if (isCli && !vinClientStatuses.has(targetStatus)) return;
+                  }
+
+                  updateProspect(pid, { status: targetStatus });
+                };
+
                 return allStatuses.map(status=>{
                 const cards = prospects.filter(p=>p.status===status);
                 const col = allStatusColors[status]||"#6b7280";
                 const colVal = cards.reduce((s,p)=>s+p.valeur,0);
                 return (
-                  <div key={status} style={{minWidth:215,maxWidth:235,flexShrink:0}}>
+                  <div key={status} style={{minWidth:215,maxWidth:235,flexShrink:0}}
+                    onDragOver={e=>{e.preventDefault();e.currentTarget.style.background=`${col}08`;}}
+                    onDragLeave={e=>{e.currentTarget.style.background="";}}
+                    onDrop={handleDrop(status)}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9,padding:"6px 10px",background:`${col}12`,borderRadius:7,border:`1px solid ${col}22`}}>
                       <div style={{display:"flex",alignItems:"center",gap:5}}>
                         <span style={{width:7,height:7,borderRadius:"50%",background:col,display:"inline-block"}}/>
                         <span style={{fontSize:11,fontWeight:600,color:col}}>{status}</span>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:5}}>
-                        
+
                         <span style={{fontSize:10,fontWeight:700,color:"#4b5563",background:"#0b0d16",padding:"1px 6px",borderRadius:10}}>{cards.length}</span>
                       </div>
                     </div>
-                    <div style={{minHeight:60}}>
+                    <div style={{minHeight:60,borderRadius:8,transition:"background .15s"}}>
                       {cards.map(p=>(
                         <KanbanCard key={p.id} prospect={p} accent={accent} onOpen={setDetailProspect} prospectEmails={data?.prospectEmails||{}}/>
                       ))}
@@ -2355,50 +3203,105 @@ export default function AmigoCRM() {
         {view==="commandes"&&(
           <div className="fade">
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
-              <StatCard label="Total" value={fmt(projOrders.reduce((s,o)=>s+o.amount,0))} sub={`${projOrders.length} éléments`} color="#f1f5f9" icon="📊"/>
-              <StatCard label="CA confirmé" value={fmt(totalCA)} color="#22c55e" icon="✅"/>
-              <StatCard label="En attente" value={fmt(projOrders.filter(o=>["En attente","Brouillon"].includes(o.status)).reduce((s,o)=>s+o.amount,0))} color="#f59e0b" icon="⏳"/>
+              <StatCard label="Total" value={$(projOrders.reduce((s,o)=>s+o.amount,0))} sub={`${projOrders.length} éléments`} color="#f1f5f9" icon="📊" onClick={()=>setView("finance")}/>
+              <StatCard label="CA confirmé" value={$(totalCA)} color="#22c55e" icon="✅" onClick={()=>setView("finance")}/>
+              <StatCard label="En attente" value={$(projOrders.filter(o=>["En attente","Brouillon"].includes(o.status)).reduce((s,o)=>s+o.amount,0))} color="#f59e0b" icon="⏳" onClick={()=>setView("commandes")}/>
               {projId==="vin"
-                ? <StatCard label="Taxes BR" value={fmt(projOrders.reduce((s,o)=>s+(o.taxData?.totalEur||0),0))} color="#ef4444" icon="🇧🇷"/>
-                : <StatCard label="Marge est." value={fmt(totalCA*(projId==="print3d"?0.45:0.35))} color="#a78bfa" icon="📈"/>
+                ? <StatCard label="Taxes BR" value={$(projOrders.reduce((s,o)=>s+(o.taxData?.totalEur||0),0))} color="#ef4444" icon="🇧🇷" onClick={()=>setView("finance")}/>
+                : <StatCard label="Marge est." value={$(totalCA*(projId==="print3d"?0.45:0.35))} color="#a78bfa" icon="📈" onClick={()=>setView("finance")}/>
               }
             </div>
-            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:12}}>
+              {projId==="print3d"&&(
+                <button onClick={()=>setShowCalculateur(s=>!s)} className="btn"
+                  style={{padding:"8px 14px",background:showCalculateur?"#14b8a618":"#14b8a60a",border:`1px solid ${showCalculateur?"#14b8a640":"#14b8a620"}`,borderRadius:8,color:"#2dd4bf",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                  🧊 Calculateur
+                </button>
+              )}
               <button onClick={()=>setShowAddOrder(null)} className="btn"
                 style={{padding:"8px 14px",background:"#22c55e15",border:"1px solid #22c55e28",borderRadius:8,color:"#4ade80",fontSize:12,fontWeight:600,cursor:"pointer"}}>
                 + {projId==="print3d"?"Devis / Commande":"Nouvelle commande"}
               </button>
             </div>
-            {projOrders.length===0
-              ? <div style={{textAlign:"center",padding:"60px",color:"#2d3748"}}><p style={{fontSize:28,marginBottom:8}}>📦</p><p style={{fontSize:12}}>Aucune commande pour l'instant.</p></div>
-              : <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,overflow:"hidden"}}>
+            {(()=>{
+              const ARCHIVED = ["Annulé","Refusé","Expiré","Annulée","Livré","Facturé"];
+              const devis = projId==="print3d" ? projOrders.filter(o=>o.type==="devis"&&!ARCHIVED.includes(o.status)) : [];
+              const devisArchives = projId==="print3d" ? projOrders.filter(o=>o.type==="devis"&&ARCHIVED.includes(o.status)) : [];
+              const commandes = projId==="print3d" ? projOrders.filter(o=>o.type!=="devis"&&!ARCHIVED.includes(o.status)) : projOrders.filter(o=>!ARCHIVED.includes(o.status));
+              const cmdArchives = projId==="print3d" ? projOrders.filter(o=>o.type!=="devis"&&ARCHIVED.includes(o.status)) : projOrders.filter(o=>ARCHIVED.includes(o.status));
+              const renderTable = (rows, isDevis) => (
+                <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,overflow:"hidden"}}>
                   <table style={{width:"100%",borderCollapse:"collapse"}}>
                     <thead><tr>
                       <th>Client / Prospect</th><th>Produit</th>
-                      {projId==="print3d"&&<th>Type</th>}
                       <th>Montant</th>
                       {projId==="vin"&&<th>Taxes BR</th>}
                       <th>Date</th><th>Statut</th>
+                      {isDevis&&<th></th>}
                     </tr></thead>
-                    <tbody>{projOrders.map(o=>(
-                      <tr key={o.id}>
-                        <td style={{color:"#f1f5f9",fontWeight:500}}>{o.prospectName||"–"}</td>
+                    <tbody>{rows.map(o=>(
+                      <tr key={o.id} onClick={()=>setDetailOrder(o)} style={{cursor:"pointer"}}>
+                        <td style={{color:"#f1f5f9",fontWeight:500,display:"flex",alignItems:"center",gap:8}}>
+                          {o.thumbnail&&<img src={o.thumbnail} alt="" style={{width:32,height:32,borderRadius:4,objectFit:"cover",border:"1px solid #1a2035"}}/>}
+                          {o.prospectName||"–"}
+                        </td>
                         <td>{o.product||"–"}</td>
-                        {projId==="print3d"&&<td><span style={{fontSize:10,padding:"2px 6px",borderRadius:3,background:`${accent}15`,color:accent,fontWeight:600}}>{o.type||"–"}</span></td>}
-                        <td style={{color:"#22c55e",fontWeight:700}}>{fmt(o.amount)}</td>
+                        <td style={{color:"#22c55e",fontWeight:700}}>{$(o.amount)}</td>
                         {projId==="vin"&&<td style={{color:"#ef4444"}}>{o.taxData?fmt(o.taxData.totalEur):"–"}</td>}
                         <td style={{color:"#6b7280"}}>{o.date||"–"}</td>
                         <td>
                           <select value={o.status} onChange={e=>updateOrder(o.id,{status:e.target.value})}
                             style={{padding:"3px 6px",borderRadius:5,fontSize:10,outline:"none",cursor:"pointer",background:"#0b0d16",border:"1px solid #1a2035",color:"#f1f5f9",fontFamily:"inherit"}}>
-                            {(projId==="print3d"?QUOTE_STATUSES:ORDER_STATUSES).map(s=><option key={s} value={s}>{s}</option>)}
+                            {(isDevis?QUOTE_STATUSES:ORDER_STATUSES).map(s=><option key={s} value={s}>{s}</option>)}
                           </select>
                         </td>
+                        {isDevis&&<td>
+                          {o.status==="Accepté"&&(
+                            <button onClick={()=>{updateOrder(o.id,{type:"commande",status:"En attente"});celebrate();}} className="btn"
+                              style={{padding:"3px 8px",borderRadius:5,fontSize:10,fontWeight:600,cursor:"pointer",background:"#22c55e15",border:"1px solid #22c55e28",color:"#4ade80",whiteSpace:"nowrap"}}>
+                              → Commande
+                            </button>
+                          )}
+                        </td>}
                       </tr>
                     ))}</tbody>
                   </table>
                 </div>
-            }
+              );
+              if (projId==="print3d") return (<>
+                <div style={{marginBottom:6}}>
+                  <p style={{fontSize:11,fontWeight:700,color:"#14b8a6",marginBottom:8,textTransform:"uppercase",letterSpacing:".5px"}}>📋 Devis ({devis.length})</p>
+                  {devis.length===0
+                    ? <p style={{fontSize:12,color:"#374151",textAlign:"center",padding:"20px"}}>Aucun devis. Utilise le calculateur pour en créer un.</p>
+                    : renderTable(devis, true)}
+                </div>
+                <div style={{marginTop:16}}>
+                  <p style={{fontSize:11,fontWeight:700,color:"#22c55e",marginBottom:8,textTransform:"uppercase",letterSpacing:".5px"}}>📦 Commandes ({commandes.length})</p>
+                  {commandes.length===0
+                    ? <p style={{fontSize:12,color:"#374151",textAlign:"center",padding:"20px"}}>Aucune commande. Passe un devis accepté en commande.</p>
+                    : renderTable(commandes, false)}
+                </div>
+                {(devisArchives.length>0||cmdArchives.length>0)&&(
+                  <details style={{marginTop:20}}>
+                    <summary style={{fontSize:11,fontWeight:600,color:"#4b5563",cursor:"pointer",padding:"8px 0"}}>
+                      🗄 Archives ({devisArchives.length + cmdArchives.length} terminés/annulés)
+                    </summary>
+                    <div style={{marginTop:8,opacity:0.6}}>
+                      {devisArchives.length>0&&<><p style={{fontSize:10,color:"#4b5563",marginBottom:6}}>Devis archivés</p>{renderTable(devisArchives, true)}</>}
+                      {cmdArchives.length>0&&<><p style={{fontSize:10,color:"#4b5563",marginBottom:6,marginTop:10}}>Commandes archivées</p>{renderTable(cmdArchives, false)}</>}
+                    </div>
+                  </details>
+                )}
+              </>);
+              return projOrders.length===0
+                ? <div style={{textAlign:"center",padding:"60px",color:"#2d3748"}}><p style={{fontSize:28,marginBottom:8}}>📦</p><p style={{fontSize:12}}>Aucune commande pour l'instant.</p></div>
+                : renderTable(commandes, false);
+            })()}
+            {projId==="print3d"&&(
+              <div style={{marginTop:18,display:showCalculateur?"block":"none"}}>
+                <Print3DCalculator prospects={prospects} orders={projOrders} onSaveQuote={addOrder} onSaveWithNewClient={addProspectAndOrder} filamentStock={data?.filamentStock||[]} onUpdateStock={updateFilamentStock}/>
+              </div>
+            )}
           </div>
         )}
 
@@ -2406,10 +3309,10 @@ export default function AmigoCRM() {
         {view==="finance"&&(
           <div className="fade">
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
-              <StatCard label="Commandes" value={projOrders.length} sub="au total" color="#f59e0b" icon="📦"/>
-              <StatCard label="CA confirmé" value={fmt(totalCA)} sub="hors taxes" color="#22c55e" icon="💶"/>
-              <StatCard label={projId==="vin"?"Taxes import BR":"TVA est."} value={fmt(projId==="vin"?projOrders.reduce((s,o)=>s+(o.taxData?.totalEur||0),0):totalCA*0.20)} color="#ef4444" icon="🏛"/>
-              <StatCard label="Marge nette est." value={fmt(totalCA*(projId==="vin"?0.30:projId==="print3d"?0.45:0.35))} sub={`~${projId==="vin"?"30":projId==="print3d"?"45":"35"}%`} color="#a78bfa" icon="📈"/>
+              <StatCard label="Commandes" value={projOrders.length} sub="au total" color="#f59e0b" icon="📦" onClick={()=>setView("commandes")}/>
+              <StatCard label="CA confirmé" value={$(totalCA)} sub="hors taxes" color="#22c55e" icon="💶" onClick={()=>setView("commandes")}/>
+              <StatCard label={projId==="vin"?"Taxes import BR":"TVA est."} value={$(projId==="vin"?projOrders.reduce((s,o)=>s+(o.taxData?.totalEur||0),0):totalCA*0.20)} color="#ef4444" icon="🏛" onClick={()=>setView("commandes")}/>
+              <StatCard label="Marge nette est." value={$(totalCA*(projId==="vin"?0.30:projId==="print3d"?0.45:0.35))} sub={`~${projId==="vin"?"30":projId==="print3d"?"45":"35"}%`} color="#a78bfa" icon="📈" onClick={()=>setView("commandes")}/>
             </div>
             {projId==="vin"&&(()=>{const t=calcTax(10000);return(
               <div style={{background:"#0b0d16",border:"1px solid #ef444418",borderRadius:11,padding:18,marginBottom:12}}>
@@ -2432,11 +3335,11 @@ export default function AmigoCRM() {
                 : <table style={{width:"100%",borderCollapse:"collapse"}}>
                     <thead><tr><th>Prospect</th><th>Montant</th>{projId==="vin"&&<th>Taxes</th>}<th>Marge est.</th><th>Statut</th></tr></thead>
                     <tbody>{projOrders.map(o=>(
-                      <tr key={o.id}>
+                      <tr key={o.id} onClick={()=>setDetailOrder(o)} style={{cursor:"pointer"}}>
                         <td style={{color:"#f1f5f9",fontWeight:500}}>{o.prospectName}</td>
-                        <td style={{color:"#22c55e",fontWeight:700}}>{fmt(o.amount)}</td>
+                        <td style={{color:"#22c55e",fontWeight:700}}>{$(o.amount)}</td>
                         {projId==="vin"&&<td style={{color:"#ef4444"}}>{o.taxData?fmt(o.taxData.totalEur):"–"}</td>}
-                        <td style={{color:"#a78bfa"}}>{fmt(o.amount*(projId==="vin"?0.30:projId==="print3d"?0.45:0.35))}</td>
+                        <td style={{color:"#a78bfa"}}>{$(o.amount*(projId==="vin"?0.30:projId==="print3d"?0.45:0.35))}</td>
                         <td style={{color:"#f59e0b"}}>{o.status}</td>
                       </tr>
                     ))}</tbody>
@@ -2445,6 +3348,81 @@ export default function AmigoCRM() {
             </div>
           </div>
         )}
+
+
+        {/* ══ STOCK FILAMENT ══ */}
+        {view==="stock"&&projId==="print3d"&&(()=>{
+          const stock = data?.filamentStock||[];
+          const totalRemaining = stock.reduce((s,f)=>s+(f.weightTotal-(f.weightUsed||0)),0);
+          const totalUsed = stock.reduce((s,f)=>s+(f.weightUsed||0),0);
+          return (
+          <div className="fade">
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
+              <StatCard label="Bobines" value={stock.length} sub="en stock" color="#14b8a6" icon="🧵" onClick={()=>setView("stock")}/>
+              <StatCard label="Restant" value={`${Math.round(totalRemaining)}g`} sub={`${(totalRemaining/1000).toFixed(1)}kg`} color="#22c55e" icon="📦" onClick={()=>setView("stock")}/>
+              <StatCard label="Utilisé" value={`${Math.round(totalUsed)}g`} sub={`${(totalUsed/1000).toFixed(1)}kg`} color="#f59e0b" icon="📊" onClick={()=>setView("stock")}/>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10,marginBottom:16}}>
+              {stock.map(s=>{
+                const remaining = s.weightTotal - (s.weightUsed||0);
+                const pct = remaining / s.weightTotal * 100;
+                const low = pct < 20;
+                return (
+                  <div key={s.id} style={{background:"#0b0d16",border:`1px solid ${low?"#ef444430":"#0f1520"}`,borderRadius:10,padding:14}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                      <span style={{width:24,height:24,borderRadius:"50%",background:s.hex,border:"3px solid #ffffff20",flexShrink:0}}/>
+                      <div>
+                        <p style={{fontSize:13,fontWeight:700,color:"#f1f5f9"}}>{s.color}</p>
+                        <p style={{fontSize:10,color:"#4b5563"}}>{s.material} · {s.weightTotal}g</p>
+                      </div>
+                    </div>
+                    {/* Jauge */}
+                    <div style={{height:8,background:"#1a2035",borderRadius:4,overflow:"hidden",marginBottom:6}}>
+                      <div style={{height:"100%",width:`${pct}%`,background:low?"#ef4444":pct<50?"#f59e0b":"#22c55e",borderRadius:4,transition:"width .3s"}}/>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <p style={{fontSize:11,fontWeight:600,color:low?"#f87171":"#4ade80"}}>{Math.round(remaining)}g restant</p>
+                      <p style={{fontSize:10,color:"#4b5563"}}>{Math.round(pct)}%</p>
+                    </div>
+                    {/* Modifier le poids utilisé */}
+                    <div style={{marginTop:8,display:"flex",gap:4}}>
+                      <input type="number" defaultValue={s.weightUsed||0} id={`stock-${s.id}`}
+                        style={{flex:1,padding:"4px 6px",borderRadius:5,fontSize:11,background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",outline:"none"}}/>
+                      <button onClick={()=>{
+                        const val = parseInt(document.getElementById(`stock-${s.id}`).value)||0;
+                        const nd = {...data, filamentStock:stock.map(x=>x.id===s.id?{...x,weightUsed:Math.max(0,Math.min(x.weightTotal,val))}:x)};
+                        setData({...nd});
+                        savingRef.current=true;
+                        storage.set(KEY,JSON.stringify(nd)).then(()=>setLastSync(Date.now())).finally(()=>setTimeout(()=>{savingRef.current=false;},6000));
+                      }} style={{padding:"4px 8px",borderRadius:5,fontSize:10,background:"#14b8a618",border:"1px solid #14b8a628",color:"#14b8a6",cursor:"pointer",fontWeight:600}}>OK</button>
+                    </div>
+                    {low&&<p style={{fontSize:9,color:"#f87171",marginTop:6,fontWeight:600}}>⚠ Stock bas — penser à commander</p>}
+                  </div>
+                );
+              })}
+
+              {/* Ajouter une bobine */}
+              <div onClick={()=>{
+                const color = prompt("Nom de la couleur ?");
+                if (!color) return;
+                const hex = prompt("Code hex couleur (ex: #ff6600) ?", "#808080");
+                const weight = parseInt(prompt("Poids total en grammes ?", "1000"))||1000;
+                const material = prompt("Matériau ?", "PLA")||"PLA";
+                const nd = {...data, filamentStock:[...stock, {id:"fil"+uid(), color, hex:hex||"#808080", material, weightTotal:weight, weightUsed:0}]};
+                setData({...nd});
+                savingRef.current=true;
+                storage.set(KEY,JSON.stringify(nd)).then(()=>setLastSync(Date.now())).finally(()=>setTimeout(()=>{savingRef.current=false;},6000));
+              }} style={{background:"#0b0d16",border:"2px dashed #1a2035",borderRadius:10,padding:14,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",minHeight:120}}>
+                <div style={{textAlign:"center"}}>
+                  <p style={{fontSize:24,marginBottom:4}}>+</p>
+                  <p style={{fontSize:11,color:"#4b5563",fontWeight:600}}>Nouvelle bobine</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          );
+        })()}
 
         {/* ══ AGENDA ══ */}
         {view==="agenda"&&(()=>{
@@ -2455,7 +3433,9 @@ export default function AmigoCRM() {
           const MONTH_NAMES = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
           const PROJ_COLORS = {"makeup":"#ec4899","vin":"#8b5cf6","print3d":"#14b8a6","perso":"#f59e0b","autre":"#6b7280"};
 
-          const getEventsForDay = (dateStr) => calEvents.filter(ev => {
+          const isPrivate = ev => ev.visibility === "private" || ev.visibility === "confidential";
+          const publicEvents = calEvents.filter(ev => !isPrivate(ev));
+          const getEventsForDay = (dateStr) => publicEvents.filter(ev => {
             const start = ev.start?.date || ev.start?.dateTime?.slice(0,10);
             return start === dateStr;
           });
@@ -2466,7 +3446,6 @@ export default function AmigoCRM() {
             return `${String(t.getHours()).padStart(2,"0")}:${String(t.getMinutes()).padStart(2,"0")}`;
           };
 
-          const isPrivate = ev => ev.visibility === "private" || ev.summary === undefined;
           const todayEvents = getEventsForDay(todayStr);
 
           return (
@@ -2533,11 +3512,11 @@ export default function AmigoCRM() {
               <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,overflow:"hidden"}}>
                 <div style={{padding:"9px 14px",borderBottom:"1px solid #0d1020",display:"flex",justifyContent:"space-between"}}>
                   <p style={{fontSize:11,fontWeight:600,color:"#f1f5f9"}}>Événements — {MONTH_NAMES[calMonth]}</p>
-                  <p style={{fontSize:10,color:"#4b5563"}}>{calEvents.length} événement{calEvents.length!==1?"s":""}</p>
+                  <p style={{fontSize:10,color:"#4b5563"}}>{publicEvents.length} événement{publicEvents.length!==1?"s":""}</p>
                 </div>
-                {calEvents.length===0&&!calLoading
+                {publicEvents.length===0&&!calLoading
                   ? <p style={{fontSize:12,color:"#2d3748",textAlign:"center",padding:"24px"}}>Aucun événement ce mois-ci.</p>
-                  : [...calEvents].sort((a,b)=>(a.start?.date||a.start?.dateTime||"").localeCompare(b.start?.date||b.start?.dateTime||"")).map(ev=>{
+                  : [...publicEvents].sort((a,b)=>(a.start?.date||a.start?.dateTime||"").localeCompare(b.start?.date||b.start?.dateTime||"")).map(ev=>{
                     const priv=isPrivate(ev);
                     const start=ev.start?.date||ev.start?.dateTime?.slice(0,10);
                     const time=formatTime(ev);
@@ -2579,9 +3558,18 @@ export default function AmigoCRM() {
                     </button>
                   ))}
                 </div>
+                {PROJECT_EMAIL[projId]&&(
+                  <span style={{fontSize:10,color:"#4ade80",padding:"4px 8px",background:"#22c55e10",borderRadius:5,border:"1px solid #22c55e20"}}>
+                    ✉ {PROJECT_EMAIL[projId]}
+                  </span>
+                )}
                 <button onClick={()=>scanGmail(gmailFilter)} disabled={gmailLoading} className="btn"
                   style={{padding:"8px 14px",background:"#3b82f618",border:"1px solid #3b82f628",borderRadius:7,color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer",opacity:gmailLoading?0.6:1}}>
                   {gmailLoading?"⏳ Scan…":"🔍 Scanner"}
+                </button>
+                <button onClick={clearAllEmails} className="btn"
+                  style={{padding:"8px 14px",background:"#ef444415",border:"1px solid #ef444428",borderRadius:7,color:"#f87171",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                  🗑 Vider tout
                 </button>
               </div>
             </div>
@@ -2596,7 +3584,12 @@ export default function AmigoCRM() {
 
             {gmailThreads.length>0&&(()=>{
               const projEmails = gmailFilter==="projets"
-                ? gmailThreads.filter(t => t.proj === projId)
+                ? gmailThreads.filter(t => {
+                    if (!t.prospect) return false; // Pas de prospect matché → pas dans "Ce projet"
+                    const tp = t.prospect._proj || t.proj;
+                    if (projId === "vin") return tp === "vin" || tp === "vinClients";
+                    return tp === projId;
+                  })
                 : gmailThreads;
 
               const PROJ_COLORS = {"makeup":"#ec4899","vin":"#8b5cf6","print3d":"#14b8a6"};
@@ -2622,23 +3615,37 @@ export default function AmigoCRM() {
                     </div>
                     {items.map(t=>{
                       const c = PROJ_COLORS[t.proj]||"#6b7280";
+                      const isExp = expandedGlobalEmail===t.id;
                       return (
-                        <div key={t.id} style={{padding:"10px 14px",borderBottom:"1px solid #080a0f",display:"flex",alignItems:"flex-start",gap:10}}>
-                          <div style={{width:3,minHeight:40,borderRadius:2,background:c,flexShrink:0,marginTop:2}}/>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
-                              <span style={{fontSize:12,fontWeight:600,color:"#f1f5f9",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.subject||"(sans objet)"}</span>
-                              {t.prospect&&<span style={{fontSize:10,background:"#22c55e15",color:"#4ade80",padding:"1px 6px",borderRadius:3,fontWeight:600,flexShrink:0}}>✓ {t.prospect.name}</span>}
-                              {gmailFilter==="tous"&&t.proj&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:3,background:`${c}15`,color:c,fontWeight:600,flexShrink:0}}>{t.proj==="makeup"?"💄":t.proj==="vin"?"🍷":"🧊"}</span>}
+                        <div key={t.id}>
+                          <div onClick={()=>setExpandedGlobalEmail(isExp?null:t.id)}
+                            style={{padding:"10px 14px",borderBottom:"1px solid #080a0f",display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer"}}
+                            onMouseEnter={e=>e.currentTarget.style.background="#0f1520"}
+                            onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                            <div style={{width:3,minHeight:40,borderRadius:2,background:c,flexShrink:0,marginTop:2}}/>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
+                                <span style={{fontSize:12,fontWeight:600,color:"#f1f5f9",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.subject||"(sans objet)"}</span>
+                                {t.prospect&&<span onClick={e=>{e.stopPropagation();setDetailProspect(t.prospect);}} style={{fontSize:10,background:"#22c55e15",color:"#4ade80",padding:"1px 6px",borderRadius:3,fontWeight:600,flexShrink:0,cursor:"pointer"}}>✓ {t.prospect.name}</span>}
+                                {gmailFilter==="tous"&&t.proj&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:3,background:`${c}15`,color:c,fontWeight:600,flexShrink:0}}>{t.proj==="makeup"?"💄":t.proj==="vin"?"🍷":"🧊"}</span>}
+                              </div>
+                              <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
+                                <span style={{fontSize:10,color:"#4b5563",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{folder==="Envoyés"?`→ ${t.to}`:`← ${t.from}`}</span>
+                              </div>
+                              {!isExp&&<p style={{fontSize:11,color:"#374151",lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.snippet}</p>}
                             </div>
-                            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
-                              <span style={{fontSize:10,color:"#4b5563",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{folder==="Envoyés"?`→ ${t.to}`:`← ${t.from}`}</span>
+                            <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,marginTop:2}}>
+                              <span style={{fontSize:10,color:"#2d3748",whiteSpace:"nowrap"}}>
+                                {t.timestamp ? new Date(t.timestamp).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}) : ""}
+                              </span>
+                              <span style={{fontSize:11,color:"#374151",transform:isExp?"rotate(180deg)":"none",transition:"transform .15s",display:"inline-block"}}>▾</span>
                             </div>
-                            <p style={{fontSize:11,color:"#374151",lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.snippet}</p>
                           </div>
-                          <span style={{fontSize:10,color:"#2d3748",flexShrink:0,whiteSpace:"nowrap",marginTop:2}}>
-                            {t.timestamp ? new Date(t.timestamp).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}) : ""}
-                          </span>
+                          {isExp&&(
+                            <div style={{padding:"14px 20px 14px 30px",background:"#080a0f",borderBottom:"1px solid #0f1520",maxHeight:400,overflowY:"auto"}}>
+                              <p style={{fontSize:12,color:"#cbd5e1",lineHeight:1.9,whiteSpace:"pre-wrap",fontFamily:"inherit"}}>{t.body||t.snippet||"Contenu non disponible — rescanne pour charger."}</p>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -2698,6 +3705,129 @@ export default function AmigoCRM() {
       {/* ══ MODALS ══ */}
       {showAddProspect&&<AddProspectModal projId={effectiveProjId} onAdd={addProspect} onClose={()=>setShowAddProspect(false)}/>}
       {showAddOrder!==undefined&&<AddOrderModal projId={projId} prospects={prospects} preselect={showAddOrder} onAdd={addOrder} onClose={()=>setShowAddOrder(undefined)}/>}
+      {detailOrder&&(()=>{
+        const o = detailOrder;
+        const isCmd = o.type!=="devis";
+        const allowedStatuses = isCmd ? ORDER_STATUSES : QUOTE_STATUSES;
+        const statusIdx = isCmd ? ORDER_STATUSES.indexOf(o.status) : -1;
+        const pixStr = isCmd && o.amount > 0 ? pixPayload(o.amount, o.id.slice(0,25)) : "";
+        const pixQrUrl = pixStr ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pixStr)}` : "";
+
+        const printInvoice = () => {
+          const w = window.open("","_blank","width=800,height=600");
+          w.document.write(`<html><head><title>Factura ${o.id}</title><style>
+            body{font-family:Arial,sans-serif;padding:40px;color:#222;max-width:700px;margin:0 auto}
+            h1{font-size:22px;margin-bottom:4px} .sub{color:#666;font-size:12px}
+            table{width:100%;border-collapse:collapse;margin:20px 0} th,td{padding:8px 12px;border:1px solid #ddd;text-align:left;font-size:13px}
+            th{background:#f5f5f5} .total{font-size:18px;font-weight:bold;color:#16a34a}
+            .pix{text-align:center;margin:20px 0} .pix img{width:180px} .footer{margin-top:30px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:10px}
+          </style></head><body>
+            <h1>${EMPRESA.nome} — Labo 3D</h1>
+            <p class="sub">CNPJ: ${EMPRESA.cnpj} · ${EMPRESA.email} · ${EMPRESA.tel}</p>
+            <hr style="margin:16px 0;border:none;border-top:2px solid #222">
+            <h2 style="font-size:16px">FACTURA N° ${o.id.toUpperCase()}</h2>
+            <table>
+              <tr><th>Cliente</th><td>${o.prospectName||"–"}</td></tr>
+              <tr><th>Produto</th><td>${o.product||"–"}</td></tr>
+              <tr><th>Quantidade</th><td>${o.qty||1}</td></tr>
+              <tr><th>Data</th><td>${o.date||new Date().toISOString().slice(0,10)}</td></tr>
+            </table>
+            <p class="total">TOTAL: R$ ${o.amount?.toFixed(2)||"0.00"}</p>
+            ${pixQrUrl?`<div class="pix"><p style="font-size:13px;font-weight:bold">Pagamento PIX</p><img src="${pixQrUrl}" alt="QR PIX"/><p style="font-size:11px;color:#666;margin-top:6px">Chave PIX (CNPJ): ${EMPRESA.cnpj}</p></div>`:""}
+            <div class="footer">
+              <p>${EMPRESA.nome} — Labo 3D · CNPJ ${EMPRESA.cnpj} · ${EMPRESA.cidade}</p>
+              <p>Documento gerado em ${new Date().toLocaleDateString("pt-BR")}</p>
+            </div>
+          </body></html>`);
+          w.document.close();
+          setTimeout(()=>w.print(), 300);
+        };
+
+        const exportCSV = () => {
+          const rows = [
+            ["N°","Cliente","Produto","Qtd","Valor","Data","Status"],
+            [o.id, o.prospectName, o.product, o.qty||1, o.amount?.toFixed(2), o.date, o.status]
+          ];
+          const csv = rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");
+          const blob = new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"});
+          const a = document.createElement("a"); a.href=URL.createObjectURL(blob);
+          a.download=`factura_${o.id}.csv`; a.click();
+        };
+
+        return (
+        <ModalWrap title={`${isCmd?"📦 Commande":"📋 Devis"} — ${o.prospectName||"–"}`} onClose={()=>setDetailOrder(null)} wide>
+          {o.thumbnail&&(
+            <div style={{marginBottom:14,textAlign:"center"}}>
+              <img src={o.thumbnail} alt="Aperçu" style={{maxWidth:"100%",maxHeight:180,borderRadius:9,border:"1px solid #1a2035"}}/>
+            </div>
+          )}
+
+          {/* Barre de progression commande */}
+          {isCmd&&(
+            <div style={{display:"flex",gap:4,marginBottom:14}}>
+              {ORDER_STATUSES.filter(s=>s!=="Annulée").map((s,i)=>{
+                const cur = ORDER_STATUSES.indexOf(o.status);
+                const done = i <= cur;
+                return <div key={s} style={{flex:1,textAlign:"center"}}>
+                  <div style={{height:4,borderRadius:2,background:done?"#22c55e":"#1a2035",marginBottom:4}}/>
+                  <span style={{fontSize:9,color:done?"#4ade80":"#4b5563",fontWeight:i===cur?700:400}}>{s}</span>
+                </div>;
+              })}
+            </div>
+          )}
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 14px",marginBottom:14}}>
+            <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Client</p><p style={{fontSize:13,color:"#f1f5f9",fontWeight:600}}>{o.prospectName||"–"}</p></div>
+            <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Produit</p><p style={{fontSize:13,color:"#f1f5f9"}}>{o.product||"–"}</p></div>
+            <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Montant</p><p style={{fontSize:15,color:"#22c55e",fontWeight:700}}>R${o.amount?.toFixed(2)}</p></div>
+            <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Quantité</p><p style={{fontSize:13,color:"#f1f5f9"}}>{o.qty||1}</p></div>
+            <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Date</p><p style={{fontSize:13,color:"#f1f5f9"}}>{o.date||"–"}</p></div>
+            <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Statut</p>
+              <select value={o.status} onChange={e=>{updateOrder(o.id,{status:e.target.value});setDetailOrder(d=>({...d,status:e.target.value}));}}
+                style={{padding:"5px 8px",borderRadius:6,fontSize:12,outline:"none",cursor:"pointer",background:"#080a0f",border:"1px solid #1a2035",color:"#f1f5f9",fontFamily:"inherit"}}>
+                {allowedStatuses.map(s=><option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {o.notes&&(
+            <div style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520",marginBottom:14}}>
+              <p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:6}}>Détail calcul</p>
+              <p style={{fontSize:12,color:"#e2e8f0",lineHeight:1.7}}>{o.notes.split(" · ").join("\n").split("\n").map((l,i)=><span key={i}>{l}<br/></span>)}</p>
+            </div>
+          )}
+
+          {/* PIX QR Code — visible pour commandes confirmées+ */}
+          {isCmd && statusIdx >= 1 && pixQrUrl && (
+            <div style={{background:"#080a0f",borderRadius:8,padding:"14px",border:"1px solid #22c55e18",marginBottom:14,textAlign:"center"}}>
+              <p style={{fontSize:11,fontWeight:700,color:"#22c55e",marginBottom:8,textTransform:"uppercase"}}>Pagamento PIX</p>
+              <img src={pixQrUrl} alt="QR PIX" style={{width:160,height:160,borderRadius:8,border:"4px solid white"}}/>
+              <p style={{fontSize:11,color:"#4b5563",marginTop:8}}>Chave CNPJ: {EMPRESA.cnpj}</p>
+              <p style={{fontSize:13,fontWeight:700,color:"#4ade80",marginTop:4}}>R$ {o.amount?.toFixed(2)}</p>
+              <button onClick={()=>{navigator.clipboard.writeText(pixStr);}} style={{marginTop:8,padding:"5px 14px",background:"#22c55e15",border:"1px solid #22c55e28",borderRadius:6,color:"#4ade80",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                Copier code PIX
+              </button>
+            </div>
+          )}
+
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {!isCmd && o.status==="Accepté"&&(
+              <button onClick={()=>{updateOrder(o.id,{type:"commande",status:"En attente"});setDetailOrder(d=>({...d,type:"commande",status:"En attente"}));celebrate();}}
+                style={{flex:1,padding:"9px",background:"linear-gradient(135deg,#22c55e,#16a34a)",border:"none",borderRadius:7,color:"white",fontSize:13,fontWeight:600,cursor:"pointer"}}>→ Passer en commande</button>
+            )}
+            {isCmd && (
+              <button onClick={printInvoice}
+                style={{flex:1,padding:"9px",background:"#3b82f615",border:"1px solid #3b82f628",borderRadius:7,color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer"}}>🖨 Imprimer facture</button>
+            )}
+            {isCmd && (
+              <button onClick={exportCSV}
+                style={{flex:1,padding:"9px",background:"#f59e0b15",border:"1px solid #f59e0b28",borderRadius:7,color:"#fbbf24",fontSize:12,fontWeight:600,cursor:"pointer"}}>📊 Export CSV</button>
+            )}
+            <button onClick={()=>setDetailOrder(null)} style={{flex:1,padding:"9px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:7,color:"#6b7280",fontSize:12,cursor:"pointer"}}>Fermer</button>
+          </div>
+        </ModalWrap>
+        );
+      })()}
       {detailProspect&&<ProspectModal prospect={detailProspect} projId={effectiveProjId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} prospectEmails={data?.prospectEmails||{}} onSendEmail={sendGmail} onScanForProspect={scanForProspect} onClearEmails={clearProspectEmails} gmailLoading={gmailLoading}/>}
       {showAddEvent&&<AddEventModal onAdd={createCalEvent} onClose={()=>setShowAddEvent(null)} preDate={showAddEvent==="new"?null:showAddEvent} currentUser={user}/>}
       {showEmailModal&&<EmailModal prospect={showEmailModal} projId={effectiveProjId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail} onUpdateStatus={updateProspect}/>}

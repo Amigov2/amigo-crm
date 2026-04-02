@@ -5,16 +5,5 @@ import App from './App.jsx'
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />
-  </React.StrictMode>,
+  </React.StrictMode>
 )
-```
-
-**Commit changes** ✅
-
----
-
-**Fichier 2 — "Add file" → "Create new file"**
-
-Nom :
-```
-index.html
