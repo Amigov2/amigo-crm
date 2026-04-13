@@ -12,6 +12,11 @@ const storage = {
     if (error || !data) return null;
     return { value: data.value };
   },
+  async getTimestamp(key) {
+    const { data, error } = await supabase.from("amigo_data").select("updated_at").eq("key", key).single();
+    if (error || !data) return null;
+    return data.updated_at;
+  },
   async set(key, value) {
     const { error } = await supabase.from("amigo_data").upsert({ key, value, updated_at: new Date().toISOString() });
     if (error) throw error;
@@ -178,6 +183,16 @@ const fmtEur = n => !n ? "€0" : n >= 1000000 ? `€${(n/1000000).toFixed(1)}M`
 const fmtBrl = n => !n ? "R$0" : n >= 1000000 ? `R$${(n/1000000).toFixed(1)}M` : n >= 1000 ? `R$${(n/1000).toFixed(1)}k` : `R$${Math.round(n)}`;
 const fmt = fmtEur; // défaut euro, utilisé par vin/makeup
 const ago = ts => { if(!ts) return "–"; const m=Math.floor((Date.now()-ts)/60000); if(m<1) return "maintenant"; if(m<60) return `${m}min`; const h=Math.floor(m/60); if(h<24) return `${h}h`; return `${Math.floor(h/24)}j`; };
+
+// ── WhatsApp helper ────────────────────────────────────────────────────────
+const waLink = (phone, text) => {
+  // Extraire le meilleur numéro (préférer +55 / brésilien)
+  const parts = (phone||"").split(/\s{2,}|,|;/).map(s=>s.trim()).filter(Boolean);
+  const br = parts.find(p=>p.includes("+55")||(/^\d{10,11}$/.test(p.replace(/\D/g,""))&&!p.includes("+1")));
+  const raw = (br || parts[0] || "").replace(/[^\d]/g,"");
+  const num = raw.length >= 12 ? raw : raw.length >= 10 ? `55${raw}` : raw;
+  return `https://wa.me/${num}?text=${encodeURIComponent(text)}`;
+};
 
 // ── Célébration confettis + son ─────────────────────────────────────────────
 function celebrate() {
@@ -357,10 +372,13 @@ function Field({ label, value, onChange, placeholder, type, options }) {
   );
 }
 
-function AddProspectModal({ projId, onAdd, onClose }) {
+function AddProspectModal({ projId, onAdd, onClose, allProspects=[] }) {
   const P = PROJECTS[projId] || Object.values(PROJECTS)[0];
   const isVin = projId === "vin";
   const [name,             setName]             = useState("");
+  const [cnpj,             setCnpj]             = useState("");
+  const [cnpjLoading,      setCnpjLoading]      = useState(false);
+  const [cnpjError,        setCnpjError]        = useState("");
   const [geo,              setGeo]              = useState(projId==="print3d"?"Rio de Janeiro 🇧🇷":"France 🇫🇷");
   const [sub,              setSub]              = useState("");
   const [contact,          setContact]          = useState("");
@@ -386,8 +404,39 @@ function AddProspectModal({ projId, onAdd, onClose }) {
   const [prixMercadoLivre, setPrixMercadoLivre] = useState("");
   const [minCommande,      setMinCommande]      = useState("6");
 
+  const lookupCnpj = async (raw) => {
+    const digits = raw.replace(/\D/g,"");
+    if (digits.length !== 14) { setCnpjError("CNPJ doit contenir 14 chiffres"); return; }
+    setCnpjLoading(true); setCnpjError("");
+    try {
+      const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`);
+      if (!r.ok) { setCnpjError("CNPJ introuvable"); setCnpjLoading(false); return; }
+      const d = await r.json();
+      if (d.razao_social) setName(d.nome_fantasia || d.razao_social);
+      if (d.email) setEmail(d.email.toLowerCase());
+      if (d.ddd_telefone_1) setPhone(`+55${d.ddd_telefone_1}`);
+      const cidade = d.municipio || "";
+      const uf = d.uf || "";
+      if (cidade || uf) { setGeo(`${cidade}${uf?`, ${uf}`:""} 🇧🇷`); setSub(d.bairro||""); }
+      if (d.qsa?.length) setContact(d.qsa[0].nome_socio || "");
+      setNote(prev => {
+        const info = `CNPJ: ${digits} · ${d.razao_social||""}${d.cnae_fiscal_descricao?` · ${d.cnae_fiscal_descricao}`:""}`;
+        return prev ? `${prev}\n${info}` : info;
+      });
+    } catch(e) { setCnpjError("Erreur de connexion"); }
+    setCnpjLoading(false);
+  };
+
+  // Suggestions de prospects existants basées sur le nom tapé
+  const nameLower = name.trim().toLowerCase();
+  const suggestions = nameLower.length >= 2
+    ? allProspects.filter(p => p.name?.toLowerCase().includes(nameLower))
+    : [];
+  const exactMatch = allProspects.find(p => p.name?.toLowerCase() === nameLower);
+
   const submit = () => {
     if (!name.trim()) return;
+    if (exactMatch && !confirm(`"${exactMatch.name}" existe déjà dans ${PROJECTS[exactMatch._projKey]?.label||exactMatch._projKey}. Créer quand même ?`)) return;
     // Détection auto client Brésil vs fournisseur France
     const isBresil = phone.replace(/\s/g,"").startsWith("+55")
       || phone.replace(/\s/g,"").startsWith("55")
@@ -395,7 +444,7 @@ function AddProspectModal({ projId, onAdd, onClose }) {
       || geo.includes("🇧🇷");
     const _proj = (isVin && isBresil) ? "vinClients" : projId;
     const P2 = PROJECTS[_proj] || P;
-    onAdd({ id: projId.slice(0,2)+uid(), name, geo, sub, contact, email, phone,
+    onAdd({ id: projId.slice(0,2)+uid(), name, cnpj: cnpj.replace(/\D/g,"")||undefined, geo, sub, contact, email, phone,
       valeur: parseInt(valeur)||0, note, tags:[tag1,tag2].filter(Boolean),
       status: P2.statuses[0], assignedTo:null, lastEditBy:null, lastEditAt:null,
       _proj,
@@ -411,7 +460,38 @@ function AddProspectModal({ projId, onAdd, onClose }) {
         </div>
       )}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
-        <div style={{gridColumn:"span 2"}}><Field label="Nom *" value={name} onChange={setName} placeholder={isVin?"Château Pichon Baron / Restaurant Fasano...":projId==="print3d"?"Studio Durand Architecture...":"Académie du Maquillage..."}/></div>
+        <div style={{gridColumn:"span 2",position:"relative"}}>
+          <Field label="Nom *" value={name} onChange={setName} placeholder={isVin?"Château Pichon Baron / Restaurant Fasano...":projId==="print3d"?"Studio Durand Architecture...":"Académie du Maquillage..."}/>
+          {suggestions.length > 0 && (
+            <div style={{position:"absolute",left:0,right:0,top:"100%",zIndex:10,background:"#0b0d16",border:"1px solid #1a2035",borderRadius:7,maxHeight:150,overflowY:"auto",boxShadow:"0 8px 24px rgba(0,0,0,.5)"}}>
+              <p style={{fontSize:9,color:"#4b5563",padding:"6px 10px 2px",textTransform:"uppercase",fontWeight:600}}>Clients existants</p>
+              {suggestions.slice(0,5).map(p=>(
+                <div key={p.id} style={{padding:"6px 10px",cursor:"default",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid #0f1520"}}>
+                  <span style={{fontSize:12,color:p.name.toLowerCase()===nameLower?"#f87171":"#e2e8f0",fontWeight:p.name.toLowerCase()===nameLower?700:400}}>{p.name}</span>
+                  <span style={{fontSize:10,color:"#4b5563"}}>{PROJECTS[p._projKey]?.icon} {PROJECTS[p._projKey]?.label}</span>
+                </div>
+              ))}
+              {exactMatch && <p style={{fontSize:10,color:"#f87171",padding:"4px 10px",fontWeight:600}}>⚠ Doublon exact</p>}
+            </div>
+          )}
+        </div>
+
+        {/* CNPJ lookup — projets brésiliens */}
+        {(projId==="print3d"||projId==="vinClients"||(isVin&&geo.includes("🇧🇷"))) && (
+          <div style={{gridColumn:"span 2",marginBottom:8}}>
+            <p style={{fontSize:10,color:"#4b5563",fontWeight:600,marginBottom:4,textTransform:"uppercase",letterSpacing:".4px"}}>CNPJ <span style={{fontWeight:400,textTransform:"none"}}>(auto-remplir)</span></p>
+            <div style={{display:"flex",gap:6}}>
+              <input value={cnpj} onChange={e=>setCnpj(e.target.value)} placeholder="00.000.000/0000-00"
+                style={{flex:1,padding:"7px 9px",borderRadius:7,fontSize:12,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"}}
+                onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();lookupCnpj(cnpj);}}}/>
+              <button onClick={()=>lookupCnpj(cnpj)} disabled={cnpjLoading}
+                style={{padding:"7px 14px",borderRadius:7,fontSize:11,fontWeight:600,cursor:cnpjLoading?"default":"pointer",background:"#14b8a618",border:"1px solid #14b8a628",color:"#2dd4bf",opacity:cnpjLoading?0.6:1}}>
+                {cnpjLoading?"…":"🔍 Buscar"}
+              </button>
+            </div>
+            {cnpjError&&<p style={{fontSize:10,color:"#f87171",marginTop:4}}>{cnpjError}</p>}
+          </div>
+        )}
 
         {/* Dropdown pays pour vin */}
         {isVin ? (
@@ -857,7 +937,7 @@ function Print3DCalculator({ prospects, orders, onSaveQuote, onSaveWithNewClient
       type: "devis",
       product: projetNom || fileName || "Pièce 3D",
       qty: q,
-      amount: prixVente,
+      amount: q > 0 ? prixVente / q : prixVente,
       date: new Date().toISOString().slice(0, 10),
       deliveryDate: "",
       status: "Brouillon",
@@ -886,7 +966,7 @@ function Print3DCalculator({ prospects, orders, onSaveQuote, onSaveWithNewClient
   const cellStyle  = {background:"#080a0f",borderRadius:7,padding:"8px 10px",border:"1px solid #0f1520"};
 
   return (
-    <div className="fade" style={{display:"grid",gridTemplateColumns:"340px 1fr",gap:16,alignItems:"start"}}>
+    <div className="fade" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:16,alignItems:"start"}}>
       {/* ── Panneau gauche : inputs ── */}
       <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:16}}>
         <p style={{fontSize:12,fontWeight:700,color:"#14b8a6",marginBottom:14,textTransform:"uppercase",letterSpacing:".5px"}}>🧊 Calculateur de Devis</p>
@@ -1124,7 +1204,130 @@ function WineFinancePanel({ prospect }) {
   );
 }
 
-function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder, onEmail, gmailThreads, prospectEmails, onSendEmail, onScanForProspect, onClearEmails, gmailLoading }) {
+function GroupedQuotesTab({ prospect, myOrders, fmt, P, onAddOrder, onViewOrder, onSendGroupQuote, onSendEmail, projId }) {
+  const [groupLink, setGroupLink] = useState(prospect.groupQuoteToken ? `${window.location.origin}/#/quotes/${prospect.groupQuoteToken}` : "");
+  const [publishing, setPublishing] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const isArch = o => ["Refusé","Expiré","Annulé","Annulée"].includes(o.status);
+  const activeOrders = myOrders.filter(o => !isArch(o));
+  const archivedOrders = myOrders.filter(o => isArch(o));
+  const devis = activeOrders.filter(o => o.type === "devis");
+  const commandes = activeOrders.filter(o => o.type !== "devis");
+  const totalDevis = devis.reduce((s, o) => s + o.amount * (o.qty || 1), 0);
+
+  const publishGroup = async () => {
+    if (devis.length === 0) return;
+    setPublishing(true);
+    try {
+      const token = prospect.groupQuoteToken || `g${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`;
+      const validDate = new Date(); validDate.setDate(validDate.getDate() + 30);
+      const groupData = {
+        prospectId: prospect.id, prospectName: prospect.name,
+        prospectCnpj: prospect.cnpj || "",
+        items: devis.map(o => ({
+          orderId: o.id, product: o.product, qty: o.qty || 1, amount: o.amount,
+          notes: o.notes || "", payTerms: o.payTerms || "",
+        })),
+        date: new Date().toISOString().slice(0, 10),
+        validUntil: validDate.toISOString().slice(0, 10),
+        payTerms: devis[0]?.payTerms || "50% na aprovação, 50% na entrega",
+        status: "sent", views: [], sentAt: Date.now(),
+        acceptedItems: [],
+      };
+      await supabase.from("amigo_data").upsert({ key: `gquote_${token}`, value: JSON.stringify(groupData), updated_at: new Date().toISOString() });
+      if (!prospect.groupQuoteToken && onSendGroupQuote) onSendGroupQuote(prospect.id, token);
+      setGroupLink(`${window.location.origin}/#/quotes/${token}`);
+    } catch (e) { console.error(e); }
+    setPublishing(false);
+  };
+
+  const senderEmail = PROJECT_EMAIL[projId] || null;
+
+  const renderRow = o => (
+    <div key={o.id} onClick={()=>onViewOrder&&onViewOrder(o)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",background:"#080a0f",borderRadius:6,marginBottom:4,border:"1px solid #0f1520",cursor:"pointer",transition:"border-color .15s"}}
+      onMouseEnter={e=>e.currentTarget.style.borderColor="#1a2035"} onMouseLeave={e=>e.currentTarget.style.borderColor="#0f1520"}>
+      <div>
+        <p style={{fontSize:11,fontWeight:600,color:"#e2e8f0"}}>{o.product||"–"}</p>
+        <p style={{fontSize:10,color:"#4b5563"}}>{o.date}</p>
+      </div>
+      <div style={{textAlign:"right"}}>
+        <p style={{fontSize:12,fontWeight:700,color:"#22c55e"}}>{fmt(o.amount*(o.qty||1))}{(o.qty||1)>1&&<span style={{fontSize:9,color:"#4b5563",marginLeft:3}}>({o.qty}x)</span>}</p>
+        <span style={{fontSize:10,color:"#f59e0b"}}>{o.status}</span>
+      </div>
+    </div>
+  );
+
+  return <>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+      <p style={{fontSize:10,color:"#4b5563",textTransform:"uppercase",fontWeight:600}}>📋 Devis ({devis.length}) · 📦 Commandes ({commandes.length})</p>
+      <button onClick={()=>onAddOrder(prospect)} style={{fontSize:10,color:"#22c55e",background:"#22c55e10",border:"1px solid #22c55e22",padding:"3px 9px",borderRadius:5,cursor:"pointer",fontWeight:600}}>+ Ajouter</button>
+    </div>
+    {activeOrders.length===0
+      ? <p style={{fontSize:11,color:"#2d3748",fontStyle:"italic"}}>Aucun devis ni commande en cours.</p>
+      : <>
+        {devis.length>0 && <>
+          <p style={{fontSize:9,color:"#a78bfa",fontWeight:600,textTransform:"uppercase",marginBottom:4}}>📋 Devis</p>
+          {devis.map(renderRow)}
+        </>}
+        {commandes.length>0 && <>
+          <p style={{fontSize:9,color:"#22c55e",fontWeight:600,textTransform:"uppercase",marginTop:8,marginBottom:4}}>📦 Commandes</p>
+          {commandes.map(renderRow)}
+        </>}
+      </>
+    }
+    {archivedOrders.length>0 && (
+      <details style={{marginTop:8}}>
+        <summary style={{fontSize:10,color:"#374151",cursor:"pointer",fontWeight:600}}>🗄 Archives ({archivedOrders.length})</summary>
+        <div style={{marginTop:4}}>{archivedOrders.map(renderRow)}</div>
+      </details>
+    )}
+    {/* Envoi groupé des devis */}
+    {devis.length > 0 && (
+      <div style={{marginTop:12,background:"#080a0f",border:"1px solid #8b5cf620",borderRadius:8,padding:"12px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <p style={{fontSize:10,color:"#a78bfa",fontWeight:600,textTransform:"uppercase"}}>📋 {devis.length} devis · Total {fmt(totalDevis)}</p>
+        </div>
+        {!groupLink ? (
+          <button onClick={publishGroup} disabled={publishing}
+            style={{width:"100%",padding:"9px",background:"#8b5cf618",border:"1px solid #8b5cf628",borderRadius:7,color:"#a78bfa",fontSize:12,fontWeight:600,cursor:publishing?"default":"pointer",opacity:publishing?0.6:1}}>
+            {publishing ? "Publication…" : `📤 Publier les ${devis.length} devis en un seul lien`}
+          </button>
+        ) : (
+          <>
+            <div style={{display:"flex",gap:6,marginBottom:6}}>
+              <input value={groupLink} readOnly style={{flex:1,padding:"6px 8px",borderRadius:5,fontSize:10,background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"monospace"}}/>
+              <button onClick={()=>{navigator.clipboard.writeText(groupLink);setCopied(true);setTimeout(()=>setCopied(false),2000);}}
+                style={{padding:"6px 12px",borderRadius:5,fontSize:10,fontWeight:600,background:copied?"#22c55e18":"#8b5cf618",border:`1px solid ${copied?"#22c55e28":"#8b5cf628"}`,color:copied?"#4ade80":"#a78bfa",cursor:"pointer",whiteSpace:"nowrap"}}>
+                {copied?"✓ Copié":"📋 Copier"}
+              </button>
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}>
+              <a href={groupLink+"?preview=1"} target="_blank" rel="noopener" style={{fontSize:10,color:"#60a5fa",textDecoration:"none"}}>👁 Aperçu</a>
+              <button onClick={publishGroup} disabled={publishing} style={{fontSize:10,color:"#f59e0b",background:"none",border:"none",cursor:"pointer",fontWeight:600,padding:0}}>{publishing?"…":"🔄 Re-publier"}</button>
+            </div>
+            {prospect.phone && (
+              <a href={waLink(prospect.phone, `Olá${prospect.contact?` ${prospect.contact.split(" ")[0]}`:""}!\n\nSegue${devis.length>1?"m":""} ${devis.length>1?`os ${devis.length} orçamentos`:"o orçamento"}:\n\n${groupLink}\n\n${devis.map(d=>`• ${d.product} — ${d.qty||1}x — *R$${(d.amount*(d.qty||1)).toFixed(2)}*`).join("\n")}\n\nTotal: *R$${totalDevis.toFixed(2)}*\n\nAbraço,\nAnthony · ${EMPRESA.nome}`)} target="_blank" rel="noopener"
+                style={{display:"block",width:"100%",padding:"8px",background:"#22c55e18",border:"1px solid #22c55e28",borderRadius:6,color:"#4ade80",fontSize:11,fontWeight:600,textDecoration:"none",textAlign:"center",marginBottom:6,boxSizing:"border-box"}}>
+                WhatsApp — Envoyer les {devis.length} devis
+              </a>
+            )}
+            {prospect.email && (
+              <QuoteEmailForm
+                key={`grp-${devis.map(d=>d.id+d.amount+d.qty).join("-")}`}
+                to={prospect.email}
+                defaultSubject={`Orçamentos — ${prospect.name} · ${EMPRESA.nome}`}
+                defaultBody={`Prezado(a)${prospect.contact?` ${prospect.contact.split(" ")[0]}`:""},\n\nSegue${devis.length>1?"m":""}  ${devis.length>1?`os ${devis.length} orçamentos`:"o orçamento"} para o seu projeto:\n\n${groupLink}\n\n${devis.map(d=>`• ${d.product} — ${d.qty||1}x — R$${(d.amount*(d.qty||1)).toFixed(2)}`).join("\n")}\n\nTotal: R$${totalDevis.toFixed(2)}\n\nVocê pode aceitar cada item diretamente pelo link.\n\nAtenciosamente,\nAnthony Donzel\n${EMPRESA.nome} · ${EMPRESA.tel}`}
+                projId={projId} onSend={onSendEmail} onSent={()=>{}}
+              />
+            )}
+          </>
+        )}
+      </div>
+    )}
+  </>;
+}
+
+function ProspectModal({ prospect, projId, onClose, onUpdate, onDelete, orders, onAddOrder, onEmail, onViewOrder, onSendGroupQuote, gmailThreads, prospectEmails, onSendEmail, onScanForProspect, onClearEmails, gmailLoading }) {
   const P = PROJECTS[projId] || PROJECTS[prospect._proj] || PROJECTS["vin"] || Object.values(PROJECTS)[0];
   const isVin = projId === "vin";
   const [status,    setStatus]    = useState(prospect.status);
@@ -1134,6 +1337,13 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
   const [loadingBody, setLoadingBody] = useState(null);
   const [note,      setNote]      = useState(prospect.note||"");
   const [editNote,  setEditNote]  = useState(false);
+  const [editInfos, setEditInfos] = useState(false);
+  const [editName,    setEditName]    = useState(prospect.name||"");
+  const [editContact, setEditContact] = useState(prospect.contact||"");
+  const [editEmail,   setEditEmail]   = useState(prospect.email||"");
+  const [editPhone,   setEditPhone]   = useState(prospect.phone||"");
+  const [editGeo,     setEditGeo]     = useState(prospect.geo||"");
+  const [editCnpj,   setEditCnpj]   = useState(prospect.cnpj||"");
   const [tab,       setTab]       = useState("infos");
   const [replyTo,   setReplyTo]   = useState(null);
   const [replyBody, setReplyBody] = useState("");
@@ -1219,10 +1429,21 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
     }
   };
 
+  // Auto-scan léger à l'ouverture — vérifie les nouveaux emails sans tout re-télécharger
+  const autoScanned = useRef(false);
+  useEffect(() => {
+    if (autoScanned.current || !prospect.email || !onScanForProspect) return;
+    autoScanned.current = true;
+    const t = setTimeout(() => {
+      try { onScanForProspect(prospect, true); } catch(_) {}
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [prospect.id]);
+
   const TABS = [["infos","📋 Infos"],["emails",`✉️ Emails${myEmails.length>0?` (${myEmails.length})`:""}`],["docs","📎 Docs"],["commandes",`📦 Commandes${myOrders.length>0?` (${myOrders.length})`:""}`]];
 
   return (
-    <ModalWrap title={prospect.name} onClose={onClose} wide>
+    <ModalWrap title={editInfos ? editName : prospect.name} onClose={onClose} wide>
       {/* Onglets */}
       <div style={{display:"flex",gap:4,marginBottom:14,background:"#080a0f",borderRadius:7,padding:3,border:"1px solid #0f1520"}}>
         {TABS.map(([v,l])=>(
@@ -1249,11 +1470,34 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
         )}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
           <div>
-            <p style={{fontSize:10,color:"#4b5563",textTransform:"uppercase",fontWeight:600,marginBottom:6}}>Contact</p>
-            {prospect.contact && <p style={{fontSize:12,fontWeight:600,color:"#e2e8f0",marginBottom:2}}>{prospect.contact}</p>}
-            {prospect.email && <p style={{fontSize:11,color:"#3b82f6",marginBottom:1,cursor:"pointer"}} onClick={()=>onEmail&&onEmail(prospect)}>{prospect.email} ✉️</p>}
-            {prospect.phone   && <p style={{fontSize:11,color:"#6b7280",marginBottom:4}}>{prospect.phone}</p>}
-            {prospect.geo     && <p style={{fontSize:11,color:"#4b5563"}}>{prospect.geo} {prospect.sub}</p>}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <p style={{fontSize:10,color:"#4b5563",textTransform:"uppercase",fontWeight:600}}>Contact</p>
+              {!editInfos
+                ? <button onClick={()=>setEditInfos(true)} style={{fontSize:10,color:P.color,background:"none",border:"none",cursor:"pointer",fontWeight:600}}>Modifier</button>
+                : <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>{onUpdate(prospect.id,{name:editName,contact:editContact,email:editEmail,phone:editPhone,geo:editGeo,cnpj:editCnpj||undefined});setEditInfos(false);}} style={{fontSize:10,color:"#4ade80",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>✓ OK</button>
+                    <button onClick={()=>{setEditName(prospect.name||"");setEditContact(prospect.contact||"");setEditEmail(prospect.email||"");setEditPhone(prospect.phone||"");setEditGeo(prospect.geo||"");setEditInfos(false);}} style={{fontSize:10,color:"#4b5563",background:"none",border:"none",cursor:"pointer"}}>Annuler</button>
+                  </div>
+              }
+            </div>
+            {editInfos ? <>
+              <input value={editName} onChange={e=>setEditName(e.target.value)} placeholder="Nom" style={{width:"100%",padding:"5px 7px",borderRadius:5,fontSize:12,marginBottom:4,outline:"none",background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"}}/>
+              <input value={editContact} onChange={e=>setEditContact(e.target.value)} placeholder="Contact" style={{width:"100%",padding:"5px 7px",borderRadius:5,fontSize:11,marginBottom:4,outline:"none",background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"}}/>
+              <input value={editEmail} onChange={e=>setEditEmail(e.target.value)} placeholder="Email" style={{width:"100%",padding:"5px 7px",borderRadius:5,fontSize:11,marginBottom:4,outline:"none",background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"}}/>
+              <input value={editPhone} onChange={e=>setEditPhone(e.target.value)} placeholder="Téléphone" style={{width:"100%",padding:"5px 7px",borderRadius:5,fontSize:11,marginBottom:4,outline:"none",background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"}}/>
+              <input value={editGeo} onChange={e=>setEditGeo(e.target.value)} placeholder="Localisation" style={{width:"100%",padding:"5px 7px",borderRadius:5,fontSize:11,marginBottom:4,outline:"none",background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"}}/>
+              <input value={editCnpj} onChange={e=>setEditCnpj(e.target.value)} placeholder="CNPJ" style={{width:"100%",padding:"5px 7px",borderRadius:5,fontSize:11,outline:"none",background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"}}/>
+            </> : <>
+              {prospect.contact && <p style={{fontSize:12,fontWeight:600,color:"#e2e8f0",marginBottom:2}}>{prospect.contact}</p>}
+              {prospect.email && <p style={{fontSize:11,color:"#3b82f6",marginBottom:1,cursor:"pointer"}} onClick={()=>onEmail&&onEmail(prospect)}>{prospect.email} ✉️</p>}
+              {prospect.phone && <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                <p style={{fontSize:11,color:"#6b7280"}}>{prospect.phone}</p>
+                <a href={waLink(prospect.phone,`Olá${prospect.contact?` ${prospect.contact.split(" ")[0]}`:""}! Aqui é Anthony da ${EMPRESA.nome}.`)} target="_blank" rel="noopener"
+                  style={{fontSize:10,padding:"1px 6px",borderRadius:3,background:"#22c55e18",color:"#4ade80",fontWeight:600,textDecoration:"none",border:"1px solid #22c55e25"}}>WhatsApp</a>
+              </div>}
+              {prospect.geo     && <p style={{fontSize:11,color:"#4b5563"}}>{prospect.geo} {prospect.sub}</p>}
+              {prospect.cnpj    && <p style={{fontSize:10,color:"#4b5563",marginTop:3}}>CNPJ: <span style={{color:"#6b7280",fontFamily:"monospace"}}>{prospect.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,"$1.$2.$3/$4-$5")}</span></p>}
+            </>}
             {isVin && prospect.prixMagasinFr && <p style={{fontSize:10,color:"#4b5563",marginTop:5}}>Prix magasin France : <strong style={{color:"#f1f5f9"}}>€{prospect.prixMagasinFr}/btl</strong></p>}
             <div style={{marginTop:7}}>{(prospect.tags||[]).map(t=>(
               <span key={t} style={{fontSize:10,padding:"2px 7px",borderRadius:4,background:`${P.color}15`,color:P.color,border:`1px solid ${P.color}22`,marginRight:4,fontWeight:600}}>{t}</span>
@@ -1297,6 +1541,34 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
             : <p style={{fontSize:11,color:"#6b7280",lineHeight:1.6}}>{note||"Aucune note."}</p>
           }
         </div>
+        {/* Historique des modifications */}
+        {(prospect.history||[]).length>0 && (
+          <details style={{marginTop:14}}>
+            <summary style={{fontSize:10,color:"#4b5563",cursor:"pointer",fontWeight:600}}>🕐 Historique ({prospect.history.length} modifications)</summary>
+            <div style={{marginTop:8,maxHeight:200,overflowY:"auto"}}>
+              {[...(prospect.history||[])].reverse().map((h,i)=>(
+                <div key={i} style={{padding:"6px 10px",borderBottom:"1px solid #080a0f",display:"flex",gap:8,alignItems:"flex-start"}}>
+                  <div style={{width:18,height:18,borderRadius:"50%",background:USERS[h.by]?.color||"#6b7280",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,color:"white",flexShrink:0,marginTop:2}}>{USERS[h.by]?.avatar||"?"}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      <span style={{fontSize:10,color:USERS[h.by]?.color||"#6b7280",fontWeight:600}}>{h.byLabel||h.by}</span>
+                      <span style={{fontSize:9,color:"#2d3748"}}>{new Date(h.at).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</span>
+                    </div>
+                    {(h.changes||[]).map((c,j)=><p key={j} style={{fontSize:10,color:"#6b7280",marginTop:1}}>{c}</p>)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+        {onDelete && (
+          <div style={{marginTop:14,textAlign:"right"}}>
+            <button onClick={()=>{if(confirm(`Supprimer définitivement "${prospect.name}" et ses emails associés ?`)){onDelete(prospect.id);onClose();}}}
+              style={{padding:"6px 14px",background:"#ef444410",border:"1px solid #ef444425",borderRadius:6,color:"#f87171",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+              🗑 Supprimer ce prospect
+            </button>
+          </div>
+        )}
       </>}
 
       {/* ── EMAILS ── */}
@@ -1317,10 +1589,16 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
             </button>
             {myEmails.length>0&&<span style={{fontSize:10,color:"#4b5563"}}>{myEmails.length} message{myEmails.length>1?"s":""}</span>}
           </div>
-          <button onClick={()=>onEmail&&onEmail(prospect)}
-            style={{padding:"6px 14px",background:`linear-gradient(135deg,${P.color},${P.color}cc)`,border:"none",borderRadius:6,color:"white",fontSize:11,fontWeight:600,cursor:"pointer"}}>
-            ✉️ Nouveau message
-          </button>
+          <div style={{display:"flex",gap:6}}>
+            {prospect.phone && <a href={waLink(prospect.phone,`Olá${prospect.contact?` ${prospect.contact.split(" ")[0]}`:""}! Aqui é Anthony da ${EMPRESA.nome}.`)} target="_blank" rel="noopener"
+              style={{padding:"6px 12px",background:"#22c55e18",border:"1px solid #22c55e28",borderRadius:6,color:"#4ade80",fontSize:11,fontWeight:600,textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>
+              WhatsApp
+            </a>}
+            <button onClick={()=>onEmail&&onEmail(prospect)}
+              style={{padding:"6px 14px",background:`linear-gradient(135deg,${P.color},${P.color}cc)`,border:"none",borderRadius:6,color:"white",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+              ✉️ Email
+            </button>
+          </div>
         </div>
 
         {myEmails.length===0&&(
@@ -1411,27 +1689,11 @@ function ProspectModal({ prospect, projId, onClose, onUpdate, orders, onAddOrder
       {/* ── COMMANDES ── */}
       {tab==="docs"&&<DocsTab key={prospect.id} prospect={prospect} onUpdate={onUpdate} projId={projId}/>}
 
-      {tab==="commandes"&&<>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-          <p style={{fontSize:10,color:"#4b5563",textTransform:"uppercase",fontWeight:600}}>📦 Commandes ({myOrders.length})</p>
-          <button onClick={()=>onAddOrder(prospect)} style={{fontSize:10,color:"#22c55e",background:"#22c55e10",border:"1px solid #22c55e22",padding:"3px 9px",borderRadius:5,cursor:"pointer",fontWeight:600}}>+ Ajouter</button>
-        </div>
-        {myOrders.length===0
-          ? <p style={{fontSize:11,color:"#2d3748",fontStyle:"italic"}}>Aucune commande.</p>
-          : myOrders.map(o=>(
-            <div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",background:"#080a0f",borderRadius:6,marginBottom:4,border:"1px solid #0f1520"}}>
-              <div>
-                <p style={{fontSize:11,fontWeight:600,color:"#e2e8f0"}}>{o.product||"–"}</p>
-                <p style={{fontSize:10,color:"#4b5563"}}>{o.type||"commande"} · {o.date}</p>
-              </div>
-              <div style={{textAlign:"right"}}>
-                <p style={{fontSize:12,fontWeight:700,color:"#22c55e"}}>{fmt(o.amount)}</p>
-                <span style={{fontSize:10,color:"#f59e0b"}}>{o.status}</span>
-              </div>
-            </div>
-          ))
-        }
-      </>}
+      {tab==="commandes"&&<GroupedQuotesTab
+        prospect={prospect} myOrders={myOrders} fmt={fmt} P={P}
+        onAddOrder={onAddOrder} onViewOrder={onViewOrder}
+        onSendGroupQuote={onSendGroupQuote} onSendEmail={onSendEmail} projId={projId}
+      />}
     </ModalWrap>
   );
 }
@@ -1829,9 +2091,9 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
 
   return (
     <div className="fade">
-      <div style={{display:"flex",gap:12}}>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
         {/* CARTE */}
-        <div style={{flex:"0 0 450px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,overflow:"hidden"}}>
+        <div style={{flex:"1 1 300px",maxWidth:450,background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,overflow:"hidden"}}>
           <div style={{padding:"10px 14px",borderBottom:"1px solid #0d1020",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9"}}>🗺 France viticole</p>
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
@@ -1985,19 +2247,997 @@ function CarteVin({ prospects, onOpenProspect, onAddProspect }) {
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 
+function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, setDetailProspect, sendGmail, celebrate }) {
+  const isCmd = o.type!=="devis";
+  const allowedStatuses = isCmd ? ORDER_STATUSES : QUOTE_STATUSES;
+  const statusIdx = isCmd ? ORDER_STATUSES.indexOf(o.status) : -1;
+  const orderTotal = o.amount * (o.qty || 1);
+  const pixStr = isCmd && orderTotal > 0 ? pixPayload(orderTotal, o.id.slice(0,25)) : "";
+  const pixQrUrl = pixStr ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pixStr)}` : "";
+  const linkedProspect = o.prospectId
+    ? ["makeup","vin","vinClients","print3d"].reduce((found,k) => found || (data?.[k]||[]).find(p=>p.id===o.prospectId), null)
+    : null;
+
+  const [editing, setEditing] = useState(false);
+  const [eProduct, setEProduct] = useState(o.product||"");
+  const [eAmount, setEAmount]   = useState(String(o.amount||0));
+  const [eQty, setEQty]         = useState(String(o.qty||1));
+  const [eDate, setEDate]       = useState(o.date||"");
+  const [eNotes, setENotes]     = useState(o.notes||"");
+  const [ePayTerms, setEPayTerms] = useState(o.payTerms||"50% na aprovação, 50% na entrega");
+  const [quoteLink, setQuoteLink] = useState(o.quoteToken ? `${window.location.origin}/#/quote/${o.quoteToken}` : "");
+  const [publishing, setPublishing] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const publishQuote = async (republish = false) => {
+    setPublishing(true);
+    try {
+      const token = o.quoteToken || `q${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`;
+      // Relire l'existant pour conserver les vues/statut si re-publication
+      let existing = null;
+      if (republish && o.quoteToken) {
+        const { data: ex } = await supabase.from("amigo_data").select("value").eq("key", `quote_${token}`).single();
+        if (ex?.value) existing = typeof ex.value === "string" ? JSON.parse(ex.value) : ex.value;
+      }
+      const validDate = new Date(); validDate.setDate(validDate.getDate() + 30);
+      const quoteData = {
+        orderId: o.id, proj: o.proj, prospectName: o.prospectName,
+        prospectCnpj: linkedProspect?.cnpj || "",
+        product: o.product, qty: o.qty || 1, amount: o.amount,
+        date: o.date, validUntil: validDate.toISOString().slice(0,10),
+        notes: o.notes || "", payTerms: o.payTerms || "50% na aprovação, 50% na entrega",
+        status: existing?.status === "accepted" ? "accepted" : "sent",
+        views: existing?.views || [], sentAt: existing?.sentAt || Date.now(),
+        viewedAt: existing?.viewedAt || null, acceptedAt: existing?.acceptedAt || null,
+        updatedAt: Date.now(),
+      };
+      await supabase.from("amigo_data").upsert({ key: `quote_${token}`, value: JSON.stringify(quoteData), updated_at: new Date().toISOString() });
+      if (!o.quoteToken) {
+        updateOrder(o.id, { quoteToken: token });
+        setDetailOrder(d => ({ ...d, quoteToken: token }));
+      }
+      const link = `${window.location.origin}/#/quote/${token}`;
+      setQuoteLink(link);
+    } catch(e) { console.error(e); }
+    setPublishing(false);
+  };
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(quoteLink);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+  const inputSt = {width:"100%",padding:"5px 7px",borderRadius:5,fontSize:12,outline:"none",background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"};
+  const saveEdit = () => {
+    const upd = {product:eProduct, amount:parseFloat(eAmount)||0, qty:parseInt(eQty)||1, date:eDate, notes:eNotes, payTerms:ePayTerms};
+    updateOrder(o.id, upd);
+    setDetailOrder(d=>({...d,...upd}));
+    setEditing(false);
+  };
+  const editTotal = (parseFloat(eAmount)||0) * (parseInt(eQty)||1);
+
+  const printInvoice = () => {
+    const w = window.open("","_blank","width=800,height=600");
+    w.document.write(`<html><head><title>Factura ${o.id}</title><style>
+      body{font-family:Arial,sans-serif;padding:40px;color:#222;max-width:700px;margin:0 auto}
+      h1{font-size:22px;margin-bottom:4px} .sub{color:#666;font-size:12px}
+      table{width:100%;border-collapse:collapse;margin:20px 0} th,td{padding:8px 12px;border:1px solid #ddd;text-align:left;font-size:13px}
+      th{background:#f5f5f5} .total{font-size:18px;font-weight:bold;color:#16a34a}
+      .pix{text-align:center;margin:20px 0} .pix img{width:180px} .footer{margin-top:30px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:10px}
+    </style></head><body>
+      <h1>${EMPRESA.nome} — Labo 3D</h1>
+      <p class="sub">CNPJ: ${EMPRESA.cnpj} · ${EMPRESA.email} · ${EMPRESA.tel}</p>
+      <hr style="margin:16px 0;border:none;border-top:2px solid #222">
+      <h2 style="font-size:16px">FACTURA N° ${o.id.toUpperCase()}</h2>
+      <table>
+        <tr><th>Cliente</th><td>${o.prospectName||"–"}</td></tr>
+        <tr><th>Produto</th><td>${o.product||"–"}</td></tr>
+        <tr><th>Quantidade</th><td>${o.qty||1}</td></tr>
+        <tr><th>Data</th><td>${o.date||new Date().toISOString().slice(0,10)}</td></tr>
+      </table>
+      <p class="total">TOTAL: R$ ${orderTotal?.toFixed(2)||"0.00"}</p>
+      ${pixQrUrl?`<div class="pix"><p style="font-size:13px;font-weight:bold">Pagamento PIX</p><img src="${pixQrUrl}" alt="QR PIX"/><p style="font-size:11px;color:#666;margin-top:6px">Chave PIX (CNPJ): ${EMPRESA.cnpj}</p></div>`:""}
+      <div class="footer">
+        <p>${EMPRESA.nome} — Labo 3D · CNPJ ${EMPRESA.cnpj} · ${EMPRESA.cidade}</p>
+        <p>Documento gerado em ${new Date().toLocaleDateString("pt-BR")}</p>
+      </div>
+    </body></html>`);
+    w.document.close();
+    setTimeout(()=>w.print(), 300);
+  };
+
+  const exportCSV = () => {
+    const rows = [
+      ["N°","Cliente","Produto","Qtd","Valor Unit.","Valor Total","Data","Status"],
+      [o.id, o.prospectName, o.product, o.qty||1, o.amount?.toFixed(2), orderTotal?.toFixed(2), o.date, o.status]
+    ];
+    const csv = rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");
+    const blob = new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"});
+    const a = document.createElement("a"); a.href=URL.createObjectURL(blob);
+    a.download=`factura_${o.id}.csv`; a.click();
+  };
+
+  return (
+    <ModalWrap title={`${isCmd?"📦 Commande":"📋 Devis"} — ${o.prospectName||"–"}`} onClose={()=>setDetailOrder(null)} wide>
+      {o.thumbnail&&(
+        <div style={{marginBottom:14,textAlign:"center"}}>
+          <img src={o.thumbnail} alt="Aperçu" style={{maxWidth:"100%",maxHeight:180,borderRadius:9,border:"1px solid #1a2035"}}/>
+        </div>
+      )}
+      {isCmd&&(
+        <div style={{display:"flex",gap:4,marginBottom:14}}>
+          {ORDER_STATUSES.filter(s=>s!=="Annulée").map((s,i)=>{
+            const cur = ORDER_STATUSES.indexOf(o.status);
+            const done = i <= cur;
+            return <div key={s} style={{flex:1,textAlign:"center"}}>
+              <div style={{height:4,borderRadius:2,background:done?"#22c55e":"#1a2035",marginBottom:4}}/>
+              <span style={{fontSize:9,color:done?"#4ade80":"#4b5563",fontWeight:i===cur?700:400}}>{s}</span>
+            </div>;
+          })}
+        </div>
+      )}
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
+        {!editing
+          ? <button onClick={()=>setEditing(true)} style={{fontSize:10,color:"#a78bfa",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>✏️ Modifier</button>
+          : <div style={{display:"flex",gap:8}}>
+              <button onClick={saveEdit} style={{fontSize:10,color:"#4ade80",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>✓ Enregistrer</button>
+              <button onClick={()=>setEditing(false)} style={{fontSize:10,color:"#4b5563",background:"none",border:"none",cursor:"pointer"}}>Annuler</button>
+            </div>
+        }
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 14px",marginBottom:14}}>
+        <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Client</p><p style={{fontSize:13,color:"#f1f5f9",fontWeight:600}}>{o.prospectName||"–"}</p></div>
+        <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Produit</p>
+          {editing ? <input value={eProduct} onChange={e=>setEProduct(e.target.value)} style={inputSt}/> : <p style={{fontSize:13,color:"#f1f5f9"}}>{o.product||"–"}</p>}
+        </div>
+        <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Montant unitaire</p>
+          {editing ? <input type="number" value={eAmount} onChange={e=>setEAmount(e.target.value)} style={inputSt}/> : <p style={{fontSize:13,color:"#f1f5f9"}}>{$(o.amount)}</p>}
+        </div>
+        <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Quantité</p>
+          {editing ? <input type="number" value={eQty} onChange={e=>setEQty(e.target.value)} style={inputSt}/> : <p style={{fontSize:13,color:"#f1f5f9"}}>{o.qty||1}</p>}
+        </div>
+        <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Total</p><p style={{fontSize:15,color:"#22c55e",fontWeight:700}}>{$(editing ? editTotal : orderTotal)}</p></div>
+        <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Date</p>
+          {editing ? <input type="date" value={eDate} onChange={e=>setEDate(e.target.value)} style={inputSt}/> : <p style={{fontSize:13,color:"#f1f5f9"}}>{o.date||"–"}</p>}
+        </div>
+        <div style={{gridColumn:"span 2"}}><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Statut</p>
+          <select value={o.status} onChange={e=>{updateOrder(o.id,{status:e.target.value});setDetailOrder(d=>({...d,status:e.target.value}));}}
+            style={{padding:"5px 8px",borderRadius:6,fontSize:12,outline:"none",cursor:"pointer",background:"#080a0f",border:"1px solid #1a2035",color:"#f1f5f9",fontFamily:"inherit"}}>
+            {allowedStatuses.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+      </div>
+      {(o.notes||editing)&&(
+        <div style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520",marginBottom:14}}>
+          <p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:6}}>{editing?"Notes (visibles par le client)":"Détail calcul"}</p>
+          {editing
+            ? <textarea value={eNotes} onChange={e=>setENotes(e.target.value)} rows={4} style={{...inputSt,resize:"vertical",lineHeight:1.6}}/>
+            : <p style={{fontSize:12,color:"#e2e8f0",lineHeight:1.7}}>{o.notes.split(" · ").join("\n").split("\n").map((l,i)=><span key={i}>{l}<br/></span>)}</p>
+          }
+        </div>
+      )}
+      {/* Conditions de paiement */}
+      {(!isCmd) && (
+        <div style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520",marginBottom:14}}>
+          <p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:6}}>💳 Conditions de paiement</p>
+          {editing
+            ? <input value={ePayTerms} onChange={e=>setEPayTerms(e.target.value)} placeholder="Ex: 50% na aprovação, 50% na entrega" style={inputSt}/>
+            : <p style={{fontSize:12,color:"#e2e8f0"}}>{o.payTerms || "50% na aprovação, 50% na entrega"}</p>
+          }
+        </div>
+      )}
+      {isCmd && statusIdx >= 1 && pixQrUrl && (
+        <div style={{background:"#080a0f",borderRadius:8,padding:"14px",border:"1px solid #22c55e18",marginBottom:14,textAlign:"center"}}>
+          <p style={{fontSize:11,fontWeight:700,color:"#22c55e",marginBottom:8,textTransform:"uppercase"}}>Pagamento PIX</p>
+          <img src={pixQrUrl} alt="QR PIX" style={{width:160,height:160,borderRadius:8,border:"4px solid white"}}/>
+          <p style={{fontSize:11,color:"#4b5563",marginTop:8}}>Chave CNPJ: {EMPRESA.cnpj}</p>
+          <p style={{fontSize:13,fontWeight:700,color:"#4ade80",marginTop:4}}>R$ {orderTotal?.toFixed(2)}</p>
+          <button onClick={()=>{navigator.clipboard.writeText(pixStr);}} style={{marginTop:8,padding:"5px 14px",background:"#22c55e15",border:"1px solid #22c55e28",borderRadius:6,color:"#4ade80",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+            Copier code PIX
+          </button>
+        </div>
+      )}
+      {linkedProspect && (
+        <div style={{marginBottom:14}}>
+          <button onClick={()=>{setDetailOrder(null);setDetailProspect({...linkedProspect,_proj:o.proj});}}
+            style={{padding:"7px 14px",background:"#3b82f610",border:"1px solid #3b82f625",borderRadius:7,color:"#60a5fa",fontSize:11,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            👤 Voir fiche {linkedProspect.name} {linkedProspect.email&&<span style={{color:"#4b5563"}}>({linkedProspect.email})</span>}
+          </button>
+        </div>
+      )}
+      {/* Lien partageable + envoi par email */}
+      {!isCmd && (
+        <div style={{background:"#080a0f",border:"1px solid #8b5cf620",borderRadius:8,padding:"14px",marginBottom:14}}>
+          <p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:10}}>🔗 Lien devis client</p>
+          {!quoteLink ? (
+            <button onClick={publishQuote} disabled={publishing}
+              style={{width:"100%",padding:"10px",background:"#8b5cf618",border:"1px solid #8b5cf628",borderRadius:7,color:"#a78bfa",fontSize:12,fontWeight:600,cursor:publishing?"default":"pointer",opacity:publishing?0.6:1}}>
+              {publishing ? "Publication…" : "📤 Publier le devis & générer le lien"}
+            </button>
+          ) : (
+            <>
+              <div style={{display:"flex",gap:6,marginBottom:8}}>
+                <input value={quoteLink} readOnly style={{flex:1,padding:"7px 9px",borderRadius:6,fontSize:11,background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"monospace"}}/>
+                <button onClick={copyLink} style={{padding:"7px 14px",borderRadius:6,fontSize:11,fontWeight:600,background:linkCopied?"#22c55e18":"#8b5cf618",border:`1px solid ${linkCopied?"#22c55e28":"#8b5cf628"}`,color:linkCopied?"#4ade80":"#a78bfa",cursor:"pointer",whiteSpace:"nowrap"}}>
+                  {linkCopied ? "✓ Copié" : "📋 Copier"}
+                </button>
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:8,flexWrap:"wrap"}}>
+                <a href={quoteLink+"?preview=1"} target="_blank" rel="noopener" style={{fontSize:11,color:"#60a5fa",textDecoration:"none"}}>👁 Aperçu</a>
+                <span style={{fontSize:10,color:"#1a2035"}}>·</span>
+                <button onClick={()=>publishQuote(true)} disabled={publishing}
+                  style={{fontSize:11,color:"#f59e0b",background:"none",border:"none",cursor:"pointer",fontWeight:600,padding:0}}>
+                  {publishing?"…":"🔄 Re-publier"}
+                </button>
+              </div>
+              {/* WhatsApp */}
+              {linkedProspect?.phone && (
+                <a href={waLink(linkedProspect.phone, `Olá${linkedProspect.contact?` ${linkedProspect.contact.split(" ")[0]}`:""}!\n\nSegue o orçamento para *${o.product||"seu projeto"}*:\n\n${quoteLink}\n\n• Produto: ${o.product||"Peça 3D"}\n• Qtd: ${o.qty||1}\n• Total: *R$${orderTotal.toFixed(2)}*\n\nVocê pode aceitar diretamente pelo link.\n\nAbraço,\nAnthony · ${EMPRESA.nome}`)} target="_blank" rel="noopener"
+                  style={{display:"block",width:"100%",padding:"9px",background:"#22c55e18",border:"1px solid #22c55e28",borderRadius:7,color:"#4ade80",fontSize:12,fontWeight:600,textDecoration:"none",textAlign:"center",marginBottom:8,boxSizing:"border-box"}}>
+                  WhatsApp — Envoyer le devis à {linkedProspect.contact?.split(" ")[0]||linkedProspect.name}
+                </a>
+              )}
+              {/* Tracking */}
+              {o.quoteToken && <QuoteTracking token={o.quoteToken}/>}
+              {/* Envoyer par email */}
+              {linkedProspect?.email && (()=>{
+                const defaultSubject = `Orçamento ${o.product||"Peça 3D"} — ${EMPRESA.nome}`;
+                const defaultBody = `Prezado(a)${linkedProspect.contact?` ${linkedProspect.contact.split(" ")[0]}`:""},\n\nSegue o orçamento para o seu projeto:\n\n${quoteLink}\n\n• Produto: ${o.product||"Peça 3D"}\n• Quantidade: ${o.qty||1}\n• Valor total: R$${orderTotal.toFixed(2)}\n• Ref.: ${o.id.toUpperCase()}\n\nEste orçamento é válido por 30 dias.\nVocê pode aceitar diretamente pelo link acima.\n\nQualquer dúvida, estamos à disposição.\n\nAtenciosamente,\nAnthony Donzel\n${EMPRESA.nome} · ${EMPRESA.tel}`;
+                return <QuoteEmailForm key={`${o.id}-${o.amount}-${o.qty}-${o.product}`} to={linkedProspect.email} defaultSubject={defaultSubject} defaultBody={defaultBody} projId={o.proj} onSend={sendGmail}
+                  onSent={()=>{updateOrder(o.id,{status:"Envoyé"});setDetailOrder(d=>({...d,status:"Envoyé"}));}}/>;
+              })()}
+            </>
+          )}
+        </div>
+      )}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {!isCmd && o.status==="Accepté"&&(
+          <button onClick={()=>{updateOrder(o.id,{type:"commande",status:"En attente"});setDetailOrder(d=>({...d,type:"commande",status:"En attente"}));celebrate();}}
+            style={{flex:1,padding:"9px",background:"linear-gradient(135deg,#22c55e,#16a34a)",border:"none",borderRadius:7,color:"white",fontSize:13,fontWeight:600,cursor:"pointer"}}>→ Passer en commande</button>
+        )}
+        {isCmd && <button onClick={printInvoice} style={{flex:1,padding:"9px",background:"#3b82f615",border:"1px solid #3b82f628",borderRadius:7,color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer"}}>🖨 Imprimer facture</button>}
+        {isCmd && <button onClick={exportCSV} style={{flex:1,padding:"9px",background:"#f59e0b15",border:"1px solid #f59e0b28",borderRadius:7,color:"#fbbf24",fontSize:12,fontWeight:600,cursor:"pointer"}}>📊 Export CSV</button>}
+        <button onClick={()=>setDetailOrder(null)} style={{flex:1,padding:"9px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:7,color:"#6b7280",fontSize:12,cursor:"pointer"}}>Fermer</button>
+      </div>
+    </ModalWrap>
+  );
+}
+
+function IdeasBox({ data, user, save }) {
+  const [text, setText] = useState("");
+  const [type, setType] = useState("idee"); // "idee" | "bug" | "amelioration"
+  const ideas = (data?.ideas || []).slice().reverse();
+
+  const addIdea = async () => {
+    if (!text.trim()) return;
+    const idea = { id: Date.now(), text: text.trim(), type, by: user, byLabel: USERS[user]?.label, at: Date.now(), status: "nouveau", votes: [] };
+    await save({ ...data, ideas: [...(data.ideas || []), idea] });
+    setText("");
+  };
+
+  const vote = async (id) => {
+    const nd = { ...data, ideas: (data.ideas || []).map(i => {
+      if (i.id !== id) return i;
+      const hasVoted = (i.votes || []).includes(user);
+      return { ...i, votes: hasVoted ? i.votes.filter(v => v !== user) : [...(i.votes || []), user] };
+    })};
+    await save(nd);
+  };
+
+  const setStatus = async (id, status) => {
+    await save({ ...data, ideas: (data.ideas || []).map(i => i.id === id ? { ...i, status } : i) });
+  };
+
+  const deleteIdea = async (id) => {
+    if (!confirm("Supprimer cette idée ?")) return;
+    await save({ ...data, ideas: (data.ideas || []).filter(i => i.id !== id) });
+  };
+
+  const typeConfig = { idee: { icon: "💡", label: "Idée", color: "#f59e0b" }, bug: { icon: "🐛", label: "Bug", color: "#ef4444" }, amelioration: { icon: "✨", label: "Amélioration", color: "#8b5cf6" } };
+  const statusConfig = { nouveau: { label: "Nouveau", color: "#3b82f6" }, enCours: { label: "En cours", color: "#f59e0b" }, fait: { label: "Fait", color: "#22c55e" }, rejete: { label: "Rejeté", color: "#6b7280" } };
+
+  return (
+    <div className="fade">
+      <p style={{fontSize:16,fontWeight:700,color:"#f1f5f9",marginBottom:14}}>💡 Boîte à idées</p>
+
+      {/* Formulaire */}
+      <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:10,padding:14,marginBottom:16}}>
+        <div style={{display:"flex",gap:6,marginBottom:8}}>
+          {Object.entries(typeConfig).map(([k, v]) => (
+            <button key={k} onClick={() => setType(k)} className="btn"
+              style={{padding:"5px 10px",borderRadius:6,fontSize:11,fontWeight:600,background:type===k?`${v.color}18`:"transparent",border:`1px solid ${type===k?`${v.color}28`:"#1a2035"}`,color:type===k?v.color:"#4b5563",cursor:"pointer"}}>
+              {v.icon} {v.label}
+            </button>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <input value={text} onChange={e => setText(e.target.value)} placeholder="Décris ton idée, bug ou amélioration..."
+            onKeyDown={e => { if (e.key === "Enter") addIdea(); }}
+            style={{flex:1,padding:"9px 12px",borderRadius:7,fontSize:12,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"}} />
+          <button onClick={addIdea} style={{padding:"9px 16px",borderRadius:7,fontSize:12,fontWeight:600,background:"linear-gradient(135deg,#8b5cf6,#6d28d9)",border:"none",color:"white",cursor:"pointer"}}>
+            Ajouter
+          </button>
+        </div>
+      </div>
+
+      {/* Liste */}
+      {ideas.length === 0
+        ? <p style={{textAlign:"center",color:"#374151",fontSize:12,padding:30}}>Aucune idée pour le moment. Sois le premier !</p>
+        : ideas.map(idea => {
+          const tc = typeConfig[idea.type] || typeConfig.idee;
+          const sc = statusConfig[idea.status] || statusConfig.nouveau;
+          const hasVoted = (idea.votes || []).includes(user);
+          return (
+            <div key={idea.id} style={{background:"#0b0d16",border:`1px solid ${tc.color}15`,borderRadius:10,padding:"12px 14px",marginBottom:8}}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                {/* Vote */}
+                <div style={{textAlign:"center",flexShrink:0}}>
+                  <button onClick={() => vote(idea.id)} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,padding:0,color:hasVoted?"#f59e0b":"#374151"}}>
+                    {hasVoted ? "▲" : "△"}
+                  </button>
+                  <p style={{fontSize:12,fontWeight:700,color:hasVoted?"#f59e0b":"#4b5563"}}>{(idea.votes || []).length}</p>
+                </div>
+                {/* Content */}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                    <span style={{fontSize:10,padding:"2px 7px",borderRadius:4,background:`${tc.color}15`,color:tc.color,fontWeight:600}}>{tc.icon} {tc.label}</span>
+                    <span style={{fontSize:10,padding:"2px 7px",borderRadius:4,background:`${sc.color}15`,color:sc.color,fontWeight:600}}>{sc.label}</span>
+                    <span style={{fontSize:10,color:"#94a3b8",marginLeft:"auto"}}>{ago(idea.at)}</span>
+                  </div>
+                  <p style={{fontSize:12,color:"#e2e8f0",lineHeight:1.5}}>{idea.text}</p>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6}}>
+                    <span style={{fontSize:10,color:USERS[idea.by]?.color||"#4b5563",fontWeight:600}}>{idea.byLabel || idea.by}</span>
+                    {/* Actions */}
+                    <div style={{marginLeft:"auto",display:"flex",gap:4}}>
+                      {Object.entries(statusConfig).map(([k, v]) => (
+                        <button key={k} onClick={() => setStatus(idea.id, k)}
+                          style={{fontSize:9,padding:"2px 6px",borderRadius:3,background:idea.status===k?`${v.color}20`:"transparent",border:`1px solid ${idea.status===k?`${v.color}30`:"transparent"}`,color:idea.status===k?v.color:"#374151",cursor:"pointer",fontWeight:600}}>
+                          {v.label}
+                        </button>
+                      ))}
+                      <button onClick={() => deleteIdea(idea.id)} style={{fontSize:9,padding:"2px 6px",borderRadius:3,background:"transparent",border:"none",color:"#374151",cursor:"pointer"}}>🗑</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      }
+    </div>
+  );
+}
+
+function ActivityLog({ data, projId, effectiveProjId, user, prospects, projOrders, P, accent }) {
+  const [showGlobal, setShowGlobal] = useState(false);
+  const [filterBy, setFilterBy] = useState("tous");
+
+  const allActivity = (data?.activity||[]).slice().reverse();
+  const projActivity = allActivity.filter(a=>a.proj===projId || a.proj===effectiveProjId);
+  const displayActs = showGlobal ? allActivity : projActivity;
+  const filtered = filterBy === "tous" ? displayActs
+    : filterBy === "system" ? displayActs.filter(a=>a.by==="system")
+    : displayActs.filter(a=>a.by===filterBy);
+
+  const formatDate = ts => {
+    if (!ts) return "–";
+    const d = new Date(ts);
+    return d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit"}) + " " + d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+  };
+  const getIcon = a => {
+    if (a.by==="system") {
+      if (a.action?.includes("accepté")||a.action?.includes("ACCEPTÉ")) return "✅";
+      if (a.action?.includes("ouvert")) return "👁";
+      return "📬";
+    }
+    if (a.action?.includes("ajouté")) return "➕";
+    if (a.action?.includes("supprimé")) return "🗑";
+    if (a.action?.includes("devis")||a.action?.includes("commande")) return "📋";
+    if (a.action?.includes("→")) return "🔄";
+    if (a.action?.includes("modifié")) return "✏️";
+    return "📌";
+  };
+  const getColor = a => {
+    if (a.by==="system") return a.action?.includes("accepté")?"#22c55e":"#3b82f6";
+    return USERS[a.by]?.color || "#6b7280";
+  };
+
+  return (
+    <div className="fade">
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:9,marginBottom:12}}>
+        {Object.entries(USERS).map(([uid,u])=>(
+          <div key={uid} style={{background:"#0b0d16",border:`1px solid ${u.color}15`,borderRadius:10,padding:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+              <div style={{width:24,height:24,borderRadius:"50%",background:`linear-gradient(135deg,${u.color}70,${u.color})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"white"}}>{u.avatar}</div>
+              <p style={{fontSize:11,fontWeight:600,color:"#f1f5f9"}}>{u.label} {user===uid&&<span style={{fontSize:9,color:"#4b5563"}}>(vous)</span>}</p>
+            </div>
+            {[{l:"Assignés",v:prospects.filter(p=>p.assignedTo===uid).length,c:u.color},{l:"Modifiés",v:prospects.filter(p=>p.lastEditBy===uid).length,c:"#f1f5f9"},{l:"Actions",v:allActivity.filter(a=>a.by===uid).length,c:"#f59e0b"}].map(r=>(
+              <div key={r.l} style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span style={{fontSize:10,color:"#4b5563"}}>{r.l}</span>
+                <span style={{fontSize:11,fontWeight:700,color:r.c}}>{r.v}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+        <button onClick={()=>setShowGlobal(s=>!s)} className="btn"
+          style={{padding:"4px 10px",borderRadius:5,fontSize:10,fontWeight:600,background:showGlobal?"#3b82f618":"#0b0d16",border:`1px solid ${showGlobal?"#3b82f628":"#1a2035"}`,color:showGlobal?"#60a5fa":"#4b5563",cursor:"pointer"}}>
+          {showGlobal?"🌐 Global":"📂 "+P.label}
+        </button>
+        <span style={{fontSize:10,color:"#1a2035"}}>|</span>
+        {[["tous","Tous"],["system","📬 Clients"],["anthony","Anthony"],["harold","Harold"],["jade","Jade"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setFilterBy(k)} className="btn"
+            style={{padding:"3px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:filterBy===k?`${k==="system"?"#22c55e":USERS[k]?.color||accent}18`:"transparent",border:`1px solid ${filterBy===k?`${k==="system"?"#22c55e":USERS[k]?.color||accent}28`:"transparent"}`,color:filterBy===k?(k==="system"?"#4ade80":USERS[k]?.color||accent):"#374151",cursor:"pointer"}}>
+            {l}
+          </button>
+        ))}
+        <span style={{fontSize:10,color:"#374151",marginLeft:"auto"}}>{filtered.length} événements</span>
+      </div>
+
+      <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:10,overflow:"hidden"}}>
+        <div style={{padding:"9px 14px",borderBottom:"1px solid #0d1020",display:"flex",alignItems:"center",gap:7}}>
+          <span className="pulse" style={{width:5,height:5,borderRadius:"50%",background:"#22c55e",display:"inline-block"}}/>
+          <p style={{fontSize:11,color:"#6b7280",fontWeight:600}}>Journal d'activité — {showGlobal?"Tous projets":P.label}</p>
+        </div>
+        {filtered.length===0
+          ? <div style={{padding:"30px",textAlign:"center",color:"#2d3748"}}><p style={{fontSize:12}}>Aucune activité.</p></div>
+          : filtered.map((a,i)=>{
+            const isSys = a.by==="system";
+            const icon = getIcon(a);
+            const color = getColor(a);
+            const projIcon = PROJECTS[a.proj]?.icon||"";
+            return(
+            <div key={a.id||i} style={{padding:"7px 14px",borderBottom:"1px solid #080a0f",display:"flex",alignItems:"center",gap:8,background:isSys?"#22c55e05":"transparent"}}
+              onMouseEnter={e=>e.currentTarget.style.background=isSys?"#22c55e0a":"#0f1520"}
+              onMouseLeave={e=>e.currentTarget.style.background=isSys?"#22c55e05":"transparent"}>
+              <span style={{fontSize:12,width:20,textAlign:"center",flexShrink:0}}>{icon}</span>
+              <div style={{width:18,height:18,borderRadius:"50%",background:isSys?"#22c55e":`linear-gradient(135deg,${color}70,${color})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,color:"white",flexShrink:0}}>
+                {isSys?"⚡":USERS[a.by]?.avatar||"?"}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
+                  {showGlobal&&<span style={{fontSize:10}}>{projIcon}</span>}
+                  <span style={{fontSize:11,color,fontWeight:600}}>{isSys?"Client":a.byLabel||a.by}</span>
+                  <span style={{fontSize:11,color:"#4b5563"}}>·</span>
+                  <span style={{fontSize:11,color:"#e2e8f0",fontWeight:500}}>{a.prospectName}</span>
+                </div>
+                <p style={{fontSize:11,color:isSys?"#86efac":"#6b7280",marginTop:1}}>{a.action}</p>
+              </div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <p style={{fontSize:9,color:"#94a3b8"}}>{formatDate(a.at)}</p>
+                <p style={{fontSize:9,color:"#6b7280"}}>{ago(a.at)}</p>
+              </div>
+            </div>
+          );})}
+      </div>
+    </div>
+  );
+}
+
+function QuoteTracking({ token }) {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from("amigo_data").select("value").eq("key", `quote_${token}`).single();
+        if (data?.value) setInfo(typeof data.value === "string" ? JSON.parse(data.value) : data.value);
+      } catch(_) {}
+    })();
+  }, [token]);
+  if (!info) return null;
+  const views = info.views || [];
+  const ago = ts => {
+    const s = Math.floor((Date.now()-ts)/1000);
+    if (s<60) return "à l'instant";
+    if (s<3600) return `il y a ${Math.floor(s/60)}min`;
+    if (s<86400) return `il y a ${Math.floor(s/3600)}h`;
+    return `il y a ${Math.floor(s/86400)}j`;
+  };
+  return (
+    <div style={{marginBottom:8,padding:"8px 10px",background:"#0b0d16",borderRadius:6,border:"1px solid #0f1520"}}>
+      <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{fontSize:10,color:info.status==="sent"?"#f59e0b":info.status==="viewed"?"#3b82f6":"#22c55e",fontWeight:700}}>
+          {info.status==="sent"?"📤 Envoyé":info.status==="viewed"?"👁 Ouvert par le client":"✅ Accepté"}
+        </span>
+        {views.length>0 && <span style={{fontSize:10,color:"#4b5563"}}>{views.length} vue{views.length>1?"s":""} · dernière {ago(views[views.length-1].at)}</span>}
+        {info.acceptedAt && <span style={{fontSize:10,color:"#4ade80",fontWeight:600}}>Accepté {ago(info.acceptedAt)}</span>}
+      </div>
+    </div>
+  );
+}
+
+function QuoteEmailForm({ to, defaultSubject, defaultBody, projId, onSend, onSent }) {
+  const [subject, setSubject] = useState(defaultSubject);
+  const [body, setBody]       = useState(defaultBody);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent]       = useState(false);
+  const [error, setError]     = useState("");
+  const [open, setOpen]       = useState(false);
+  const senderEmail = PROJECT_EMAIL[projId] || null;
+
+  const handleSend = async () => {
+    setSending(true); setError("");
+    const ok = await onSend({ to, subject, body, from: senderEmail });
+    setSending(false);
+    if (ok) { setSent(true); if (onSent) onSent(); }
+    else setError(senderEmail
+      ? `Échec envoi. L'alias "${senderEmail}" est-il configuré dans Gmail ?`
+      : "Échec envoi. Vérifie ta connexion Gmail.");
+  };
+
+  if (sent) return (
+    <div style={{background:"#22c55e10",border:"1px solid #22c55e25",borderRadius:8,padding:"12px 14px",marginBottom:14,textAlign:"center"}}>
+      <p style={{fontSize:12,color:"#4ade80",fontWeight:600}}>✓ Devis envoyé à {to}</p>
+      {senderEmail&&<p style={{fontSize:10,color:"#4b5563",marginTop:4}}>Envoyé depuis {senderEmail}</p>}
+    </div>
+  );
+
+  if (!open) return (
+    <div style={{marginBottom:14}}>
+      <button onClick={()=>setOpen(true)}
+        style={{width:"100%",padding:"9px",background:"#8b5cf615",border:"1px solid #8b5cf628",borderRadius:7,color:"#a78bfa",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+        ✉️ Envoyer le devis par email à {to}
+      </button>
+    </div>
+  );
+
+  return (
+    <div style={{background:"#080a0f",border:"1px solid #8b5cf620",borderRadius:8,padding:"12px 14px",marginBottom:14}}>
+      <p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:8}}>✉️ Envoyer devis par email</p>
+      <p style={{fontSize:11,color:"#6b7280",marginBottom:6}}>À : <strong style={{color:"#f1f5f9"}}>{to}</strong>{senderEmail&&<span> · depuis {senderEmail}</span>}</p>
+      <input value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Objet"
+        style={{width:"100%",padding:"6px 8px",borderRadius:6,fontSize:11,marginBottom:6,outline:"none",background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"}}/>
+      <textarea value={body} onChange={e=>setBody(e.target.value)} rows={8}
+        style={{width:"100%",padding:"7px 8px",borderRadius:6,fontSize:11,resize:"vertical",outline:"none",background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit",lineHeight:1.6}}/>
+      {error&&<p style={{fontSize:10,color:"#ef4444",marginTop:4}}>{error}</p>}
+      <div style={{display:"flex",gap:8,marginTop:8}}>
+        <button onClick={handleSend} disabled={sending}
+          style={{flex:1,padding:"8px",background:"linear-gradient(135deg,#8b5cf6,#6d28d9)",border:"none",borderRadius:6,color:"white",fontSize:12,fontWeight:600,cursor:sending?"default":"pointer",opacity:sending?0.6:1}}>
+          {sending?"Envoi…":"📩 Envoyer"}
+        </button>
+        <button onClick={()=>setOpen(false)}
+          style={{padding:"8px 14px",background:"#0b0d16",border:"1px solid #1a2035",borderRadius:6,color:"#4b5563",fontSize:11,cursor:"pointer"}}>Annuler</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Page publique devis (accessible sans auth) ──────────────────────────────
+function PublicQuotePage({ token }) {
+  const [quote, setQuote] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [accepted, setAccepted] = useState(false);
+  const [accepting, setAccepting] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error: err } = await supabase.from("amigo_data").select("value").eq("key", `quote_${token}`).single();
+        if (err || !data) { setError("Orçamento não encontrado."); setLoading(false); return; }
+        const q = typeof data.value === "string" ? JSON.parse(data.value) : data.value;
+        setQuote(q);
+        setAccepted(q.status === "accepted");
+        // Ne pas tracker les aperçus internes
+        const isPreview = window.location.href.includes("preview=1");
+        if (!isPreview) {
+          const view = { at: Date.now(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone };
+          const views = [...(q.views || []), view];
+          const updated = { ...q, views, status: q.status === "sent" ? "viewed" : q.status, viewedAt: q.viewedAt || Date.now() };
+          await supabase.from("amigo_data").upsert({ key: `quote_${token}`, value: JSON.stringify(updated), updated_at: new Date().toISOString() });
+          setQuote(updated);
+        }
+        // Notifier dans le CRM (ajouter à l'activité + notification email)
+        if (!isPreview && q.status === "sent") {
+          try {
+            const main = await supabase.from("amigo_data").select("value").eq("key", "amigo-v9").single();
+            if (main?.data?.value) {
+              const d = typeof main.data.value === "string" ? JSON.parse(main.data.value) : main.data.value;
+              d.activity = [...(d.activity || []).slice(-99), { id: Date.now(), by: "system", byLabel: "📬 Client", prospectName: q.prospectName, action: `a ouvert le devis ${q.product}`, at: Date.now(), proj: q.proj }];
+              d.pendingEmails = [...(d.pendingEmails||[]), { id: Date.now(), type: "quote_viewed", prospectName: q.prospectName, product: q.product, proj: q.proj, at: Date.now() }];
+              await supabase.from("amigo_data").upsert({ key: "amigo-v9", value: JSON.stringify(d), updated_at: new Date().toISOString() });
+            }
+          } catch(_) {}
+        }
+      } catch(e) { setError("Erro ao carregar."); }
+      setLoading(false);
+    })();
+  }, [token]);
+
+  const handleAccept = async () => {
+    if (!quote || accepted) return;
+    setAccepting(true);
+    try {
+      const updated = { ...quote, status: "accepted", acceptedAt: Date.now() };
+      await supabase.from("amigo_data").upsert({ key: `quote_${token}`, value: JSON.stringify(updated), updated_at: new Date().toISOString() });
+      // Mettre à jour le statut de la commande dans le CRM
+      try {
+        const main = await supabase.from("amigo_data").select("value").eq("key", "amigo-v9").single();
+        if (main?.data?.value) {
+          const d = typeof main.data.value === "string" ? JSON.parse(main.data.value) : main.data.value;
+          d.orders = (d.orders || []).map(o => o.id === quote.orderId ? { ...o, status: "Accepté" } : o);
+          d.activity = [...(d.activity || []).slice(-99), { id: Date.now(), by: "system", byLabel: "✅ Client", prospectName: quote.prospectName, action: `a ACCEPTÉ le devis ${quote.product}`, at: Date.now(), proj: quote.proj }];
+          d.pendingEmails = [...(d.pendingEmails||[]), { id: Date.now(), type: "quote_accepted", prospectName: quote.prospectName, product: quote.product, amount: quote.amount*(quote.qty||1), proj: quote.proj, at: Date.now() }];
+          await supabase.from("amigo_data").upsert({ key: "amigo-v9", value: JSON.stringify(d), updated_at: new Date().toISOString() });
+        }
+      } catch(_) {}
+      setQuote(updated);
+      setAccepted(true);
+    } catch(e) { console.error(e); }
+    setAccepting(false);
+  };
+
+  const total = quote ? quote.amount * (quote.qty || 1) : 0;
+  const has5050 = (quote?.payTerms||"").includes("50%");
+  const pixAmount = has5050 ? total * 0.5 : total;
+  const pixStr = accepted && pixAmount > 0 ? pixPayload(pixAmount, (quote.orderId || "AMIGO").slice(0, 25)) : "";
+  const pixQrUrl = pixStr ? `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(pixStr)}` : "";
+  const validUntil = quote?.validUntil;
+  const isExpired = validUntil && new Date(validUntil) < new Date();
+
+  if (loading) return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f8f9fa",fontFamily:"Inter,system-ui,sans-serif"}}>
+      <p style={{fontSize:16,color:"#6b7280"}}>Carregando orçamento...</p>
+    </div>
+  );
+
+  if (error) return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f8f9fa",fontFamily:"Inter,system-ui,sans-serif"}}>
+      <div style={{textAlign:"center"}}>
+        <p style={{fontSize:48,marginBottom:12}}>📋</p>
+        <p style={{fontSize:16,color:"#ef4444"}}>{error}</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{minHeight:"100vh",background:"#f8f9fa",fontFamily:"Inter,system-ui,sans-serif",padding:"20px"}}>
+      <div style={{maxWidth:600,margin:"0 auto",background:"white",borderRadius:16,boxShadow:"0 4px 24px rgba(0,0,0,.08)",overflow:"hidden"}}>
+        {/* En-tête entreprise */}
+        <div style={{background:"linear-gradient(135deg,#0f172a,#1e293b)",padding:"28px 32px",color:"white"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              <h1 style={{fontSize:22,fontWeight:700,margin:0}}>{EMPRESA.nome}</h1>
+              <p style={{fontSize:12,color:"#94a3b8",marginTop:4}}>Labo 3D · Impressão sob medida</p>
+              <p style={{fontSize:11,color:"#64748b",marginTop:2}}>CNPJ: {EMPRESA.cnpj} · {EMPRESA.email}</p>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <p style={{fontSize:11,color:"#94a3b8"}}>ORÇAMENTO</p>
+              <p style={{fontSize:14,fontWeight:700,color:"#38bdf8",fontFamily:"monospace"}}>#{quote.orderId?.toUpperCase()}</p>
+            </div>
+          </div>
+        </div>
+
+        <div style={{padding:"28px 32px"}}>
+          {/* Infos client */}
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:24,padding:"16px",background:"#f1f5f9",borderRadius:10}}>
+            <div>
+              <p style={{fontSize:10,color:"#64748b",textTransform:"uppercase",fontWeight:600,marginBottom:4}}>Cliente</p>
+              <p style={{fontSize:15,fontWeight:600,color:"#0f172a"}}>{quote.prospectName}</p>
+              {quote.prospectCnpj && <p style={{fontSize:11,color:"#64748b"}}>CNPJ: {quote.prospectCnpj}</p>}
+            </div>
+            <div style={{textAlign:"right"}}>
+              <p style={{fontSize:10,color:"#64748b",textTransform:"uppercase",fontWeight:600,marginBottom:4}}>Data</p>
+              <p style={{fontSize:13,color:"#0f172a"}}>{quote.date}</p>
+              {validUntil && <p style={{fontSize:11,color:isExpired?"#ef4444":"#64748b"}}>Válido até: {validUntil}</p>}
+            </div>
+          </div>
+
+          {/* Tableau des items */}
+          <table style={{width:"100%",borderCollapse:"collapse",marginBottom:20}}>
+            <thead>
+              <tr style={{borderBottom:"2px solid #e2e8f0"}}>
+                <th style={{textAlign:"left",padding:"10px 8px",fontSize:11,color:"#64748b",fontWeight:600,textTransform:"uppercase"}}>Descrição</th>
+                <th style={{textAlign:"center",padding:"10px 8px",fontSize:11,color:"#64748b",fontWeight:600}}>Qtd</th>
+                <th style={{textAlign:"right",padding:"10px 8px",fontSize:11,color:"#64748b",fontWeight:600}}>Valor unit.</th>
+                <th style={{textAlign:"right",padding:"10px 8px",fontSize:11,color:"#64748b",fontWeight:600}}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style={{borderBottom:"1px solid #f1f5f9"}}>
+                <td style={{padding:"12px 8px",fontSize:14,color:"#0f172a",fontWeight:500}}>{quote.product}</td>
+                <td style={{padding:"12px 8px",fontSize:14,color:"#0f172a",textAlign:"center"}}>{quote.qty || 1}</td>
+                <td style={{padding:"12px 8px",fontSize:14,color:"#0f172a",textAlign:"right"}}>R${quote.amount?.toFixed(2)}</td>
+                <td style={{padding:"12px 8px",fontSize:16,color:"#0f172a",fontWeight:700,textAlign:"right"}}>R${total.toFixed(2)}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          {/* Total */}
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:24}}>
+            <div style={{background:"#0f172a",borderRadius:10,padding:"14px 24px",textAlign:"right"}}>
+              <p style={{fontSize:11,color:"#94a3b8",marginBottom:2}}>TOTAL</p>
+              <p style={{fontSize:24,fontWeight:700,color:"#4ade80",margin:0}}>R$ {total.toFixed(2)}</p>
+            </div>
+          </div>
+
+          {/* Notes */}
+          {quote.notes && (
+            <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"12px 16px",marginBottom:20}}>
+              <p style={{fontSize:10,color:"#92400e",fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Observações</p>
+              <p style={{fontSize:12,color:"#78350f",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{quote.notes}</p>
+            </div>
+          )}
+
+          {/* Conditions de paiement */}
+          {quote.payTerms && (
+            <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"12px 16px",marginBottom:20}}>
+              <p style={{fontSize:10,color:"#1e40af",fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Condições de pagamento</p>
+              <p style={{fontSize:13,color:"#1e3a5f",fontWeight:500}}>{quote.payTerms}</p>
+            </div>
+          )}
+
+          {/* Statut */}
+          {isExpired && !accepted && (
+            <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:10,padding:"16px",textAlign:"center",marginBottom:20}}>
+              <p style={{fontSize:14,color:"#dc2626",fontWeight:600}}>⏰ Este orçamento expirou</p>
+              <p style={{fontSize:12,color:"#7f1d1d",marginTop:4}}>Entre em contato para solicitar um novo orçamento.</p>
+            </div>
+          )}
+
+          {accepted && (
+            <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:10,padding:"16px",textAlign:"center",marginBottom:20}}>
+              <p style={{fontSize:18,fontWeight:700,color:"#16a34a"}}>✅ Orçamento aceito!</p>
+              <p style={{fontSize:12,color:"#166534",marginTop:4}}>Obrigado pela confiança. Entraremos em contato em breve.</p>
+            </div>
+          )}
+
+          {/* Bouton accepter */}
+          {!accepted && !isExpired && (
+            <button onClick={handleAccept} disabled={accepting}
+              style={{width:"100%",padding:"16px",background:"linear-gradient(135deg,#16a34a,#22c55e)",border:"none",borderRadius:10,color:"white",fontSize:16,fontWeight:700,cursor:accepting?"default":"pointer",opacity:accepting?0.7:1,marginBottom:20,boxShadow:"0 4px 12px rgba(34,197,94,.3)"}}>
+              {accepting ? "Processando..." : "✅ Aceitar orçamento"}
+            </button>
+          )}
+
+          {/* PIX après acceptation */}
+          {accepted && pixQrUrl && (
+            <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:12,padding:"24px",textAlign:"center",marginBottom:20}}>
+              <p style={{fontSize:14,fontWeight:700,color:"#16a34a",marginBottom:12}}>Pagamento via PIX{has5050?" — 1ª parcela":""}</p>
+              <img src={pixQrUrl} alt="QR PIX" style={{width:200,height:200,borderRadius:8,border:"4px solid white",boxShadow:"0 2px 8px rgba(0,0,0,.1)"}}/>
+              <p style={{fontSize:12,color:"#166534",marginTop:10}}>Chave PIX (CNPJ): <strong>{EMPRESA.cnpj}</strong></p>
+              <p style={{fontSize:22,fontWeight:700,color:"#16a34a",marginTop:6}}>R$ {pixAmount.toFixed(2)}</p>
+              {has5050&&<p style={{fontSize:12,color:"#166534",marginTop:4}}>50% agora · 50% na entrega (R${(total*0.5).toFixed(2)} + R${(total*0.5).toFixed(2)})</p>}
+              {has5050&&<p style={{fontSize:11,color:"#64748b",marginTop:2}}>Total do orçamento: R${total.toFixed(2)}</p>}
+              <button onClick={()=>navigator.clipboard.writeText(pixStr)}
+                style={{marginTop:12,padding:"8px 20px",background:"#16a34a",border:"none",borderRadius:6,color:"white",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                📋 Copiar código PIX
+              </button>
+            </div>
+          )}
+
+          {/* Footer */}
+          <div style={{borderTop:"1px solid #e2e8f0",paddingTop:16,textAlign:"center"}}>
+            <p style={{fontSize:11,color:"#94a3b8"}}>{EMPRESA.nome} · CNPJ {EMPRESA.cnpj} · {EMPRESA.cidade}</p>
+            <p style={{fontSize:11,color:"#94a3b8"}}>{EMPRESA.tel} · {EMPRESA.email}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Page publique devis GROUPÉ ───────────────────────────────────────────────
+function PublicGroupQuotePage({ token }) {
+  const [quote, setQuote] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [acceptedItems, setAcceptedItems] = useState([]);
+  const [accepting, setAccepting] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error: err } = await supabase.from("amigo_data").select("value").eq("key", `gquote_${token}`).single();
+        if (err || !data) { setError("Orçamentos não encontrados."); setLoading(false); return; }
+        const q = typeof data.value === "string" ? JSON.parse(data.value) : data.value;
+        setQuote(q);
+        setAcceptedItems(q.acceptedItems || []);
+        // Tracker la vue
+        const isPreview = window.location.href.includes("preview=1");
+        if (!isPreview) {
+          const view = { at: Date.now(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone };
+          const updated = { ...q, views: [...(q.views||[]), view], status: q.status === "sent" ? "viewed" : q.status, viewedAt: q.viewedAt || Date.now() };
+          await supabase.from("amigo_data").upsert({ key: `gquote_${token}`, value: JSON.stringify(updated), updated_at: new Date().toISOString() });
+          setQuote(updated);
+          if (q.status === "sent") {
+            try {
+              const main = await supabase.from("amigo_data").select("value").eq("key", "amigo-v9").single();
+              if (main?.data?.value) {
+                const d = typeof main.data.value === "string" ? JSON.parse(main.data.value) : main.data.value;
+                d.activity = [...(d.activity||[]).slice(-99), { id: Date.now(), by: "system", byLabel: "📬 Client", prospectName: q.prospectName, action: `a ouvert les ${q.items?.length||0} devis`, at: Date.now(), proj: "print3d" }];
+                d.pendingEmails = [...(d.pendingEmails||[]), { id: Date.now(), type: "quote_viewed", prospectName: q.prospectName, product: `${q.items?.length||0} devis`, proj: "print3d", at: Date.now() }];
+                await supabase.from("amigo_data").upsert({ key: "amigo-v9", value: JSON.stringify(d), updated_at: new Date().toISOString() });
+              }
+            } catch(_) {}
+          }
+        }
+      } catch(e) { setError("Erro ao carregar."); }
+      setLoading(false);
+    })();
+  }, [token]);
+
+  const handleAcceptItem = async (orderId) => {
+    if (!quote || acceptedItems.includes(orderId)) return;
+    setAccepting(orderId);
+    try {
+      const newAccepted = [...acceptedItems, orderId];
+      const allAccepted = newAccepted.length === (quote.items||[]).length;
+      const updated = { ...quote, acceptedItems: newAccepted, status: allAccepted ? "accepted" : "partial", [`accepted_${orderId}_at`]: Date.now() };
+      await supabase.from("amigo_data").upsert({ key: `gquote_${token}`, value: JSON.stringify(updated), updated_at: new Date().toISOString() });
+      // Mettre à jour le statut dans le CRM
+      try {
+        const main = await supabase.from("amigo_data").select("value").eq("key", "amigo-v9").single();
+        if (main?.data?.value) {
+          const d = typeof main.data.value === "string" ? JSON.parse(main.data.value) : main.data.value;
+          const item = (quote.items||[]).find(i => i.orderId === orderId);
+          d.orders = (d.orders||[]).map(o => o.id === orderId ? { ...o, status: "Accepté" } : o);
+          d.activity = [...(d.activity||[]).slice(-99), { id: Date.now(), by: "system", byLabel: "✅ Client", prospectName: quote.prospectName, action: `a accepté le devis "${item?.product||"?"}"${allAccepted?" — TOUS acceptés":""}`, at: Date.now(), proj: "print3d" }];
+          d.pendingEmails = [...(d.pendingEmails||[]), { id: Date.now(), type: allAccepted?"all_accepted":"quote_accepted", prospectName: quote.prospectName, product: item?.product||"?", amount: item?item.amount*(item.qty||1):0, proj: "print3d", at: Date.now() }];
+          await supabase.from("amigo_data").upsert({ key: "amigo-v9", value: JSON.stringify(d), updated_at: new Date().toISOString() });
+        }
+      } catch(_) {}
+      setAcceptedItems(newAccepted);
+      setQuote(updated);
+    } catch(e) { console.error(e); }
+    setAccepting(null);
+  };
+
+  if (loading) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f8f9fa",fontFamily:"Inter,system-ui,sans-serif"}}><p style={{fontSize:16,color:"#6b7280"}}>Carregando orçamentos...</p></div>;
+  if (error) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f8f9fa",fontFamily:"Inter,system-ui,sans-serif"}}><p style={{fontSize:16,color:"#ef4444"}}>{error}</p></div>;
+
+  const items = quote.items || [];
+  const grandTotal = items.reduce((s, i) => s + i.amount * (i.qty || 1), 0);
+  const acceptedTotal = items.filter(i => acceptedItems.includes(i.orderId)).reduce((s, i) => s + i.amount * (i.qty || 1), 0);
+  const allAccepted = acceptedItems.length === items.length;
+  const validUntil = quote.validUntil;
+  const isExpired = validUntil && new Date(validUntil) < new Date();
+  const gHas5050 = (quote?.payTerms||"").includes("50%");
+  const gPixAmount = gHas5050 ? grandTotal * 0.5 : grandTotal;
+  const pixStr = allAccepted && gPixAmount > 0 ? pixPayload(gPixAmount, token.slice(0, 25)) : "";
+  const pixQrUrl = pixStr ? `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(pixStr)}` : "";
+
+  return (
+    <div style={{minHeight:"100vh",background:"#f8f9fa",fontFamily:"Inter,system-ui,sans-serif",padding:"20px"}}>
+      <div style={{maxWidth:650,margin:"0 auto",background:"white",borderRadius:16,boxShadow:"0 4px 24px rgba(0,0,0,.08)",overflow:"hidden"}}>
+        <div style={{background:"linear-gradient(135deg,#0f172a,#1e293b)",padding:"28px 32px",color:"white"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              <h1 style={{fontSize:22,fontWeight:700,margin:0}}>{EMPRESA.nome}</h1>
+              <p style={{fontSize:12,color:"#94a3b8",marginTop:4}}>Labo 3D · Impressão sob medida</p>
+              <p style={{fontSize:11,color:"#64748b",marginTop:2}}>CNPJ: {EMPRESA.cnpj} · {EMPRESA.email}</p>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <p style={{fontSize:11,color:"#94a3b8"}}>ORÇAMENTOS</p>
+              <p style={{fontSize:13,fontWeight:600,color:"#38bdf8"}}>{items.length} ite{items.length>1?"ns":"m"}</p>
+            </div>
+          </div>
+        </div>
+
+        <div style={{padding:"28px 32px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:20,padding:"14px 16px",background:"#f1f5f9",borderRadius:10}}>
+            <div>
+              <p style={{fontSize:10,color:"#64748b",textTransform:"uppercase",fontWeight:600,marginBottom:4}}>Cliente</p>
+              <p style={{fontSize:15,fontWeight:600,color:"#0f172a"}}>{quote.prospectName}</p>
+              {quote.prospectCnpj && <p style={{fontSize:11,color:"#64748b"}}>CNPJ: {quote.prospectCnpj}</p>}
+            </div>
+            <div style={{textAlign:"right"}}>
+              <p style={{fontSize:10,color:"#64748b",textTransform:"uppercase",fontWeight:600,marginBottom:4}}>Data</p>
+              <p style={{fontSize:13,color:"#0f172a"}}>{quote.date}</p>
+              {validUntil && <p style={{fontSize:11,color:isExpired?"#ef4444":"#64748b"}}>Válido até: {validUntil}</p>}
+            </div>
+          </div>
+
+          {/* Liste des items */}
+          {items.map((item, idx) => {
+            const total = item.amount * (item.qty || 1);
+            const isAccepted = acceptedItems.includes(item.orderId);
+            return (
+              <div key={item.orderId} style={{border:`1px solid ${isAccepted?"#bbf7d0":"#e2e8f0"}`,borderRadius:10,padding:"16px",marginBottom:12,background:isAccepted?"#f0fdf4":"white",transition:"all .2s"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                  <div>
+                    <p style={{fontSize:10,color:"#64748b",fontWeight:600}}>ITEM {idx+1}</p>
+                    <p style={{fontSize:15,fontWeight:600,color:"#0f172a"}}>{item.product}</p>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <p style={{fontSize:18,fontWeight:700,color:isAccepted?"#16a34a":"#0f172a"}}>R$ {total.toFixed(2)}</p>
+                    <p style={{fontSize:11,color:"#64748b"}}>{item.qty||1}x · R${item.amount?.toFixed(2)}/un.</p>
+                  </div>
+                </div>
+                {item.notes && <p style={{fontSize:11,color:"#64748b",lineHeight:1.5,marginBottom:8,whiteSpace:"pre-wrap"}}>{item.notes}</p>}
+                {isAccepted
+                  ? <p style={{fontSize:13,color:"#16a34a",fontWeight:600,textAlign:"center"}}>✅ Aceito</p>
+                  : !isExpired && (
+                    <button onClick={()=>handleAcceptItem(item.orderId)} disabled={accepting===item.orderId}
+                      style={{width:"100%",padding:"10px",background:"linear-gradient(135deg,#16a34a,#22c55e)",border:"none",borderRadius:8,color:"white",fontSize:13,fontWeight:600,cursor:accepting===item.orderId?"default":"pointer",opacity:accepting===item.orderId?0.7:1}}>
+                      {accepting===item.orderId ? "Processando..." : "✅ Aceitar este item"}
+                    </button>
+                  )
+                }
+              </div>
+            );
+          })}
+
+          {/* Total */}
+          <div style={{display:"flex",justifyContent:"flex-end",gap:16,marginBottom:20}}>
+            {acceptedItems.length > 0 && acceptedItems.length < items.length && (
+              <div style={{background:"#eff6ff",borderRadius:10,padding:"12px 20px",textAlign:"right"}}>
+                <p style={{fontSize:10,color:"#3b82f6"}}>ACEITO</p>
+                <p style={{fontSize:18,fontWeight:700,color:"#3b82f6"}}>R$ {acceptedTotal.toFixed(2)}</p>
+              </div>
+            )}
+            <div style={{background:"#0f172a",borderRadius:10,padding:"12px 20px",textAlign:"right"}}>
+              <p style={{fontSize:10,color:"#94a3b8"}}>TOTAL</p>
+              <p style={{fontSize:22,fontWeight:700,color:"#4ade80"}}>R$ {grandTotal.toFixed(2)}</p>
+            </div>
+          </div>
+
+          {/* Conditions de paiement */}
+          {quote.payTerms && (
+            <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"12px 16px",marginBottom:20}}>
+              <p style={{fontSize:10,color:"#1e40af",fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Condições de pagamento</p>
+              <p style={{fontSize:13,color:"#1e3a5f",fontWeight:500}}>{quote.payTerms}</p>
+            </div>
+          )}
+
+          {isExpired && !allAccepted && (
+            <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:10,padding:"16px",textAlign:"center",marginBottom:20}}>
+              <p style={{fontSize:14,color:"#dc2626",fontWeight:600}}>⏰ Estes orçamentos expiraram</p>
+            </div>
+          )}
+
+          {allAccepted && (
+            <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:10,padding:"16px",textAlign:"center",marginBottom:20}}>
+              <p style={{fontSize:18,fontWeight:700,color:"#16a34a"}}>✅ Todos os orçamentos aceitos!</p>
+              <p style={{fontSize:12,color:"#166534",marginTop:4}}>Obrigado pela confiança.</p>
+            </div>
+          )}
+
+          {/* PIX après tout accepté */}
+          {allAccepted && pixQrUrl && (
+            <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:12,padding:"24px",textAlign:"center",marginBottom:20}}>
+              <p style={{fontSize:14,fontWeight:700,color:"#16a34a",marginBottom:12}}>Pagamento via PIX{gHas5050?" — 1ª parcela":""}</p>
+              <img src={pixQrUrl} alt="QR PIX" style={{width:200,height:200,borderRadius:8,border:"4px solid white",boxShadow:"0 2px 8px rgba(0,0,0,.1)"}}/>
+              <p style={{fontSize:12,color:"#166534",marginTop:10}}>Chave PIX (CNPJ): <strong>{EMPRESA.cnpj}</strong></p>
+              <p style={{fontSize:22,fontWeight:700,color:"#16a34a",marginTop:6}}>R$ {gPixAmount.toFixed(2)}</p>
+              {gHas5050&&<p style={{fontSize:12,color:"#166534",marginTop:4}}>50% agora · 50% na entrega (R${(grandTotal*0.5).toFixed(2)} + R${(grandTotal*0.5).toFixed(2)})</p>}
+              {gHas5050&&<p style={{fontSize:11,color:"#64748b",marginTop:2}}>Total: R${grandTotal.toFixed(2)}</p>}
+              <button onClick={()=>navigator.clipboard.writeText(pixStr)} style={{marginTop:12,padding:"8px 20px",background:"#16a34a",border:"none",borderRadius:6,color:"white",fontSize:12,fontWeight:600,cursor:"pointer"}}>📋 Copiar código PIX</button>
+            </div>
+          )}
+
+          <div style={{borderTop:"1px solid #e2e8f0",paddingTop:16,textAlign:"center"}}>
+            <p style={{fontSize:11,color:"#94a3b8"}}>{EMPRESA.nome} · CNPJ {EMPRESA.cnpj} · {EMPRESA.cidade}</p>
+            <p style={{fontSize:11,color:"#94a3b8"}}>{EMPRESA.tel} · {EMPRESA.email}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AmigoCRM() {
+  // Routes publiques devis — pas besoin d'auth
+  const hashMatch = window.location.hash.match(/^#\/quote\/([^?]+)/);
+  if (hashMatch) return <PublicQuotePage token={hashMatch[1]} />;
+  const groupMatch = window.location.hash.match(/^#\/quotes\/([^?]+)/);
+  if (groupMatch) return <PublicGroupQuotePage token={groupMatch[1]} />;
+
   const [authUser, setAuthUser] = useState(null); // session Google
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError]   = useState("");
   const [user,    setUser]    = useState(null);
-  const [projId,  setProjId]  = useState("makeup");
+  const [projId,  setProjIdRaw]  = useState(()=>localStorage.getItem("amigo-proj")||"makeup");
+  const setProjId = useCallback((v) => { setProjIdRaw(v); localStorage.setItem("amigo-proj", v); }, []);
   const [vinSubType, setVinSubType] = useState("vin");
   const [vinFilter, setVinFilter] = useState("tous"); // "tous" | "fournisseurs" | "clients"
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastSync,setLastSync]= useState(null);
   const [notif,   setNotif]   = useState(null);
-  const [view,    setView]    = useState("kanban");
+  const [view,    setViewRaw]    = useState(()=>localStorage.getItem("amigo-view")||"dashboard");
   const [theme,   setTheme]   = useState(()=>localStorage.getItem("amigo-theme")||"dark");
 
   const THEMES = {
@@ -2009,11 +3249,30 @@ export default function AmigoCRM() {
 
   const switchTheme = (t) => { setTheme(t); localStorage.setItem("amigo-theme",t); };
 
+  // Navigation avec historique navigateur (bouton retour)
+  const setView = useCallback((v) => {
+    setViewRaw(v);
+    localStorage.setItem("amigo-view", v);
+    try { window.history.pushState({ view: v, proj: projId }, ""); } catch(_) {}
+  }, [projId]);
+
+  useEffect(() => {
+    const onPop = (e) => {
+      if (e.state?.view) {
+        setViewRaw(e.state.view);
+        localStorage.setItem("amigo-view", e.state.view);
+        if (e.state.proj) { setProjIdRaw(e.state.proj); localStorage.setItem("amigo-proj", e.state.proj); }
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   const [showAddProspect, setShowAddProspect] = useState(false);
   const [showAddOrder,    setShowAddOrder]    = useState(undefined);
   const [showCalculateur, setShowCalculateur] = useState(false);
   const [detailOrder,     setDetailOrder]     = useState(null);
-  const [sortMode,        setSortMode]        = useState("alpha"); // "alpha" | "recent"
+  const [sortMode,        setSortMode]        = useState(()=>localStorage.getItem("amigo-sort")||"alpha");
   const [detailProspect,  setDetailProspect]  = useState(null);
   const [showAddEvent,    setShowAddEvent]    = useState(null);
   const [searchQuery,     setSearchQuery]     = useState("");
@@ -2078,8 +3337,13 @@ export default function AmigoCRM() {
 
   // ── Google API helpers ────────────────────────────────────────────────────
   const getGToken = async () => {
-    const { data } = await supabase.auth.getSession();
-    return data?.session?.provider_token || null;
+    let { data } = await supabase.auth.getSession();
+    if (data?.session?.provider_token) return data.session.provider_token;
+    // Token expiré — tenter un refresh
+    const { data: refreshed, error } = await supabase.auth.refreshSession();
+    if (!error && refreshed?.session?.provider_token) return refreshed.session.provider_token;
+    // Pas de redirect automatique — retourner null, l'utilisateur devra se reconnecter manuellement
+    return null;
   };
 
   const [calEvents,    setCalEvents]    = useState([]);
@@ -2368,7 +3632,10 @@ export default function AmigoCRM() {
         const nd = {...data, prospectEmails: newProspectEmails};
         savingRef.current = true;
         setData({...nd});
-        try { await storage.set(KEY, JSON.stringify(nd)); setLastSync(Date.now()); }
+        try {
+          await storage.set(KEY, JSON.stringify(nd)); setLastSync(Date.now());
+          const ts = await storage.getTimestamp(KEY); if (ts) lastRemoteTs.current = ts;
+        }
         catch(e) { console.error(e); }
         finally { setTimeout(()=>{ savingRef.current = false; }, 6000); }
       }
@@ -2447,9 +3714,16 @@ export default function AmigoCRM() {
     reader.readAsArrayBuffer(file);
   };
 
-  const load = useCallback(async () => {
+  const lastRemoteTs = useRef(null);
+
+  const load = useCallback(async (force = false) => {
     if (savingRef.current || scanningRef.current) return; // Ne pas écraser pendant un save ou scan
     try {
+      // Polling intelligent : vérifier updated_at avant de télécharger le blob
+      if (!force && lastRemoteTs.current) {
+        const ts = await storage.getTimestamp(KEY);
+        if (ts && ts === lastRemoteTs.current) return; // Pas de changement, on skip
+      }
       const r = await storage.get(KEY);
       const d = r ? JSON.parse(r.value) : {...INIT_DATA};
       if (!d.print3d)       d.print3d       = [];
@@ -2459,8 +3733,26 @@ export default function AmigoCRM() {
       if (!d.activity)      d.activity      = [];
       if (!d.filamentStock) d.filamentStock = INIT_DATA.filamentStock;
       if (!d.sharedTokens)  d.sharedTokens  = {};
+      // Nettoyer les body emails stockés pour réduire la taille du blob
+      if (d.prospectEmails && force) {
+        let cleaned = false;
+        for (const pid of Object.keys(d.prospectEmails)) {
+          d.prospectEmails[pid] = d.prospectEmails[pid].map(e => {
+            if (e.body) { cleaned = true; const {body, ...rest} = e; return rest; }
+            return e;
+          });
+        }
+        if (cleaned) await storage.set(KEY, JSON.stringify(d));
+      }
+      // Mettre à jour le timestamp distant connu
+      const ts = await storage.getTimestamp(KEY);
+      if (ts) lastRemoteTs.current = ts;
       // NE PAS toucher gmailThreads ici — géré uniquement par scanGmail et loadInitialThreads
-      setData(d);
+      // Ne re-rendre que si les données ont changé (évite de casser les modales en édition)
+      setData(prev => {
+        if (prev && JSON.stringify(prev) === JSON.stringify(d)) return prev;
+        return d;
+      });
       setLastSync(Date.now());
     } catch { setData({...INIT_DATA}); }
     finally { setLoading(false); }
@@ -2470,6 +3762,9 @@ export default function AmigoCRM() {
     savingRef.current = true;
     try {
       await storage.set(KEY, JSON.stringify(d));
+      // Mémoriser le timestamp pour éviter de re-télécharger au prochain poll
+      const ts = await storage.getTimestamp(KEY);
+      if (ts) lastRemoteTs.current = ts;
       setData({...d});
       setLastSync(Date.now());
     } catch(e){console.error(e);}
@@ -2479,7 +3774,7 @@ export default function AmigoCRM() {
   useEffect(() => {
     // Premier chargement : charger data + threads depuis Supabase
     (async () => {
-      await load();
+      await load(true);
       // Charger les threads sauvés après le premier load
       try {
         const r = await storage.get(KEY);
@@ -2490,8 +3785,27 @@ export default function AmigoCRM() {
         }
       } catch(_){}
     })();
-    pollRef.current=setInterval(load,8000);
-    return()=>clearInterval(pollRef.current);
+
+    // Supabase Realtime — mises à jour instantanées
+    const channel = supabase.channel("amigo-sync")
+      .on("postgres_changes",
+        { event: "UPDATE", schema: "public", table: "amigo_data", filter: `key=eq.${KEY}` },
+        () => {
+          // Changement détecté → recharger (sauf si on est en train de sauver/scanner)
+          if (!savingRef.current && !scanningRef.current) load();
+        }
+      )
+      .subscribe((status) => {
+        console.log("Realtime:", status);
+      });
+
+    // Poll de secours (15s) — sera remplacé par Realtime quand activé côté Supabase
+    pollRef.current = setInterval(load, 15000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(pollRef.current);
+    };
   }, [load]);
 
   // Sync statuts depuis emails déjà sauvegardés — sans rescanner Gmail
@@ -2531,17 +3845,90 @@ export default function AmigoCRM() {
 
   // Scan uniquement via le bouton Scanner — pas d'auto-scan
 
+  // Demander la permission pour les notifications navigateur
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Alerte relances au chargement
+  // Envoyer les notifications email en attente (déposées par les pages publiques de devis)
+  const emailProcessing = useRef(false);
+  useEffect(() => {
+    if (!data || !user || emailProcessing.current) return;
+    const pending = data.pendingEmails || [];
+    if (pending.length === 0) return;
+    emailProcessing.current = true;
+    (async () => {
+      try {
+        const token = await getGToken();
+        if (!token) { emailProcessing.current = false; return; }
+        const dest = "anthony.donzel@gmail.com";
+        for (const pe of pending) {
+          const subj = pe.type === "quote_accepted"
+            ? `✅ DEVIS ACCEPTÉ — ${pe.prospectName} · ${pe.product}`
+            : pe.type === "all_accepted"
+            ? `🎉 TOUS LES DEVIS ACCEPTÉS — ${pe.prospectName}`
+            : `👁 Devis consulté — ${pe.prospectName} · ${pe.product}`;
+          const body = pe.type === "quote_accepted"
+            ? `Le client ${pe.prospectName} a ACCEPTÉ le devis "${pe.product}" pour R$${(pe.amount||0).toFixed(2)}.\n\nConnecte-toi à Amigo pour voir les détails et le QR PIX.\nhttps://amigo-crm-gamma.vercel.app`
+            : pe.type === "all_accepted"
+            ? `🎉 ${pe.prospectName} a accepté TOUS les devis !\n\nConnecte-toi à Amigo pour voir les détails.\nhttps://amigo-crm-gamma.vercel.app`
+            : `Le client ${pe.prospectName} vient d'ouvrir le devis "${pe.product}".\n\nConnecte-toi à Amigo pour suivre.\nhttps://amigo-crm-gamma.vercel.app`;
+          await sendGmail({ to: dest, subject: subj, body });
+        }
+        // Vider la file
+        const freshRaw = await storage.get(KEY);
+        const fresh = freshRaw ? JSON.parse(freshRaw.value) : data;
+        fresh.pendingEmails = [];
+        await storage.set(KEY, JSON.stringify(fresh));
+        const ts = await storage.getTimestamp(KEY); if (ts) lastRemoteTs.current = ts;
+        setData(prev => ({...prev, pendingEmails: []}));
+      } catch(e) { console.error("Email notif error:", e); }
+      emailProcessing.current = false;
+    })();
+  }, [data?.pendingEmails?.length]);
+
+  const relanceChecked = useRef(false);
+  useEffect(() => {
+    if (!data || !user || relanceChecked.current) return;
+    relanceChecked.current = true;
+    const pendingQuotes = (data.orders||[]).filter(o=>o.type==="devis"&&o.status==="Envoyé"&&o.createdAt&&(Date.now()-o.createdAt)>3*86400000);
+    if (pendingQuotes.length > 0) {
+      setTimeout(() => {
+        setNotif({id:Date.now(),by:"system",byLabel:"🔔 Relances",prospectName:`${pendingQuotes.length} devis`,action:`sans réponse depuis 3j+`});
+        setTimeout(()=>setNotif(null),8000);
+      }, 2000);
+    }
+  }, [data, user]);
+
   useEffect(() => {
     if (!data||!user) return;
     const acts=data.activity||[];
     if (prevLen.current>0&&acts.length>prevLen.current) {
       const l=acts[acts.length-1];
-      if (l.by!==user){setNotif(l);setTimeout(()=>setNotif(null),5000);}
+      if (l.by!==user){
+        setNotif(l);setTimeout(()=>setNotif(null),8000);
+        // Notification navigateur (même si onglet en arrière-plan)
+        if ("Notification" in window && Notification.permission === "granted") {
+          const isQuote = l.by === "system";
+          const n = new Notification(
+            isQuote ? "📋 Devis — Amigo CRM" : "Amigo CRM",
+            { body: `${l.prospectName} ${l.action}`, icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>", tag: `amigo-${l.id}` }
+          );
+          n.onclick = () => { window.focus(); n.close(); };
+        }
+        // Son d'alerte pour les événements devis
+        if (l.by === "system") {
+          try { const ctx = new AudioContext(); const osc = ctx.createOscillator(); const g = ctx.createGain(); osc.connect(g); g.connect(ctx.destination); osc.frequency.value = 880; g.gain.value = 0.1; osc.start(); osc.stop(ctx.currentTime + 0.15); setTimeout(()=>{const o2=ctx.createOscillator();const g2=ctx.createGain();o2.connect(g2);g2.connect(ctx.destination);o2.frequency.value=1100;g2.gain.value=0.1;o2.start();o2.stop(ctx.currentTime+0.15);},180); } catch(_){}
+        }
+      }
     }
     prevLen.current=acts.length;
   }, [data, user]);
 
-  const addAct = (d, by, name, action) => ({...d, activity:[...(d.activity||[]).slice(-29),{id:Date.now(),by,byLabel:USERS[by]?.label,prospectName:name,action,at:Date.now(),proj:projId}]});
+  const addAct = (d, by, name, action) => ({...d, activity:[...(d.activity||[]).slice(-99),{id:Date.now(),by,byLabel:USERS[by]?.label,prospectName:name,action,at:Date.now(),proj:projId}]});
 
   const updateProspect = async (pid, fields) => {
     if (!data||!user) return;
@@ -2549,14 +3936,27 @@ export default function AmigoCRM() {
     const srcKey = data[effectiveProjId]?.find(x=>x.id===pid) ? effectiveProjId
       : Object.keys(data).find(k=>Array.isArray(data[k])&&data[k].find(x=>x.id===pid)) || effectiveProjId;
     const p = (data[srcKey]||[]).find(x=>x.id===pid);
-    const upd = {...fields, lastEditBy:user, lastEditAt:Date.now()};
+    // Historique des modifications
+    const changes = [];
+    if (p) Object.keys(fields).forEach(k => {
+      const oldVal = p[k], newVal = fields[k];
+      if (oldVal !== newVal && k !== "lastEditBy" && k !== "lastEditAt") {
+        const label = {name:"Nom",status:"Statut",email:"Email",phone:"Tél",contact:"Contact",geo:"Localisation",note:"Note",assignedTo:"Assigné",cnpj:"CNPJ",tags:"Tags"}[k] || k;
+        changes.push(`${label}: ${oldVal||"–"} → ${newVal||"–"}`);
+      }
+    });
+    const historyEntry = { at: Date.now(), by: user, byLabel: USERS[user]?.label, changes };
+    const upd = {...fields, lastEditBy:user, lastEditAt:Date.now(), history:[...(p?.history||[]).slice(-49), historyEntry]};
     let nd = {...data, [srcKey]:(data[srcKey]||[]).map(x=>x.id===pid?{...x,...upd}:x)};
-    nd = addAct(nd, user, p?.name, fields.status?`→ ${fields.status}`:"modifié");
+    nd = addAct(nd, user, p?.name, fields.status?`→ ${fields.status}`:changes.length?changes[0]:"modifié");
     setDetailProspect(s=>s?.id===pid?{...s,...upd}:s);
     setData({...nd}); // UI se met à jour instantanément
     // Save en arrière-plan
     savingRef.current = true;
-    try { await storage.set(KEY, JSON.stringify(nd)); setLastSync(Date.now()); }
+    try {
+      await storage.set(KEY, JSON.stringify(nd)); setLastSync(Date.now());
+      const ts = await storage.getTimestamp(KEY); if (ts) lastRemoteTs.current = ts;
+    }
     catch(e) { console.error(e); }
     finally { setTimeout(()=>{ savingRef.current = false; }, 6000); }
   };
@@ -2573,11 +3973,24 @@ export default function AmigoCRM() {
     setDetailProspect(p);
   };
 
+  const deleteProspect = async (pid) => {
+    if (!data||!user) return;
+    const srcKey = ["makeup","vin","vinClients","print3d"].find(k=>(data[k]||[]).some(p=>p.id===pid)) || effectiveProjId;
+    const p = (data[srcKey]||[]).find(x=>x.id===pid);
+    let nd = {...data, [srcKey]:(data[srcKey]||[]).filter(x=>x.id!==pid)};
+    // Supprimer les emails et commandes liés
+    nd.prospectEmails = {...(nd.prospectEmails||{})}; delete nd.prospectEmails[pid];
+    nd.orders = (nd.orders||[]).filter(o=>o.prospectId!==pid);
+    nd = addAct(nd, user, p?.name||"?", "supprimé");
+    setDetailProspect(null);
+    await save(nd);
+  };
+
   const addOrder = async o => {
     if (!data||!user) return;
     o.createdBy=user; o.createdAt=Date.now();
     let nd = {...data, orders:[...(data.orders||[]), o]};
-    nd = addAct(nd, user, o.prospectName, `${o.type||"commande"} ${$(o.amount)}`);
+    nd = addAct(nd, user, o.prospectName, `${o.type||"commande"} ${$(o.amount*(o.qty||1))}`);
     setShowAddOrder(undefined);
     await save(nd);
   };
@@ -2589,7 +4002,7 @@ export default function AmigoCRM() {
     order.createdBy=user; order.createdAt=Date.now();
     let nd = {...data, [targetProj]:[...(data[targetProj]||[]), prospect], orders:[...(data.orders||[]), order]};
     nd = addAct(nd, user, prospect.name, "ajouté");
-    nd = addAct(nd, user, order.prospectName, `${order.type||"commande"} ${$(order.amount)}`);
+    nd = addAct(nd, user, order.prospectName, `${order.type||"commande"} ${$(order.amount*(order.qty||1))}`);
     await save(nd);
   };
 
@@ -2600,7 +4013,10 @@ export default function AmigoCRM() {
     )};
     setData({...nd});
     savingRef.current = true;
-    try { await storage.set(KEY, JSON.stringify(nd)); setLastSync(Date.now()); }
+    try {
+      await storage.set(KEY, JSON.stringify(nd)); setLastSync(Date.now());
+      const ts = await storage.getTimestamp(KEY); if (ts) lastRemoteTs.current = ts;
+    }
     catch(e) { console.error(e); }
     finally { setTimeout(()=>{ savingRef.current = false; }, 6000); }
   };
@@ -2627,7 +4043,10 @@ export default function AmigoCRM() {
     // Update optimiste
     setData({...nd});
     savingRef.current = true;
-    try { await storage.set(KEY, JSON.stringify(nd)); setLastSync(Date.now()); }
+    try {
+      await storage.set(KEY, JSON.stringify(nd)); setLastSync(Date.now());
+      const ts = await storage.getTimestamp(KEY); if (ts) lastRemoteTs.current = ts;
+    }
     catch(e) { console.error(e); }
     finally { setTimeout(()=>{ savingRef.current = false; }, 6000); }
   };
@@ -2667,6 +4086,7 @@ export default function AmigoCRM() {
   const [scanProgress, setScanProgress] = useState(null); // "Scan 3/12…"
 
   const scanForProspect = async (prospect, silent=false) => {
+    scanningRef.current = true;
     setGmailLoading(true);
     try {
       const token = await getGToken();
@@ -2685,17 +4105,30 @@ export default function AmigoCRM() {
       const queryPJ2 = useFullEmail ? `has:attachment to:${emailAddr}` : `has:attachment to:${domain}`;
 
       const mailbox = "me";
-      const [res1, res2, res3] = await Promise.all([
-        fetch(`https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages?maxResults=30&q=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages?maxResults=20&q=${encodeURIComponent(queryPJ1)}`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages?maxResults=20&q=${encodeURIComponent(queryPJ2)}`, { headers: { Authorization: `Bearer ${token}` } }),
-      ]);
-      const [d1, d2, d3] = await Promise.all([res1.json(), res2.json(), res3.json()]);
+      let d1, d2, d3;
+      if (silent) {
+        // Mode silencieux : 1 seule requête list, pas de recherche PJ
+        const res1 = await fetch(`https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages?maxResults=10&q=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${token}` } });
+        d1 = await res1.json(); d2 = { messages: [] }; d3 = { messages: [] };
+      } else {
+        const [res1, res2, res3] = await Promise.all([
+          fetch(`https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages?maxResults=30&q=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages?maxResults=20&q=${encodeURIComponent(queryPJ1)}`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages?maxResults=20&q=${encodeURIComponent(queryPJ2)}`, { headers: { Authorization: `Bearer ${token}` } }),
+        ]);
+        [d1, d2, d3] = await Promise.all([res1.json(), res2.json(), res3.json()]);
+      }
       const emailIds = new Set((d1.messages||[]).map(m=>m.id));
       const pjIds = new Set([...(d2.messages||[]).map(m=>m.id), ...(d3.messages||[]).map(m=>m.id)]);
 
+      // Ne télécharger que les emails pas encore en base
+      const existingIds = new Set(((data?.prospectEmails||{})[prospect.id]||[]).map(e=>e.id));
+      const newIds = [...emailIds].filter(id => !existingIds.has(id));
+      if (silent && newIds.length === 0) { setGmailLoading(false); return; } // Rien de nouveau
+      const idsToFetch = silent ? newIds : [...emailIds]; // En mode silencieux, uniquement les nouveaux
+
       const threads = await Promise.all(
-        [...emailIds].map(async id => {
+        idsToFetch.map(async id => {
           const r = await fetch(
             `https://gmail.googleapis.com/gmail/v1/users/${mailbox}/messages/${id}?format=full`,
             { headers: { Authorization: `Bearer ${token}` } }
@@ -2733,7 +4166,7 @@ export default function AmigoCRM() {
           };
           const body = msg.payload?.parts ? extractBody(msg.payload.parts)
             : (msg.payload?.body?.data ? decodeBase64Body(msg.payload.body.data) : null);
-          return { id, from, to, cc, subject, date, timestamp, prospectId:prospect.id, proj:prospect._proj||projId, folder, snippet, body:body||snippet, scannedBy:user, hasPJ };
+          return { id, from, to, cc, subject, date, timestamp, prospectId:prospect.id, proj:prospect._proj||projId, folder, snippet, scannedBy:user, hasPJ };
         })
       );
 
@@ -2741,8 +4174,8 @@ export default function AmigoCRM() {
       const freshSupabase = await storage.get(KEY);
       const latestData = freshSupabase ? JSON.parse(freshSupabase.value) : data;
       const existingEmails = latestData?.prospectEmails?.[prospect.id]||[];
-      const existingIds = new Set(existingEmails.map(e=>e.id));
-      const fresh = threads.filter(t=>!existingIds.has(t.id));
+      const knownIds = new Set(existingEmails.map(e=>e.id));
+      const fresh = threads.filter(t=>!knownIds.has(t.id));
       const allEmails = [...existingEmails, ...fresh].sort((a,b)=>b.timestamp-a.timestamp);
       const nd = {...latestData, prospectEmails:{...(latestData.prospectEmails||{}), [prospect.id]:allEmails}};
       await save(nd);
@@ -2812,9 +4245,9 @@ export default function AmigoCRM() {
         await updateProspect(prospect.id, { docs: updatedDocs });
 
       const nbDocs = updatedDocs.length - existingDocs.length;
-      if (!silent) alert(`✅ ${fresh.length} email(s)${nbDocs>0?` · ${nbDocs} pièce(s) jointe(s) dans Docs`:""}`);
+      if (!silent && fresh.length > 0) alert(`✅ ${fresh.length} email(s)${nbDocs>0?` · ${nbDocs} pièce(s) jointe(s) dans Docs`:""}`);
 
-    } catch(e) { console.error(e); alert("Erreur : "+e.message); }
+    } catch(e) { console.error(e); if (!silent) alert("Erreur : "+e.message); }
     setGmailLoading(false);scanningRef.current=false;
   };
 
@@ -2891,9 +4324,14 @@ export default function AmigoCRM() {
       ? (a, b) => (a.prospectName || "").localeCompare(b.prospectName || "", "fr")
       : (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
   );
-  const activity = (data?.activity||[]).filter(a=>a.proj===projId).slice(-12).reverse();
+  const activity = (data?.activity||[]).filter(a=>a.proj===projId).slice(-30).reverse();
   const $  = projId==="print3d" ? fmtBrl : fmtEur; // formatter monnaie selon projet
-  const totalCA = projOrders.filter(o=>["Confirmée","En production","Livré","Facturé","Accepté"].includes(o.status)).reduce((s,o)=>s+o.amount,0);
+  const isArchived = o => ["Refusé","Expiré","Annulé","Annulée"].includes(o.status);
+  const activeOrders = projOrders.filter(o => !isArchived(o));
+  const archivedOrders = projOrders.filter(o => isArchived(o));
+  const activeDevis = activeOrders.filter(o => o.type === "devis");
+  const activeCommandes = activeOrders.filter(o => o.type !== "devis");
+  const totalCA = projOrders.filter(o=>o.type!=="devis"&&["Confirmée","En production","Livré","Facturé"].includes(o.status)).reduce((s,o)=>s+o.amount*(o.qty||1),0);
   const pipeline = prospects.reduce((s,p)=>s+p.valeur,0);
 
   return (
@@ -2912,13 +4350,16 @@ export default function AmigoCRM() {
         td{padding:8px 12px;font-size:12px;color:#9ca3af;border-bottom:1px solid #080a0f}
       `}</style>
 
-      {notif&&(
-        <div className="notif" onClick={()=>setNotif(null)} style={{position:"fixed",top:10,left:"50%",transform:"translateX(-50%)",background:"#0d1020",border:"1px solid #22c55e22",borderRadius:10,padding:"8px 16px",zIndex:300,cursor:"pointer",display:"flex",alignItems:"center",gap:9,boxShadow:"0 4px 20px #00000060"}}>
-          <span style={{width:6,height:6,borderRadius:"50%",background:"#22c55e",display:"inline-block"}}/>
-          <span style={{fontSize:11,color:"#e2e8f0"}}><span style={{color:USERS[notif.by]?.color,fontWeight:600}}>{notif.byLabel}</span> — <span style={{color:"#f1f5f9"}}>{notif.prospectName}</span> <span style={{color:"#6b7280"}}>{notif.action}</span></span>
+      {notif&&(()=>{
+        const isQuoteEvent = notif.by === "system";
+        return (
+        <div className="notif" onClick={()=>setNotif(null)} style={{position:"fixed",top:10,left:"50%",transform:"translateX(-50%)",background:isQuoteEvent?"#0f1a0f":"#0d1020",border:`1px solid ${isQuoteEvent?"#22c55e40":"#22c55e22"}`,borderRadius:10,padding:isQuoteEvent?"10px 20px":"8px 16px",zIndex:300,cursor:"pointer",display:"flex",alignItems:"center",gap:9,boxShadow:isQuoteEvent?"0 4px 24px rgba(34,197,94,.25)":"0 4px 20px #00000060"}}>
+          <span style={{width:isQuoteEvent?8:6,height:isQuoteEvent?8:6,borderRadius:"50%",background:"#22c55e",display:"inline-block"}} className={isQuoteEvent?"pulse":""}/>
+          <span style={{fontSize:isQuoteEvent?12:11,color:"#e2e8f0"}}><span style={{color:isQuoteEvent?"#4ade80":USERS[notif.by]?.color,fontWeight:600}}>{notif.byLabel}</span> — <span style={{color:"#f1f5f9"}}>{notif.prospectName}</span> <span style={{color:isQuoteEvent?"#86efac":"#6b7280"}}>{notif.action}</span></span>
           <span style={{fontSize:14,color:"#374151"}}>×</span>
         </div>
-      )}
+        );
+      })()}
 
       {/* NAV */}
       <nav style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 20px",borderBottom:"1px solid #0c0f18",background:"#080a0f",position:"sticky",top:0,zIndex:100}}>
@@ -2928,7 +4369,7 @@ export default function AmigoCRM() {
           <span style={{width:1,height:12,background:"#1a2030",margin:"0 4px"}}/>
           <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
             {Object.values(PROJECTS).filter(p=>p.id!=="vinClients").map(p=>(
-              <button key={p.id} onClick={()=>{setProjId(p.id);setView("kanban");}} className="btn"
+              <button key={p.id} onClick={()=>{setProjId(p.id);setView("dashboard");}} className="btn"
                 style={{padding:"4px 10px",borderRadius:5,fontSize:12,fontWeight:500,cursor:"pointer",background:projId===p.id?`${p.color}18`:"transparent",color:projId===p.id?p.color:"#94a3b8",border:projId===p.id?`1px solid ${p.color}22`:"1px solid transparent",display:"flex",alignItems:"center",gap:4}}>
                 {p.icon} {p.label}
               </button>
@@ -2994,7 +4435,7 @@ export default function AmigoCRM() {
         </div>
 
         <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
-          {[["kanban","Pipeline"],["commandes","Commandes"],["finance","Finance"],...(projId==="print3d"?[["stock","Stock"]]:[]),["emails","Emails"],["agenda","Agenda"],["activite","Activité"],...(projId==="vin"?[["carte","🗺 Carte"]]:[])]
+          {[["dashboard","Dashboard"],["kanban","Pipeline"],["commandes","Commandes"],["finance","Finance"],...(projId==="print3d"?[["stock","Stock"]]:[]),["emails","Emails"],["agenda","Agenda"],["activite","Activité"],...(projId==="vin"?[["carte","🗺 Carte"]]:[]),["idees","💡"]]
           .map(([v,l])=>(
             <button key={v} onClick={()=>setView(v)} className="btn"
               style={{padding:"4px 11px",borderRadius:5,fontSize:12,fontWeight:500,background:view===v?`${accent}18`:"transparent",color:view===v?accent:"#94a3b8",border:view===v?`1px solid ${accent}22`:"1px solid transparent",cursor:"pointer"}}>
@@ -3002,7 +4443,7 @@ export default function AmigoCRM() {
             </button>
           ))}
           <div style={{width:1,height:14,background:"#1a2030",margin:"0 2px"}}/>
-          <button onClick={()=>setSortMode(s=>s==="alpha"?"recent":"alpha")} className="btn"
+          <button onClick={()=>setSortMode(s=>{const n=s==="alpha"?"recent":"alpha";localStorage.setItem("amigo-sort",n);return n;})} className="btn"
             style={{padding:"4px 10px",borderRadius:5,fontSize:11,fontWeight:500,cursor:"pointer",background:"#0b0d16",color:"#94a3b8",border:"1px solid #0f1520",display:"flex",alignItems:"center",gap:4}}>
             {sortMode==="alpha"?"A→Z":"Récents"}
           </button>
@@ -3072,6 +4513,148 @@ export default function AmigoCRM() {
 
       <div style={{flex:1,overflow:"auto",padding:"18px 20px"}}>
 
+        {/* ══ DASHBOARD ══ */}
+        {view==="dashboard"&&(()=>{
+          const allProjects = [
+            {key:"makeup",label:"Carnaval Gall",icon:"💄",color:"#ec4899",prospects:data?.makeup||[]},
+            {key:"vin",label:"Vin",icon:"🍷",color:"#8b5cf6",prospects:[...(data?.vin||[]),...(data?.vinClients||[])]},
+            {key:"print3d",label:"Impression 3D",icon:"🧊",color:"#14b8a6",prospects:data?.print3d||[]},
+          ];
+          const allOrders = data?.orders||[];
+          const recentActs = (data?.activity||[]).slice(-20).reverse();
+          const needsFollowUp = allProjects.flatMap(pj=>pj.prospects.filter(p=>{
+            const pe=(data?.prospectEmails||{})[p.id]||[];
+            const sent=pe.some(e=>e.folder==="Envoyés");
+            const recu=pe.some(e=>e.folder==="Reçus");
+            const last=pe[0]?.timestamp;
+            return sent&&!recu&&last&&(Date.now()-last)>14*86400000;
+          }).map(p=>({...p,_projKey:pj.key,_projIcon:pj.icon})));
+
+          return (
+          <div className="fade">
+            <div style={{marginBottom:20}}>
+              <p style={{fontSize:18,fontWeight:700,color:"#f1f5f9",marginBottom:4}}>Bonjour {USERS[user]?.label} 👋</p>
+              <p style={{fontSize:12,color:"#4b5563"}}>{new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</p>
+            </div>
+
+            {/* KPIs par projet */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20}}>
+              {allProjects.map(pj=>{
+                const orders = allOrders.filter(o=>o.proj===pj.key);
+                const active = orders.filter(o=>!["Refusé","Expiré","Annulé","Annulée"].includes(o.status));
+                const nbDevis = active.filter(o=>o.type==="devis").length;
+                const nbCmd = active.filter(o=>o.type!=="devis").length;
+                const ca = orders.filter(o=>o.type!=="devis"&&["Confirmée","En production","Livré","Facturé"].includes(o.status)).reduce((s,o)=>s+o.amount*(o.qty||1),0);
+                const pending = active.filter(o=>["En attente","Brouillon","Envoyé"].includes(o.status)).length;
+                return (
+                  <div key={pj.key} onClick={()=>{setProjId(pj.key);setView("kanban");}}
+                    style={{background:"#0b0d16",border:`1px solid ${pj.color}22`,borderRadius:11,padding:16,cursor:"pointer",transition:"border-color .15s"}}
+                    onMouseEnter={e=>e.currentTarget.style.borderColor=pj.color+"55"}
+                    onMouseLeave={e=>e.currentTarget.style.borderColor=pj.color+"22"}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                      <span style={{fontSize:20}}>{pj.icon}</span>
+                      <span style={{fontSize:14,fontWeight:700,color:pj.color}}>{pj.label}</span>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div><p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>Prospects</p><p style={{fontSize:16,fontWeight:700,color:"#f1f5f9"}}>{pj.prospects.length}</p></div>
+                      <div><p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>CA confirmé</p><p style={{fontSize:16,fontWeight:700,color:"#22c55e"}}>{pj.key==="print3d"?fmtBrl(ca):fmtEur(ca)}</p></div>
+                      <div><p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>{pj.key==="print3d"?`Devis ${nbDevis} · Cmd ${nbCmd}`:"En cours"}</p><p style={{fontSize:16,fontWeight:700,color:"#f59e0b"}}>{active.length}</p></div>
+                      <div><p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>En attente</p><p style={{fontSize:16,fontWeight:700,color:pending>0?"#f87171":"#374151"}}>{pending}</p></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Relances devis en attente */}
+            {(()=>{
+              const pendingQuotes = allOrders.filter(o=>o.type==="devis"&&o.status==="Envoyé").map(o=>{
+                const daysSince = o.createdAt ? Math.floor((Date.now()-o.createdAt)/86400000) : 0;
+                const proj = PROJECTS[o.proj];
+                const prospect = allProjects.flatMap(pj=>pj.prospects).find(p=>p.id===o.prospectId);
+                return {...o, daysSince, projIcon:proj?.icon||"", projColor:proj?.color||"#6b7280", prospect};
+              }).sort((a,b)=>b.daysSince-a.daysSince);
+              const urgent = pendingQuotes.filter(q=>q.daysSince>=3);
+              if (urgent.length===0 && needsFollowUp.length===0) return null;
+              return (
+              <div style={{background:"#0b0d16",border:"1px solid #ef444422",borderRadius:11,padding:16,marginBottom:20}}>
+                <p style={{fontSize:12,fontWeight:700,color:"#f87171",marginBottom:10,textTransform:"uppercase",letterSpacing:".5px"}}>🔔 Relances à faire ({urgent.length + needsFollowUp.length})</p>
+
+                {/* Devis sans réponse */}
+                {urgent.length>0&&<>
+                  <p style={{fontSize:10,color:"#f59e0b",fontWeight:600,marginBottom:6}}>📋 Devis envoyés sans réponse</p>
+                  <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:needsFollowUp.length>0?12:0}}>
+                    {urgent.map(q=>(
+                      <div key={q.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:7,background:"#f59e0b08",border:"1px solid #f59e0b15"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="#f59e0b12"}
+                        onMouseLeave={e=>e.currentTarget.style.background="#f59e0b08"}>
+                        <span style={{fontSize:12}}>{q.projIcon}</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <p style={{fontSize:11,fontWeight:600,color:"#f1f5f9"}}>{q.prospectName} — {q.product}</p>
+                          <p style={{fontSize:10,color:"#4b5563"}}>{q.proj==="print3d"?fmtBrl(q.amount*(q.qty||1)):fmtEur(q.amount*(q.qty||1))}</p>
+                        </div>
+                        <span style={{fontSize:10,color:q.daysSince>=7?"#ef4444":"#f59e0b",fontWeight:700,whiteSpace:"nowrap"}}>{q.daysSince}j</span>
+                        <button onClick={(e)=>{e.stopPropagation();setProjId(q.proj);setView("commandes");setDetailOrder(q);}}
+                          style={{padding:"4px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:"#f59e0b18",border:"1px solid #f59e0b28",color:"#fbbf24",cursor:"pointer",whiteSpace:"nowrap"}}>
+                          Voir
+                        </button>
+                        {q.prospect?.email&&<button onClick={async(e)=>{
+                          e.stopPropagation();
+                          const body = `Prezado(a)${q.prospect.contact?` ${q.prospect.contact.split(" ")[0]}`:""},\n\nGostaria de saber se teve a oportunidade de avaliar o orçamento que enviamos para ${q.product}.\n\nEstamos à disposição para qualquer ajuste ou esclarecimento.\n\nAtenciosamente,\nAnthony Donzel\n${EMPRESA.nome} · ${EMPRESA.tel}`;
+                          const ok = await sendGmail({to:q.prospect.email, subject:`Re: Orçamento ${q.product} — ${EMPRESA.nome}`, body, from:PROJECT_EMAIL[q.proj]});
+                          if(ok) setNotif({id:Date.now(),by:user,byLabel:"✓",prospectName:q.prospectName,action:"relance envoyée"});
+                        }}
+                          style={{padding:"4px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:"#8b5cf618",border:"1px solid #8b5cf628",color:"#a78bfa",cursor:"pointer",whiteSpace:"nowrap"}}>
+                          📩 Relancer
+                        </button>}
+                      </div>
+                    ))}
+                  </div>
+                </>}
+
+                {/* Prospects sans réponse email */}
+                {needsFollowUp.length>0&&<>
+                  <p style={{fontSize:10,color:"#ef4444",fontWeight:600,marginBottom:6}}>✉️ Prospects sans réponse email (14j+)</p>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {needsFollowUp.slice(0,6).map(p=>(
+                      <div key={p.id} onClick={()=>{setProjId(p._projKey);setView("kanban");setDetailProspect(p);}}
+                        style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:7,cursor:"pointer",background:"#ef444408"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="#ef444415"}
+                        onMouseLeave={e=>e.currentTarget.style.background="#ef444408"}>
+                        <span style={{fontSize:12}}>{p._projIcon}</span>
+                        <span style={{fontSize:12,fontWeight:600,color:"#f1f5f9",flex:1}}>{p.name}</span>
+                        <span style={{fontSize:10,color:"#f87171"}}>Sans réponse 14j+</span>
+                      </div>
+                    ))}
+                  </div>
+                </>}
+              </div>
+              );
+            })()}
+
+            {/* Activité récente */}
+            <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:16}}>
+              <p style={{fontSize:12,fontWeight:700,color:"#f1f5f9",marginBottom:10,textTransform:"uppercase",letterSpacing:".5px"}}>📊 Activité récente</p>
+              {recentActs.length===0
+                ? <p style={{fontSize:12,color:"#374151",textAlign:"center",padding:20}}>Aucune activité</p>
+                : <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {recentActs.map(a=>{
+                      const isSys = a.by === "system";
+                      const projIcon = PROJECTS[a.proj]?.icon || "";
+                      return (
+                      <div key={a.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:6,background:isSys?"#22c55e08":"transparent"}}>
+                        <span style={{width:20,height:20,borderRadius:"50%",background:isSys?"#22c55e":USERS[a.by]?.color||"#6b7280",display:"flex",alignItems:"center",justifyContent:"center",fontSize:isSys?10:8,fontWeight:700,color:"white",flexShrink:0}}>{isSys?"📬":USERS[a.by]?.avatar||"?"}</span>
+                        <span style={{fontSize:11,color:"#94a3b8",flex:1}}>{projIcon} <b style={{color:isSys?"#4ade80":USERS[a.by]?.color}}>{a.byLabel||a.by}</b> {a.action} <span style={{color:"#f1f5f9"}}>{a.prospectName}</span></span>
+                        <span style={{fontSize:9,color:"#94a3b8",whiteSpace:"nowrap"}}>{new Date(a.at).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit"})} · {ago(a.at)}</span>
+                      </div>);
+                    })}
+                  </div>
+              }
+            </div>
+          </div>
+          );
+        })()}
+
         {/* ══ KANBAN ══ */}
         {view==="kanban"&&(
           <div className="fade">
@@ -3090,7 +4673,7 @@ export default function AmigoCRM() {
 
             <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:14}}>
               <StatCard label="Prospects" value={prospects.length} sub="au total" color="#60a5fa" icon="👥" onClick={()=>setView("kanban")}/>
-              <StatCard label="Commandes" value={projOrders.length} sub={`${projOrders.length>0?$(projOrders.reduce((s,o)=>s+o.amount,0)):"-"} total`} color="#f59e0b" icon="📦" onClick={()=>setView("commandes")}/>
+              <StatCard label={projId==="print3d"?`Devis ${activeDevis.length} · Cmd ${activeCommandes.length}`:"Commandes"} value={activeOrders.length} sub={activeDevis.length>0?`${$(activeDevis.reduce((s,o)=>s+o.amount*(o.qty||1),0))} en devis`:`${$(totalCA)} CA`} color="#f59e0b" icon="📦" onClick={()=>setView("commandes")}/>
             </div>
 
             <div style={{display:"flex",gap:8,marginBottom:14}}>
@@ -3202,13 +4785,12 @@ export default function AmigoCRM() {
         )}
         {view==="commandes"&&(
           <div className="fade">
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
-              <StatCard label="Total" value={$(projOrders.reduce((s,o)=>s+o.amount,0))} sub={`${projOrders.length} éléments`} color="#f1f5f9" icon="📊" onClick={()=>setView("finance")}/>
-              <StatCard label="CA confirmé" value={$(totalCA)} color="#22c55e" icon="✅" onClick={()=>setView("finance")}/>
-              <StatCard label="En attente" value={$(projOrders.filter(o=>["En attente","Brouillon"].includes(o.status)).reduce((s,o)=>s+o.amount,0))} color="#f59e0b" icon="⏳" onClick={()=>setView("commandes")}/>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8,marginBottom:14}}>
+              <StatCard label="Pipe devis" value={$(activeDevis.reduce((s,o)=>s+o.amount*(o.qty||1),0))} sub={`${activeDevis.length} devis en cours`} color="#f59e0b" icon="📋" onClick={()=>setView("commandes")}/>
+              <StatCard label="CA confirmé" value={$(totalCA)} sub={`${activeCommandes.length} commandes`} color="#22c55e" icon="✅" onClick={()=>setView("finance")}/>
               {projId==="vin"
                 ? <StatCard label="Taxes BR" value={$(projOrders.reduce((s,o)=>s+(o.taxData?.totalEur||0),0))} color="#ef4444" icon="🇧🇷" onClick={()=>setView("finance")}/>
-                : <StatCard label="Marge est." value={$(totalCA*(projId==="print3d"?0.45:0.35))} color="#a78bfa" icon="📈" onClick={()=>setView("finance")}/>
+                : <StatCard label="Marge CA" value={$(totalCA*(projId==="print3d"?0.45:0.35))} sub="est. 45%" color="#a78bfa" icon="📈" onClick={()=>setView("finance")}/>
               }
             </div>
             <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:12}}>
@@ -3223,30 +4805,110 @@ export default function AmigoCRM() {
                 + {projId==="print3d"?"Devis / Commande":"Nouvelle commande"}
               </button>
             </div>
+            {/* Pipeline devis drag & drop */}
+            {activeDevis.length > 0 && (
+              <div style={{marginBottom:16}}>
+                <p style={{fontSize:11,fontWeight:700,color:"#a78bfa",marginBottom:8,textTransform:"uppercase",letterSpacing:".5px"}}>📋 Pipeline devis</p>
+                <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:4}}>
+                  {QUOTE_STATUSES.filter(s=>!["Annulé"].includes(s)).map(status=>{
+                    const cards = activeDevis.filter(o=>o.status===status);
+                    const stColor = {Brouillon:"#6b7280",Envoyé:"#3b82f6",Accepté:"#22c55e",Refusé:"#ef4444",Expiré:"#f59e0b"}[status]||"#6b7280";
+                    return (
+                      <div key={status} style={{minWidth:160,flex:1}}
+                        onDragOver={e=>{e.preventDefault();e.currentTarget.style.background=`${stColor}08`;}}
+                        onDragLeave={e=>{e.currentTarget.style.background="";}}
+                        onDrop={e=>{e.preventDefault();e.currentTarget.style.background="";const oid=e.dataTransfer.getData("orderId");if(oid)updateOrder(oid,{status});}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,padding:"4px 8px",background:`${stColor}12`,borderRadius:6,border:`1px solid ${stColor}22`}}>
+                          <span style={{fontSize:10,fontWeight:600,color:stColor}}>{status}</span>
+                          <span style={{fontSize:9,fontWeight:700,color:"#4b5563",background:"#080a0f",padding:"1px 5px",borderRadius:8}}>{cards.length}</span>
+                        </div>
+                        <div style={{minHeight:50}}>
+                          {cards.map(o=>(
+                            <div key={o.id} draggable
+                              onDragStart={e=>{e.dataTransfer.setData("orderId",o.id);e.dataTransfer.effectAllowed="move";e.currentTarget.style.opacity="0.4";}}
+                              onDragEnd={e=>{e.currentTarget.style.opacity="1";}}
+                              onClick={()=>setDetailOrder(o)}
+                              style={{background:"#0d1120",border:`1px solid ${stColor}25`,borderLeft:`3px solid ${stColor}`,borderRadius:7,padding:"8px 10px",marginBottom:5,cursor:"grab",transition:"background .12s"}}
+                              onMouseEnter={e=>e.currentTarget.style.background="#111828"}
+                              onMouseLeave={e=>e.currentTarget.style.background="#0d1120"}>
+                              <p style={{fontSize:11,fontWeight:600,color:"#f1f5f9",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.prospectName}</p>
+                              <p style={{fontSize:10,color:"#4b5563",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.product}</p>
+                              <p style={{fontSize:11,fontWeight:700,color:"#22c55e",marginTop:3}}>{$(o.amount*(o.qty||1))}</p>
+                            </div>
+                          ))}
+                          {cards.length===0&&<div style={{padding:"14px 8px",textAlign:"center",border:"1px dashed #0f1520",borderRadius:6,color:"#2d3748",fontSize:10}}>Vide</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Pipeline commandes drag & drop */}
+            {activeCommandes.length > 0 && (
+              <div style={{marginBottom:16}}>
+                <p style={{fontSize:11,fontWeight:700,color:"#22c55e",marginBottom:8,textTransform:"uppercase",letterSpacing:".5px"}}>📦 Pipeline commandes</p>
+                <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:4}}>
+                  {ORDER_STATUSES.filter(s=>s!=="Annulée").map(status=>{
+                    const cards = activeCommandes.filter(o=>o.status===status);
+                    const stColor = {"En attente":"#6b7280","Confirmée":"#3b82f6","En production":"#f59e0b","Livré":"#8b5cf6","Facturé":"#22c55e"}[status]||"#6b7280";
+                    return (
+                      <div key={status} style={{minWidth:145,flex:1}}
+                        onDragOver={e=>{e.preventDefault();e.currentTarget.style.background=`${stColor}08`;}}
+                        onDragLeave={e=>{e.currentTarget.style.background="";}}
+                        onDrop={e=>{e.preventDefault();e.currentTarget.style.background="";const oid=e.dataTransfer.getData("orderId");if(oid)updateOrder(oid,{status});}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,padding:"4px 8px",background:`${stColor}12`,borderRadius:6,border:`1px solid ${stColor}22`}}>
+                          <span style={{fontSize:10,fontWeight:600,color:stColor}}>{status}</span>
+                          <span style={{fontSize:9,fontWeight:700,color:"#4b5563",background:"#080a0f",padding:"1px 5px",borderRadius:8}}>{cards.length}</span>
+                        </div>
+                        <div style={{minHeight:40}}>
+                          {cards.map(o=>(
+                            <div key={o.id} draggable
+                              onDragStart={e=>{e.dataTransfer.setData("orderId",o.id);e.dataTransfer.effectAllowed="move";e.currentTarget.style.opacity="0.4";}}
+                              onDragEnd={e=>{e.currentTarget.style.opacity="1";}}
+                              onClick={()=>setDetailOrder(o)}
+                              style={{background:"#0d1120",border:`1px solid ${stColor}25`,borderLeft:`3px solid ${stColor}`,borderRadius:7,padding:"6px 10px",marginBottom:4,cursor:"grab"}}
+                              onMouseEnter={e=>e.currentTarget.style.background="#111828"}
+                              onMouseLeave={e=>e.currentTarget.style.background="#0d1120"}>
+                              <p style={{fontSize:10,fontWeight:600,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.prospectName}</p>
+                              <p style={{fontSize:10,fontWeight:700,color:"#22c55e"}}>{$(o.amount*(o.qty||1))}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {(()=>{
-              const ARCHIVED = ["Annulé","Refusé","Expiré","Annulée","Livré","Facturé"];
-              const devis = projId==="print3d" ? projOrders.filter(o=>o.type==="devis"&&!ARCHIVED.includes(o.status)) : [];
-              const devisArchives = projId==="print3d" ? projOrders.filter(o=>o.type==="devis"&&ARCHIVED.includes(o.status)) : [];
-              const commandes = projId==="print3d" ? projOrders.filter(o=>o.type!=="devis"&&!ARCHIVED.includes(o.status)) : projOrders.filter(o=>!ARCHIVED.includes(o.status));
-              const cmdArchives = projId==="print3d" ? projOrders.filter(o=>o.type!=="devis"&&ARCHIVED.includes(o.status)) : projOrders.filter(o=>ARCHIVED.includes(o.status));
+              const devis = projId==="print3d" ? activeDevis : [];
+              const devisArchives = projId==="print3d" ? archivedOrders.filter(o=>o.type==="devis") : [];
+              const commandes = projId==="print3d" ? activeCommandes : activeOrders.filter(o=>o.type!=="devis");
+              const cmdArchives = projId==="print3d" ? archivedOrders.filter(o=>o.type!=="devis") : archivedOrders.filter(o=>o.type!=="devis");
               const renderTable = (rows, isDevis) => (
                 <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,overflow:"hidden"}}>
                   <table style={{width:"100%",borderCollapse:"collapse"}}>
                     <thead><tr>
                       <th>Client / Prospect</th><th>Produit</th>
-                      <th>Montant</th>
+                      <th>Qté</th><th>Montant</th>
                       {projId==="vin"&&<th>Taxes BR</th>}
                       <th>Date</th><th>Statut</th>
                       {isDevis&&<th></th>}
                     </tr></thead>
-                    <tbody>{rows.map(o=>(
+                    <tbody>{rows.map(o=>{
+                      const total = o.amount * (o.qty||1);
+                      return (
                       <tr key={o.id} onClick={()=>setDetailOrder(o)} style={{cursor:"pointer"}}>
                         <td style={{color:"#f1f5f9",fontWeight:500,display:"flex",alignItems:"center",gap:8}}>
                           {o.thumbnail&&<img src={o.thumbnail} alt="" style={{width:32,height:32,borderRadius:4,objectFit:"cover",border:"1px solid #1a2035"}}/>}
                           {o.prospectName||"–"}
                         </td>
                         <td>{o.product||"–"}</td>
-                        <td style={{color:"#22c55e",fontWeight:700}}>{$(o.amount)}</td>
+                        <td style={{color:"#6b7280"}}>{o.qty||1}</td>
+                        <td style={{color:"#22c55e",fontWeight:700}}>{$(total)}{(o.qty||1)>1&&<span style={{fontSize:9,color:"#4b5563",marginLeft:4}}>({$(o.amount)}/u)</span>}</td>
                         {projId==="vin"&&<td style={{color:"#ef4444"}}>{o.taxData?fmt(o.taxData.totalEur):"–"}</td>}
                         <td style={{color:"#6b7280"}}>{o.date||"–"}</td>
                         <td>
@@ -3264,7 +4926,7 @@ export default function AmigoCRM() {
                           )}
                         </td>}
                       </tr>
-                    ))}</tbody>
+                    );})}</tbody>
                   </table>
                 </div>
               );
@@ -3308,12 +4970,174 @@ export default function AmigoCRM() {
         {/* ══ FINANCE ══ */}
         {view==="finance"&&(
           <div className="fade">
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
-              <StatCard label="Commandes" value={projOrders.length} sub="au total" color="#f59e0b" icon="📦" onClick={()=>setView("commandes")}/>
-              <StatCard label="CA confirmé" value={$(totalCA)} sub="hors taxes" color="#22c55e" icon="💶" onClick={()=>setView("commandes")}/>
+            {/* ── 1. KPIs ── */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8,marginBottom:16}}>
+              <StatCard label="Devis en cours" value={$(activeDevis.reduce((s,o)=>s+o.amount*(o.qty||1),0))} sub={`${activeDevis.length} devis`} color="#f59e0b" icon="📋" onClick={()=>setView("commandes")}/>
+              <StatCard label="CA confirmé" value={$(totalCA)} sub={`${activeCommandes.length} commandes`} color="#22c55e" icon="💶" onClick={()=>setView("commandes")}/>
               <StatCard label={projId==="vin"?"Taxes import BR":"TVA est."} value={$(projId==="vin"?projOrders.reduce((s,o)=>s+(o.taxData?.totalEur||0),0):totalCA*0.20)} color="#ef4444" icon="🏛" onClick={()=>setView("commandes")}/>
               <StatCard label="Marge nette est." value={$(totalCA*(projId==="vin"?0.30:projId==="print3d"?0.45:0.35))} sub={`~${projId==="vin"?"30":projId==="print3d"?"45":"35"}%`} color="#a78bfa" icon="📈" onClick={()=>setView("commandes")}/>
             </div>
+
+            {/* ── 2. CA par mois (SVG bar chart) + 6. Panier moyen / délai moyen ── */}
+            {(()=>{
+              const MOIS=["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
+              const caStatuses=["Confirmée","En production","Livré","Facturé"];
+              const cmds=projOrders.filter(o=>o.type!=="devis"&&caStatuses.includes(o.status)&&o.date);
+              const now=new Date();
+              const months=[];
+              for(let i=5;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);months.push({y:d.getFullYear(),m:d.getMonth(),label:MOIS[d.getMonth()]});}
+              const buckets=months.map(({y,m,label})=>{
+                const prefix=`${y}-${String(m+1).padStart(2,"0")}`;
+                const tot=cmds.filter(o=>o.date&&o.date.startsWith(prefix)).reduce((s,o)=>s+o.amount*(o.qty||1),0);
+                return{label,total:tot};
+              });
+              const maxVal=Math.max(...buckets.map(b=>b.total),1);
+              const chartH=180,barW=48,gap=16,padL=50,padB=28,padT=24;
+              const totalW=padL+buckets.length*(barW+gap);
+              // Panier moyen
+              const panierMoyen=cmds.length>0?cmds.reduce((s,o)=>s+o.amount*(o.qty||1),0)/cmds.length:0;
+              // Délai moyen (jours entre createdAt et date de livraison pour les Livré/Facturé)
+              const delivered=cmds.filter(o=>["Livré","Facturé"].includes(o.status)&&o.createdAt&&o.date);
+              const avgDelai=delivered.length>0?Math.round(delivered.reduce((s,o)=>{const d1=new Date(o.createdAt);const d2=new Date(o.date);return s+Math.max(0,Math.floor((d2-d1)/(1000*60*60*24)));},0)/delivered.length):0;
+              return(<>
+                <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:18,marginBottom:12}}>
+                  <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:14}}>📊 CA par mois (6 derniers mois)</p>
+                  {cmds.length===0
+                    ? <p style={{fontSize:12,color:"#374151",textAlign:"center",padding:"30px"}}>Aucune commande confirmée avec date.</p>
+                    : <svg width="100%" viewBox={`0 0 ${totalW} ${chartH+padB+padT}`} style={{overflow:"visible"}}>
+                        {/* Y-axis lines */}
+                        {[0,0.25,0.5,0.75,1].map(f=>{const y=padT+chartH*(1-f);return(
+                          <g key={f}><line x1={padL-4} y1={y} x2={totalW} y2={y} stroke="#0f1520" strokeWidth={1}/>
+                          <text x={padL-8} y={y+3} textAnchor="end" fill="#4b5563" fontSize={9}>{$(Math.round(maxVal*f))}</text></g>
+                        );})}
+                        {/* Bars */}
+                        {buckets.map((b,i)=>{
+                          const x=padL+i*(barW+gap);
+                          const h=b.total>0?(b.total/maxVal)*chartH:0;
+                          const y=padT+chartH-h;
+                          return(<g key={i}>
+                            <rect x={x} y={y} width={barW} height={h} rx={4} fill={accent} opacity={0.85}/>
+                            {b.total>0&&<text x={x+barW/2} y={y-6} textAnchor="middle" fill="#e2e8f0" fontSize={10} fontWeight={600}>{$(b.total)}</text>}
+                            <text x={x+barW/2} y={padT+chartH+16} textAnchor="middle" fill="#6b7280" fontSize={10}>{b.label}</text>
+                          </g>);
+                        })}
+                      </svg>
+                  }
+                </div>
+                {/* Panier moyen + Délai moyen */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+                  <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:16,textAlign:"center"}}>
+                    <p style={{fontSize:10,color:"#4b5563",marginBottom:4,textTransform:"uppercase",letterSpacing:".5px"}}>Panier moyen</p>
+                    <p style={{fontSize:22,fontWeight:700,color:"#f1f5f9"}}>{$(Math.round(panierMoyen))}</p>
+                    <p style={{fontSize:10,color:"#4b5563",marginTop:2}}>{cmds.length} commande{cmds.length!==1?"s":""}</p>
+                  </div>
+                  <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:16,textAlign:"center"}}>
+                    <p style={{fontSize:10,color:"#4b5563",marginBottom:4,textTransform:"uppercase",letterSpacing:".5px"}}>Délai moyen</p>
+                    <p style={{fontSize:22,fontWeight:700,color:"#f1f5f9"}}>{avgDelai} <span style={{fontSize:12,fontWeight:400,color:"#6b7280"}}>jours</span></p>
+                    <p style={{fontSize:10,color:"#4b5563",marginTop:2}}>{delivered.length} livré{delivered.length!==1?"es":""}</p>
+                  </div>
+                </div>
+              </>);
+            })()}
+
+            {/* ── 3. Conversion funnel ── */}
+            {(()=>{
+              const allDevis=projOrders.filter(o=>o.type==="devis");
+              const devisEnvoyes=projOrders.filter(o=>o.type==="devis"&&["Envoyé","Accepté","Refusé","Expiré"].includes(o.status));
+              const devisAcceptes=projOrders.filter(o=>o.type==="devis"&&o.status==="Accepté");
+              const convertis=projOrders.filter(o=>o.type!=="devis"&&["Confirmée","En production","Livré","Facturé"].includes(o.status));
+              const steps=[
+                {label:"Devis créés",count:allDevis.length,color:"#6b7280"},
+                {label:"Devis envoyés",count:devisEnvoyes.length,color:"#f59e0b"},
+                {label:"Devis acceptés",count:devisAcceptes.length,color:"#22c55e"},
+                {label:"Convertis en commandes",count:convertis.length,color:accent},
+              ];
+              const maxC=Math.max(...steps.map(s=>s.count),1);
+              return(
+                <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:18,marginBottom:12}}>
+                  <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:14}}>🔄 Funnel de conversion</p>
+                  {steps.map((s,i)=>{const pct=allDevis.length>0?Math.round(s.count/allDevis.length*100):0;return(
+                    <div key={i} style={{marginBottom:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                        <span style={{fontSize:11,color:"#e2e8f0",fontWeight:500}}>{s.label}</span>
+                        <span style={{fontSize:11,color:"#4b5563"}}>{s.count} {i>0?`(${pct}%)`:""}</span>
+                      </div>
+                      <div style={{height:10,background:"#080a0f",borderRadius:5,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:`${maxC>0?s.count/maxC*100:0}%`,background:s.color,borderRadius:5,transition:"width .3s"}}/>
+                      </div>
+                    </div>
+                  );})}
+                </div>
+              );
+            })()}
+
+            {/* ── 4. Top clients par CA ── */}
+            {(()=>{
+              const caStatuses=["Confirmée","En production","Livré","Facturé"];
+              const cmds=projOrders.filter(o=>o.type!=="devis"&&caStatuses.includes(o.status));
+              const byClient={};
+              cmds.forEach(o=>{const n=o.prospectName||"Inconnu";byClient[n]=(byClient[n]||0)+o.amount*(o.qty||1);});
+              const top=Object.entries(byClient).sort((a,b)=>b[1]-a[1]).slice(0,5);
+              const topMax=top.length>0?top[0][1]:1;
+              return top.length>0&&(
+                <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,padding:18,marginBottom:12}}>
+                  <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:14}}>🏆 Top clients par CA</p>
+                  {top.map(([name,ca],i)=>(
+                    <div key={name} style={{marginBottom:8}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                        <span style={{fontSize:11,color:"#e2e8f0",fontWeight:500}}>
+                          <span style={{color:accent,fontWeight:700,marginRight:6}}>#{i+1}</span>{name}
+                        </span>
+                        <span style={{fontSize:12,color:"#22c55e",fontWeight:700}}>{$(ca)}</span>
+                      </div>
+                      <div style={{height:6,background:"#080a0f",borderRadius:3,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:`${ca/topMax*100}%`,background:accent,borderRadius:3,opacity:1-i*0.12}}/>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* ── 5. Devis sans réponse — Relances proposées ── */}
+            {(()=>{
+              const now=Date.now();
+              const threeDays=3*24*60*60*1000;
+              const staleDevis=projOrders.filter(o=>o.type==="devis"&&o.status==="Envoyé"&&o.createdAt&&(now-o.createdAt)>threeDays);
+              return staleDevis.length>0&&(
+                <div style={{background:"#0b0d16",border:"1px solid #f59e0b18",borderRadius:11,padding:18,marginBottom:12}}>
+                  <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:4}}>⏳ Devis sans réponse — Relances proposées</p>
+                  <p style={{fontSize:10,color:"#4b5563",marginBottom:14}}>Devis envoyés depuis plus de 3 jours sans retour</p>
+                  {staleDevis.map(o=>{
+                    const days=Math.floor((now-o.createdAt)/(1000*60*60*24));
+                    const linkedProspect=o.prospectId?["makeup","vin","vinClients","print3d"].reduce((found,k)=>found||(data?.[k]||[]).find(p=>p.id===o.prospectId),null):null;
+                    return(
+                      <div key={o.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",background:"#080a0f",borderRadius:8,border:"1px solid #0f1520",marginBottom:6}}>
+                        <div style={{flex:1}}>
+                          <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9"}}>{o.prospectName||"–"}</p>
+                          <p style={{fontSize:10,color:"#4b5563"}}>{o.product||"–"} · {$(o.amount*(o.qty||1))} · <span style={{color:"#f59e0b"}}>{days}j depuis envoi</span></p>
+                        </div>
+                        <button onClick={()=>{
+                          if(linkedProspect&&linkedProspect.email){
+                            const contact=linkedProspect.contact||linkedProspect.name||o.prospectName||"";
+                            const body=`Prezado(a) ${contact},\n\nGostaria de saber se teve a oportunidade de avaliar o orçamento que enviamos para ${o.product||"o projeto"}.\n\nEstamos à disposição para qualquer ajuste ou esclarecimento.\n\nAtenciosamente,\nAnthony Donzel`;
+                            sendGmail({to:linkedProspect.email,subject:`Suivre: Orçamento ${o.product||""}`.trim(),body,from:null});
+                          } else if(linkedProspect){
+                            setShowEmailModal(linkedProspect);
+                          } else {
+                            setDetailOrder(o);
+                          }
+                        }} className="btn" style={{padding:"6px 14px",background:`${accent}18`,border:`1px solid ${accent}28`,borderRadius:7,color:accent,fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                          📩 Relancer
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* ── Wine tax simulator (vin only) ── */}
             {projId==="vin"&&(()=>{const t=calcTax(10000);return(
               <div style={{background:"#0b0d16",border:"1px solid #ef444418",borderRadius:11,padding:18,marginBottom:12}}>
                 <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:3}}>🇧🇷 Simulateur taxes import vin — Brésil (base €10 000 FOB)</p>
@@ -3328,21 +5152,40 @@ export default function AmigoCRM() {
                 </div>
               </div>
             );})()}
+
+            {/* ── Detail table ── */}
             <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:11,overflow:"hidden"}}>
-              <div style={{padding:"9px 14px",borderBottom:"1px solid #0d1020"}}><p style={{fontSize:11,fontWeight:600,color:"#f1f5f9"}}>Détail par commande</p></div>
+              <div style={{padding:"9px 14px",borderBottom:"1px solid #0d1020",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <p style={{fontSize:11,fontWeight:600,color:"#f1f5f9"}}>Détail par commande</p>
+                <p style={{fontSize:10,color:"#4b5563"}}>{projOrders.length} entrée{projOrders.length!==1?"s":""}</p>
+              </div>
               {projOrders.length===0
                 ? <p style={{fontSize:12,color:"#374151",textAlign:"center",padding:"30px"}}>Aucune commande.</p>
                 : <table style={{width:"100%",borderCollapse:"collapse"}}>
-                    <thead><tr><th>Prospect</th><th>Montant</th>{projId==="vin"&&<th>Taxes</th>}<th>Marge est.</th><th>Statut</th></tr></thead>
-                    <tbody>{projOrders.map(o=>(
-                      <tr key={o.id} onClick={()=>setDetailOrder(o)} style={{cursor:"pointer"}}>
-                        <td style={{color:"#f1f5f9",fontWeight:500}}>{o.prospectName}</td>
-                        <td style={{color:"#22c55e",fontWeight:700}}>{$(o.amount)}</td>
-                        {projId==="vin"&&<td style={{color:"#ef4444"}}>{o.taxData?fmt(o.taxData.totalEur):"–"}</td>}
-                        <td style={{color:"#a78bfa"}}>{$(o.amount*(projId==="vin"?0.30:projId==="print3d"?0.45:0.35))}</td>
-                        <td style={{color:"#f59e0b"}}>{o.status}</td>
+                    <thead><tr style={{borderBottom:"1px solid #0f1520"}}>
+                      <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,color:"#4b5563",fontWeight:600}}>Prospect</th>
+                      <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,color:"#4b5563",fontWeight:600}}>Produit</th>
+                      <th style={{padding:"8px 12px",textAlign:"right",fontSize:10,color:"#4b5563",fontWeight:600}}>Montant</th>
+                      {projId==="vin"&&<th style={{padding:"8px 12px",textAlign:"right",fontSize:10,color:"#4b5563",fontWeight:600}}>Taxes</th>}
+                      <th style={{padding:"8px 12px",textAlign:"right",fontSize:10,color:"#4b5563",fontWeight:600}}>Marge est.</th>
+                      <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,color:"#4b5563",fontWeight:600}}>Type</th>
+                      <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,color:"#4b5563",fontWeight:600}}>Statut</th>
+                      <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,color:"#4b5563",fontWeight:600}}>Date</th>
+                    </tr></thead>
+                    <tbody>{projOrders.map(o=>{const tot=o.amount*(o.qty||1);const mPct=projId==="vin"?0.30:projId==="print3d"?0.45:0.35;return(
+                      <tr key={o.id} onClick={()=>setDetailOrder(o)} style={{cursor:"pointer",borderBottom:"1px solid #080a0f",transition:"background .12s"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="#0d102040"}
+                        onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                        <td style={{padding:"8px 12px",color:"#f1f5f9",fontWeight:500,fontSize:12}}>{o.prospectName||"–"}</td>
+                        <td style={{padding:"8px 12px",color:"#9ca3af",fontSize:11}}>{o.product||"–"}</td>
+                        <td style={{padding:"8px 12px",color:"#22c55e",fontWeight:700,fontSize:12,textAlign:"right"}}>{$(tot)}</td>
+                        {projId==="vin"&&<td style={{padding:"8px 12px",color:"#ef4444",fontSize:11,textAlign:"right"}}>{o.taxData?fmt(o.taxData.totalEur):"–"}</td>}
+                        <td style={{padding:"8px 12px",color:"#a78bfa",fontSize:11,textAlign:"right"}}>{$(Math.round(tot*mPct))}</td>
+                        <td style={{padding:"8px 12px",fontSize:10}}><span style={{padding:"2px 7px",borderRadius:4,background:o.type==="devis"?"#f59e0b15":"#22c55e15",color:o.type==="devis"?"#f59e0b":"#22c55e",fontWeight:600}}>{o.type==="devis"?"Devis":"Cmd"}</span></td>
+                        <td style={{padding:"8px 12px",color:"#f59e0b",fontSize:11,fontWeight:500}}>{o.status}</td>
+                        <td style={{padding:"8px 12px",color:"#4b5563",fontSize:10}}>{o.date||"–"}</td>
                       </tr>
-                    ))}</tbody>
+                    );})}</tbody>
                   </table>
               }
             </div>
@@ -3394,7 +5237,7 @@ export default function AmigoCRM() {
                         const nd = {...data, filamentStock:stock.map(x=>x.id===s.id?{...x,weightUsed:Math.max(0,Math.min(x.weightTotal,val))}:x)};
                         setData({...nd});
                         savingRef.current=true;
-                        storage.set(KEY,JSON.stringify(nd)).then(()=>setLastSync(Date.now())).finally(()=>setTimeout(()=>{savingRef.current=false;},6000));
+                        storage.set(KEY,JSON.stringify(nd)).then(()=>{setLastSync(Date.now());storage.getTimestamp(KEY).then(ts=>{if(ts)lastRemoteTs.current=ts;});}).finally(()=>setTimeout(()=>{savingRef.current=false;},6000));
                       }} style={{padding:"4px 8px",borderRadius:5,fontSize:10,background:"#14b8a618",border:"1px solid #14b8a628",color:"#14b8a6",cursor:"pointer",fontWeight:600}}>OK</button>
                     </div>
                     {low&&<p style={{fontSize:9,color:"#f87171",marginTop:6,fontWeight:600}}>⚠ Stock bas — penser à commander</p>}
@@ -3412,7 +5255,7 @@ export default function AmigoCRM() {
                 const nd = {...data, filamentStock:[...stock, {id:"fil"+uid(), color, hex:hex||"#808080", material, weightTotal:weight, weightUsed:0}]};
                 setData({...nd});
                 savingRef.current=true;
-                storage.set(KEY,JSON.stringify(nd)).then(()=>setLastSync(Date.now())).finally(()=>setTimeout(()=>{savingRef.current=false;},6000));
+                storage.set(KEY,JSON.stringify(nd)).then(()=>{setLastSync(Date.now());storage.getTimestamp(KEY).then(ts=>{if(ts)lastRemoteTs.current=ts;});}).finally(()=>setTimeout(()=>{savingRef.current=false;},6000));
               }} style={{background:"#0b0d16",border:"2px dashed #1a2035",borderRadius:10,padding:14,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",minHeight:120}}>
                 <div style={{textAlign:"center"}}>
                   <p style={{fontSize:24,marginBottom:4}}>+</p>
@@ -3660,175 +5503,15 @@ export default function AmigoCRM() {
         {view==="carte"&&projId==="vin"&&<CarteVin prospects={prospects} onOpenProspect={setDetailProspect} onAddProspect={()=>setShowAddProspect(true)}/>}
 
         {/* ══ ACTIVITÉ ══ */}
-        {view==="activite"&&(
-          <div className="fade">
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:12}}>
-              {Object.entries(USERS).map(([uid,u])=>(
-                <div key={uid} style={{background:"#0b0d16",border:`1px solid ${u.color}15`,borderRadius:10,padding:14}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-                    <div style={{width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${u.color}70,${u.color})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"white"}}>{u.avatar}</div>
-                    <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9"}}>{u.label} {user===uid&&<span style={{fontSize:10,color:"#4b5563"}}>(vous)</span>}</p>
-                  </div>
-                  {[{l:"Assignés",v:prospects.filter(p=>p.assignedTo===uid).length,c:u.color},{l:"Modifiés",v:prospects.filter(p=>p.lastEditBy===uid).length,c:"#f1f5f9"},{l:"Commandes",v:projOrders.filter(o=>o.createdBy===uid).length,c:"#22c55e"}].map(r=>(
-                    <div key={r.l} style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-                      <span style={{fontSize:11,color:"#4b5563"}}>{r.l}</span>
-                      <span style={{fontSize:12,fontWeight:700,color:r.c}}>{r.v}</span>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-            <div style={{background:"#0b0d16",border:"1px solid #0f1520",borderRadius:10,overflow:"hidden"}}>
-              <div style={{padding:"9px 14px",borderBottom:"1px solid #0d1020",display:"flex",alignItems:"center",gap:7}}>
-                <span className="pulse" style={{width:5,height:5,borderRadius:"50%",background:"#22c55e",display:"inline-block"}}/>
-                <p style={{fontSize:11,color:"#6b7280",fontWeight:600}}>Fil d'activité — {P.label}</p>
-              </div>
-              {activity.length===0
-                ? <div style={{padding:"30px",textAlign:"center",color:"#2d3748"}}><p style={{fontSize:12}}>Aucune activité encore.</p></div>
-                : activity.map((a,i)=>{const u=USERS[a.by];return(
-                  <div key={a.id||i} style={{padding:"8px 14px",borderBottom:"1px solid #080a0f",display:"flex",alignItems:"center",gap:8}}>
-                    <div style={{width:20,height:20,borderRadius:"50%",background:`linear-gradient(135deg,${u?.color||"#6b7280"}70,${u?.color||"#6b7280"})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"white",flexShrink:0}}>{u?.avatar}</div>
-                    <div style={{flex:1,fontSize:12}}>
-                      <span style={{color:u?.color,fontWeight:600}}>{a.byLabel}</span>
-                      <span style={{color:"#6b7280"}}> · </span>
-                      <span style={{color:"#e2e8f0",fontWeight:500}}>{a.prospectName}</span>
-                      <span style={{color:"#4b5563"}}> {a.action}</span>
-                    </div>
-                    <span style={{fontSize:10,color:"#2d3748",flexShrink:0}}>{ago(a.at)}</span>
-                  </div>
-                );})}
-            </div>
-          </div>
-        )}
+        {view==="activite"&&<ActivityLog data={data} projId={projId} effectiveProjId={effectiveProjId} user={user} prospects={prospects} projOrders={projOrders} P={P} accent={accent}/>}
+        {view==="idees"&&<IdeasBox data={data} user={user} save={save}/>}
       </div>
 
       {/* ══ MODALS ══ */}
-      {showAddProspect&&<AddProspectModal projId={effectiveProjId} onAdd={addProspect} onClose={()=>setShowAddProspect(false)}/>}
+      {showAddProspect&&<AddProspectModal projId={effectiveProjId} onAdd={addProspect} onClose={()=>setShowAddProspect(false)} allProspects={["makeup","vin","vinClients","print3d"].flatMap(k=>(data?.[k]||[]).map(p=>({...p,_projKey:k})))}/>}
       {showAddOrder!==undefined&&<AddOrderModal projId={projId} prospects={prospects} preselect={showAddOrder} onAdd={addOrder} onClose={()=>setShowAddOrder(undefined)}/>}
-      {detailOrder&&(()=>{
-        const o = detailOrder;
-        const isCmd = o.type!=="devis";
-        const allowedStatuses = isCmd ? ORDER_STATUSES : QUOTE_STATUSES;
-        const statusIdx = isCmd ? ORDER_STATUSES.indexOf(o.status) : -1;
-        const pixStr = isCmd && o.amount > 0 ? pixPayload(o.amount, o.id.slice(0,25)) : "";
-        const pixQrUrl = pixStr ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pixStr)}` : "";
-
-        const printInvoice = () => {
-          const w = window.open("","_blank","width=800,height=600");
-          w.document.write(`<html><head><title>Factura ${o.id}</title><style>
-            body{font-family:Arial,sans-serif;padding:40px;color:#222;max-width:700px;margin:0 auto}
-            h1{font-size:22px;margin-bottom:4px} .sub{color:#666;font-size:12px}
-            table{width:100%;border-collapse:collapse;margin:20px 0} th,td{padding:8px 12px;border:1px solid #ddd;text-align:left;font-size:13px}
-            th{background:#f5f5f5} .total{font-size:18px;font-weight:bold;color:#16a34a}
-            .pix{text-align:center;margin:20px 0} .pix img{width:180px} .footer{margin-top:30px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:10px}
-          </style></head><body>
-            <h1>${EMPRESA.nome} — Labo 3D</h1>
-            <p class="sub">CNPJ: ${EMPRESA.cnpj} · ${EMPRESA.email} · ${EMPRESA.tel}</p>
-            <hr style="margin:16px 0;border:none;border-top:2px solid #222">
-            <h2 style="font-size:16px">FACTURA N° ${o.id.toUpperCase()}</h2>
-            <table>
-              <tr><th>Cliente</th><td>${o.prospectName||"–"}</td></tr>
-              <tr><th>Produto</th><td>${o.product||"–"}</td></tr>
-              <tr><th>Quantidade</th><td>${o.qty||1}</td></tr>
-              <tr><th>Data</th><td>${o.date||new Date().toISOString().slice(0,10)}</td></tr>
-            </table>
-            <p class="total">TOTAL: R$ ${o.amount?.toFixed(2)||"0.00"}</p>
-            ${pixQrUrl?`<div class="pix"><p style="font-size:13px;font-weight:bold">Pagamento PIX</p><img src="${pixQrUrl}" alt="QR PIX"/><p style="font-size:11px;color:#666;margin-top:6px">Chave PIX (CNPJ): ${EMPRESA.cnpj}</p></div>`:""}
-            <div class="footer">
-              <p>${EMPRESA.nome} — Labo 3D · CNPJ ${EMPRESA.cnpj} · ${EMPRESA.cidade}</p>
-              <p>Documento gerado em ${new Date().toLocaleDateString("pt-BR")}</p>
-            </div>
-          </body></html>`);
-          w.document.close();
-          setTimeout(()=>w.print(), 300);
-        };
-
-        const exportCSV = () => {
-          const rows = [
-            ["N°","Cliente","Produto","Qtd","Valor","Data","Status"],
-            [o.id, o.prospectName, o.product, o.qty||1, o.amount?.toFixed(2), o.date, o.status]
-          ];
-          const csv = rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");
-          const blob = new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"});
-          const a = document.createElement("a"); a.href=URL.createObjectURL(blob);
-          a.download=`factura_${o.id}.csv`; a.click();
-        };
-
-        return (
-        <ModalWrap title={`${isCmd?"📦 Commande":"📋 Devis"} — ${o.prospectName||"–"}`} onClose={()=>setDetailOrder(null)} wide>
-          {o.thumbnail&&(
-            <div style={{marginBottom:14,textAlign:"center"}}>
-              <img src={o.thumbnail} alt="Aperçu" style={{maxWidth:"100%",maxHeight:180,borderRadius:9,border:"1px solid #1a2035"}}/>
-            </div>
-          )}
-
-          {/* Barre de progression commande */}
-          {isCmd&&(
-            <div style={{display:"flex",gap:4,marginBottom:14}}>
-              {ORDER_STATUSES.filter(s=>s!=="Annulée").map((s,i)=>{
-                const cur = ORDER_STATUSES.indexOf(o.status);
-                const done = i <= cur;
-                return <div key={s} style={{flex:1,textAlign:"center"}}>
-                  <div style={{height:4,borderRadius:2,background:done?"#22c55e":"#1a2035",marginBottom:4}}/>
-                  <span style={{fontSize:9,color:done?"#4ade80":"#4b5563",fontWeight:i===cur?700:400}}>{s}</span>
-                </div>;
-              })}
-            </div>
-          )}
-
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 14px",marginBottom:14}}>
-            <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Client</p><p style={{fontSize:13,color:"#f1f5f9",fontWeight:600}}>{o.prospectName||"–"}</p></div>
-            <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Produit</p><p style={{fontSize:13,color:"#f1f5f9"}}>{o.product||"–"}</p></div>
-            <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Montant</p><p style={{fontSize:15,color:"#22c55e",fontWeight:700}}>R${o.amount?.toFixed(2)}</p></div>
-            <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Quantité</p><p style={{fontSize:13,color:"#f1f5f9"}}>{o.qty||1}</p></div>
-            <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Date</p><p style={{fontSize:13,color:"#f1f5f9"}}>{o.date||"–"}</p></div>
-            <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Statut</p>
-              <select value={o.status} onChange={e=>{updateOrder(o.id,{status:e.target.value});setDetailOrder(d=>({...d,status:e.target.value}));}}
-                style={{padding:"5px 8px",borderRadius:6,fontSize:12,outline:"none",cursor:"pointer",background:"#080a0f",border:"1px solid #1a2035",color:"#f1f5f9",fontFamily:"inherit"}}>
-                {allowedStatuses.map(s=><option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {o.notes&&(
-            <div style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520",marginBottom:14}}>
-              <p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:6}}>Détail calcul</p>
-              <p style={{fontSize:12,color:"#e2e8f0",lineHeight:1.7}}>{o.notes.split(" · ").join("\n").split("\n").map((l,i)=><span key={i}>{l}<br/></span>)}</p>
-            </div>
-          )}
-
-          {/* PIX QR Code — visible pour commandes confirmées+ */}
-          {isCmd && statusIdx >= 1 && pixQrUrl && (
-            <div style={{background:"#080a0f",borderRadius:8,padding:"14px",border:"1px solid #22c55e18",marginBottom:14,textAlign:"center"}}>
-              <p style={{fontSize:11,fontWeight:700,color:"#22c55e",marginBottom:8,textTransform:"uppercase"}}>Pagamento PIX</p>
-              <img src={pixQrUrl} alt="QR PIX" style={{width:160,height:160,borderRadius:8,border:"4px solid white"}}/>
-              <p style={{fontSize:11,color:"#4b5563",marginTop:8}}>Chave CNPJ: {EMPRESA.cnpj}</p>
-              <p style={{fontSize:13,fontWeight:700,color:"#4ade80",marginTop:4}}>R$ {o.amount?.toFixed(2)}</p>
-              <button onClick={()=>{navigator.clipboard.writeText(pixStr);}} style={{marginTop:8,padding:"5px 14px",background:"#22c55e15",border:"1px solid #22c55e28",borderRadius:6,color:"#4ade80",fontSize:11,fontWeight:600,cursor:"pointer"}}>
-                Copier code PIX
-              </button>
-            </div>
-          )}
-
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            {!isCmd && o.status==="Accepté"&&(
-              <button onClick={()=>{updateOrder(o.id,{type:"commande",status:"En attente"});setDetailOrder(d=>({...d,type:"commande",status:"En attente"}));celebrate();}}
-                style={{flex:1,padding:"9px",background:"linear-gradient(135deg,#22c55e,#16a34a)",border:"none",borderRadius:7,color:"white",fontSize:13,fontWeight:600,cursor:"pointer"}}>→ Passer en commande</button>
-            )}
-            {isCmd && (
-              <button onClick={printInvoice}
-                style={{flex:1,padding:"9px",background:"#3b82f615",border:"1px solid #3b82f628",borderRadius:7,color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer"}}>🖨 Imprimer facture</button>
-            )}
-            {isCmd && (
-              <button onClick={exportCSV}
-                style={{flex:1,padding:"9px",background:"#f59e0b15",border:"1px solid #f59e0b28",borderRadius:7,color:"#fbbf24",fontSize:12,fontWeight:600,cursor:"pointer"}}>📊 Export CSV</button>
-            )}
-            <button onClick={()=>setDetailOrder(null)} style={{flex:1,padding:"9px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:7,color:"#6b7280",fontSize:12,cursor:"pointer"}}>Fermer</button>
-          </div>
-        </ModalWrap>
-        );
-      })()}
-      {detailProspect&&<ProspectModal prospect={detailProspect} projId={effectiveProjId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} gmailThreads={gmailThreads} prospectEmails={data?.prospectEmails||{}} onSendEmail={sendGmail} onScanForProspect={scanForProspect} onClearEmails={clearProspectEmails} gmailLoading={gmailLoading}/>}
+      {detailOrder&&<OrderDetailModal key={detailOrder.id} o={detailOrder} data={data} projId={projId} $={$} updateOrder={updateOrder} setDetailOrder={setDetailOrder} setDetailProspect={setDetailProspect} sendGmail={sendGmail} celebrate={celebrate}/>}
+      {detailProspect&&<ProspectModal prospect={detailProspect} projId={effectiveProjId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} onDelete={deleteProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} onViewOrder={o=>{setDetailProspect(null);setDetailOrder(o);}} onSendGroupQuote={async(pid,token)=>{if(!data)return;updateProspect(pid,{groupQuoteToken:token});}} gmailThreads={gmailThreads} prospectEmails={data?.prospectEmails||{}} onSendEmail={sendGmail} onScanForProspect={scanForProspect} onClearEmails={clearProspectEmails} gmailLoading={gmailLoading}/>}
       {showAddEvent&&<AddEventModal onAdd={createCalEvent} onClose={()=>setShowAddEvent(null)} preDate={showAddEvent==="new"?null:showAddEvent} currentUser={user}/>}
       {showEmailModal&&<EmailModal prospect={showEmailModal} projId={effectiveProjId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail} onUpdateStatus={updateProspect}/>}
     </div>
