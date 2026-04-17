@@ -1,0 +1,23 @@
+{
+  "supabase": {
+    "url": "https://sujdarqrksqwcmtapcjw.supabase.co",
+    "anonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN1amRhcnFya3Nxd2NtdGFwY2p3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNzI1NDgsImV4cCI6MjA4ODc0ODU0OH0.X1UaTAq6zdxwYCoAllUDE_GoTS-TlvgZrK1OWKkc_nM"
+  },
+  "bambu": {
+    "ip": "192.168.0.8",
+    "accessCode": "2573ca73",
+    "serial": "03900D5A0400459",
+    "name": "Bambu Lab A1"
+  },
+  "creality": {
+    "ip": "192.168.0.9",
+    "name": "Creality Ender 3 V3 KE"
+  },
+  "pollInterval": 30000,
+  "supabaseKey": "amigo-v9",
+  "blender": {
+    "host": "127.0.0.1",
+    "port": 9876,
+    "wsPort": 8769
+  }
+}

@@ -1163,6 +1163,230 @@ function Print3DCalculator({ prospects, orders, onSaveQuote, onSaveWithNewClient
   );
 }
 
+// ── Blender 3D Studio ──────────────────────────────────────────────────────
+
+function BlenderStudio() {
+  const [bridgeHost, setBridgeHost] = useState(() => localStorage.getItem("amigo-blender-host") || "");
+  const wsUrl = `ws://${bridgeHost || "localhost"}:8769`;
+  const [connected, setConnected] = useState(false);
+  const [ws, setWs]      = useState(null);
+  const [log, setLog]    = useState([]);
+  const [screenshot, setScreenshot] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [sceneInfo, setSceneInfo] = useState(null);
+  const [creating, setCreating] = useState(false);
+
+  const logRef = useRef(null);
+
+  const addLog = useCallback((msg, type="info") => {
+    setLog(prev => [...prev.slice(-50), { msg, type, at: Date.now() }]);
+  }, []);
+
+  const connect = useCallback(() => {
+    try {
+      const socket = new WebSocket(wsUrl);
+      socket.onopen = () => { setConnected(true); setWs(socket); addLog("Connecté au bridge Blender", "ok"); socket.send(JSON.stringify({ action: "ping" })); };
+      socket.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.error) { addLog(`Erreur: ${data.error}${data.hint ? " — " + data.hint : ""}`, "err"); return; }
+          if (data.action === "ping" || data.action === "scene_info") {
+            setSceneInfo(data.result);
+            addLog("Scène Blender connectée", "ok");
+          }
+          if (data.action === "screenshot" && data.result) {
+            if (typeof data.result === "string") setScreenshot("data:image/png;base64," + data.result);
+            else if (data.result.image) setScreenshot("data:image/png;base64," + data.result.image);
+            addLog("Screenshot reçu", "ok");
+          }
+          if (data.action === "generate_model") {
+            setCreating(false);
+            addLog("Modèle généré !", "ok");
+            socket.send(JSON.stringify({ action: "screenshot" }));
+          }
+          if (data.action === "create_object") { addLog("Objet créé", "ok"); socket.send(JSON.stringify({ action: "screenshot" })); }
+          if (data.action === "clear_scene") { addLog("Scène vidée", "ok"); setScreenshot(""); }
+          if (data.action === "export_stl") {
+            if (data.result?.raw || typeof data.result === "string") {
+              const b64 = typeof data.result === "string" ? data.result : data.result.raw;
+              const blob = new Blob([Uint8Array.from(atob(b64), c => c.charCodeAt(0))], { type: "application/octet-stream" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a"); a.href = url; a.download = "modele.stl"; a.click();
+              addLog("STL téléchargé", "ok");
+            }
+          }
+        } catch (err) { addLog("Réponse invalide: " + err.message, "err"); }
+      };
+      socket.onclose = () => { setConnected(false); setWs(null); addLog("Déconnecté", "err"); };
+      socket.onerror = () => { addLog("Impossible de se connecter au bridge. Lancez: node printer-bridge/blender-bridge.js", "err"); };
+    } catch (err) { addLog("Erreur connexion: " + err.message, "err"); }
+  }, [wsUrl, addLog]);
+
+  const send = useCallback((action, params) => {
+    if (!ws || ws.readyState !== 1) { addLog("Non connecté", "err"); return; }
+    ws.send(JSON.stringify({ action, params, id: Date.now() }));
+  }, [ws, addLog]);
+
+  const generateModel = () => {
+    if (!prompt.trim()) return;
+    setCreating(true);
+    addLog(`Génération: "${prompt}"...`, "info");
+    send("generate_model", { description: prompt, color: [0.2, 0.6, 0.9, 1] });
+  };
+
+  const presets = [
+    { label: "Vase décoratif", prompt: "vase décoratif élégant" },
+    { label: "Trophée", prompt: "trophée personnalisé" },
+    { label: "Maquette maison", prompt: "maquette architecturale maison" },
+    { label: "Support téléphone", prompt: "support téléphone bureau" },
+    { label: "Engrenage", prompt: "engrenage mécanique" },
+  ];
+
+  useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [log]);
+
+  const ls = { fontSize: 9, color: "#4b5563", marginBottom: 3, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".3px" };
+
+  return (
+    <div className="fade" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+      {/* ── Panneau gauche : contrôles ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* Connexion */}
+        <div style={{ background: "#0b0d16", border: "1px solid #0f1520", borderRadius: 11, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: "#14b8a6", textTransform: "uppercase", letterSpacing: ".5px" }}>🎨 Blender Studio</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: connected ? "#22c55e" : "#ef4444", display: "inline-block" }} />
+              <span style={{ fontSize: 10, color: connected ? "#4ade80" : "#f87171" }}>{connected ? "Connecté" : "Déconnecté"}</span>
+            </div>
+          </div>
+          {!connected ? (
+            <div>
+              <p style={{ fontSize: 11, color: "#6b7280", marginBottom: 10, lineHeight: 1.5 }}>
+                Pour utiliser le studio 3D :<br />
+                1. Harold ouvre Blender avec l'addon <span style={{ color: "#14b8a6", fontWeight: 600 }}>blender-mcp</span><br />
+                2. Harold lance <code style={{ background: "#080a0f", padding: "1px 5px", borderRadius: 3, fontSize: 10 }}>node blender-bridge.js</code>
+              </p>
+              <div style={{ marginBottom: 8 }}>
+                <p style={{ fontSize: 9, color: "#4b5563", marginBottom: 3, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".3px" }}>IP du Mac de Harold (vide = localhost)</p>
+                <input value={bridgeHost} onChange={e => { setBridgeHost(e.target.value); localStorage.setItem("amigo-blender-host", e.target.value); }}
+                  placeholder="Ex: 192.168.0.12"
+                  style={{ width: "100%", padding: "7px 9px", borderRadius: 7, fontSize: 12, outline: "none", background: "#080a0f", border: "1px solid #1a2035", color: "#e2e8f0", fontFamily: "inherit" }} />
+              </div>
+              <button onClick={connect} style={{ width: "100%", padding: "9px", background: "linear-gradient(135deg,#14b8a6,#0d9488)", border: "none", borderRadius: 7, color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                Se connecter à Blender ({bridgeHost || "localhost"})
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => send("scene_info")} style={{ flex: 1, padding: "6px", background: "#14b8a615", border: "1px solid #14b8a625", borderRadius: 6, color: "#2dd4bf", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Info scène</button>
+              <button onClick={() => send("screenshot")} style={{ flex: 1, padding: "6px", background: "#3b82f615", border: "1px solid #3b82f625", borderRadius: 6, color: "#60a5fa", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Screenshot</button>
+              <button onClick={() => send("clear_scene")} style={{ flex: 1, padding: "6px", background: "#ef444415", border: "1px solid #ef444425", borderRadius: 6, color: "#f87171", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Vider scène</button>
+            </div>
+          )}
+        </div>
+
+        {/* Générateur de modèle */}
+        {connected && (
+          <div style={{ background: "#0b0d16", border: "1px solid #14b8a620", borderRadius: 11, padding: 16 }}>
+            <p style={ls}>Générer un modèle 3D</p>
+            <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
+              placeholder="Décrivez le modèle à générer... Ex: un vase décoratif, un support téléphone, une maquette de maison..."
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); generateModel(); } }}
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 8, fontSize: 12, resize: "none", height: 70, lineHeight: 1.6, outline: "none", background: "#080a0f", border: "1px solid #1a2035", color: "#e2e8f0", fontFamily: "inherit", marginBottom: 8 }} />
+            <button onClick={generateModel} disabled={!prompt.trim() || creating}
+              style={{ width: "100%", padding: "10px", background: creating ? "#0d948860" : "linear-gradient(135deg,#14b8a6,#0d9488)", border: "none", borderRadius: 7, color: "white", fontSize: 12, fontWeight: 600, cursor: creating ? "wait" : "pointer", marginBottom: 10 }}>
+              {creating ? "⏳ Génération en cours..." : "🎨 Générer le modèle"}
+            </button>
+
+            {/* Presets rapides */}
+            <p style={{ ...ls, marginTop: 4 }}>Modèles prédéfinis</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {presets.map(p => (
+                <button key={p.label} onClick={() => { setPrompt(p.prompt); }}
+                  style={{ padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, background: "#080a0f", border: "1px solid #1a2035", color: "#94a3b8", cursor: "pointer" }}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Ajouter des objets */}
+        {connected && (
+          <div style={{ background: "#0b0d16", border: "1px solid #0f1520", borderRadius: 11, padding: 16 }}>
+            <p style={ls}>Ajouter un objet</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5 }}>
+              {[
+                { type: "cube", icon: "⬜", label: "Cube" },
+                { type: "uv_sphere", icon: "🔵", label: "Sphère" },
+                { type: "cylinder", icon: "🔷", label: "Cylindre" },
+                { type: "cone", icon: "🔺", label: "Cône" },
+                { type: "torus", icon: "⭕", label: "Tore" },
+                { type: "plane", icon: "▬", label: "Plan" },
+              ].map(obj => (
+                <button key={obj.type} onClick={() => send("create_object", { type: obj.type, name: obj.label })}
+                  style={{ padding: "8px", borderRadius: 7, background: "#080a0f", border: "1px solid #1a2035", color: "#e2e8f0", cursor: "pointer", fontSize: 11, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                  <span style={{ fontSize: 16 }}>{obj.icon}</span>
+                  <span style={{ fontSize: 10, color: "#94a3b8" }}>{obj.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Export */}
+        {connected && (
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={() => send("export_stl", { name: "amigo-model" })}
+              style={{ flex: 1, padding: "9px", background: "#22c55e15", border: "1px solid #22c55e25", borderRadius: 7, color: "#4ade80", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+              📥 Exporter STL
+            </button>
+            <button onClick={() => send("screenshot")}
+              style={{ flex: 1, padding: "9px", background: "#3b82f615", border: "1px solid #3b82f625", borderRadius: 7, color: "#60a5fa", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+              📸 Capturer aperçu
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Panneau droit : aperçu + log ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* Aperçu viewport */}
+        <div style={{ background: "#0b0d16", border: "1px solid #0f1520", borderRadius: 11, overflow: "hidden" }}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid #0d1020", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <p style={{ fontSize: 11, fontWeight: 600, color: "#f1f5f9" }}>Aperçu Blender</p>
+            {sceneInfo && <span style={{ fontSize: 10, color: "#4b5563" }}>{typeof sceneInfo === "object" ? `${Object.keys(sceneInfo.objects || {}).length || "?"} objets` : ""}</span>}
+          </div>
+          {screenshot ? (
+            <img src={screenshot} alt="Blender viewport" style={{ width: "100%", display: "block" }} />
+          ) : (
+            <div style={{ padding: "80px 20px", textAlign: "center", color: "#2d3748" }}>
+              <p style={{ fontSize: 32, marginBottom: 8 }}>🎨</p>
+              <p style={{ fontSize: 12 }}>{connected ? "Cliquez sur Screenshot pour voir l'aperçu" : "Connectez-vous à Blender pour commencer"}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Log */}
+        <div ref={logRef} style={{ background: "#0b0d16", border: "1px solid #0f1520", borderRadius: 11, padding: 12, maxHeight: 200, overflow: "auto" }}>
+          <p style={{ ...ls, marginBottom: 8 }}>Journal</p>
+          {log.length === 0 ? (
+            <p style={{ fontSize: 11, color: "#374151" }}>En attente...</p>
+          ) : log.map((l, i) => (
+            <div key={i} style={{ display: "flex", gap: 6, marginBottom: 3, alignItems: "baseline" }}>
+              <span style={{ fontSize: 10, color: l.type === "ok" ? "#4ade80" : l.type === "err" ? "#f87171" : "#94a3b8" }}>
+                {l.type === "ok" ? "✓" : l.type === "err" ? "✗" : "·"}
+              </span>
+              <span style={{ fontSize: 11, color: l.type === "err" ? "#f87171" : "#94a3b8" }}>{l.msg}</span>
+              <span style={{ fontSize: 9, color: "#2d3748", marginLeft: "auto" }}>{ago(l.at)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function WineFinancePanel({ prospect }) {
   const EUR_BRL = 5.40;
   const prixAchat = parseFloat(prospect.prixProducteur)||0;
@@ -4435,7 +4659,7 @@ export default function AmigoCRM() {
         </div>
 
         <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
-          {[["dashboard","Dashboard"],["kanban","Pipeline"],["commandes","Commandes"],["finance","Finance"],...(projId==="print3d"?[["stock","Stock"]]:[]),["emails","Emails"],["agenda","Agenda"],["activite","Activité"],...(projId==="vin"?[["carte","🗺 Carte"]]:[]),["idees","💡"]]
+          {[["dashboard","Dashboard"],["kanban","Pipeline"],["commandes","Commandes"],["finance","Finance"],...(projId==="print3d"?[["stock","Stock"],["blender","🎨 3D Studio"]]:[]),["emails","Emails"],["agenda","Agenda"],["activite","Activité"],...(projId==="vin"?[["carte","🗺 Carte"]]:[]),["idees","💡"]]
           .map(([v,l])=>(
             <button key={v} onClick={()=>setView(v)} className="btn"
               style={{padding:"4px 11px",borderRadius:5,fontSize:12,fontWeight:500,background:view===v?`${accent}18`:"transparent",color:view===v?accent:"#94a3b8",border:view===v?`1px solid ${accent}22`:"1px solid transparent",cursor:"pointer"}}>
@@ -5192,6 +5416,11 @@ export default function AmigoCRM() {
           </div>
         )}
 
+
+        {/* ══ BLENDER 3D STUDIO ══ */}
+        {view==="blender"&&projId==="print3d"&&(
+          <BlenderStudio/>
+        )}
 
         {/* ══ STOCK FILAMENT ══ */}
         {view==="stock"&&projId==="print3d"&&(()=>{
