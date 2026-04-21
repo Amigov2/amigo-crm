@@ -2029,6 +2029,11 @@ const EMAIL_TEMPLATES = {
   ],
   makeup: [
     {
+      id:"makeup_tournee", label:"Tournée Europe (masse)",
+      subject: p => `Workshops Maquillage Carnaval & Formation Rio — ${p.name}`,
+      body: p => `Madame, Monsieur,\n\nJe suis Anthony Donzel, je réside à Rio de Janeiro et travaille avec trois maquilleurs du Carnaval de Rio : Christina Gall, Jorge Abreu et Guilherme Camilo.\n\nJ'organise une tournée européenne de workshops et serai en France en novembre. Je souhaiterais savoir si vous seriez disponible pour accueillir une session à cette occasion.\n\nJe développe également des séjours de formation à Rio pendant le Carnaval, et cherche des écoles partenaires pour y envoyer des étudiants.\n\nVoici le lien de notre site internet : https://cgall.netlify.app/\n\nSeriez-vous intéressés par l'un de ces projets ? Je reste disponible pour un appel si vous souhaitez en discuter.\n\nCordialement,\nAnthony Donzel`,
+    },
+    {
       id:"makeup_intro", label:"Présentation package",
       subject: p => `Package Formation Carnaval Rio 2026 — ${p.name}`,
       body: p => `Bonjour${p.contact?` ${p.contact.split(" ")[0]}`:""},\n\nJe me permets de vous contacter au sujet d'un partenariat exclusif pour votre école de maquillage.\n\nNous proposons un package immersif "Carnaval Rio" développé avec Madame Gall — 5 jours de formation terrain à Rio de Janeiro en février, hébergement Ipanema inclus.\n\n✦ Tarif : 3 500€/élève\n✦ Groupes : 6 à 10 personnes\n✦ Programme : techniques Carnaval, couleur, effets spéciaux en conditions réelles\n\nCe séjour représente une expérience unique pour vos élèves et un argument différenciant fort pour votre école.\n\nSeriez-vous disponible pour en discuter ?\n\nCordialement,\nAnthony Donzel`,
