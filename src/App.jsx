@@ -4813,10 +4813,10 @@ export default function AmigoCRM() {
               const fromEmail=visits.filter(v=>v.utmSource==="amigo");
               const allProspectsFlat=[...(data?.makeup||[]),...(data?.vin||[]),...(data?.vinClients||[]),...(data?.print3d||[])];
               const findProspect=id=>allProspectsFlat.find(p=>p.id===id);
-              const recentVisits=visits.filter(v=>["pageview","click_booking","click_email","engaged"].includes(v.event)).slice(-15).reverse();
-              const eventIcon=e=>e==="click_booking"?"📅":e==="click_email"?"✉️":e==="engaged"?"🔥":"👁";
-              const eventColor=e=>e==="click_booking"?"#22c55e":e==="click_email"?"#f59e0b":e==="engaged"?"#f97316":"#4b5563";
-              const eventLabel=e=>e==="pageview"?"Visite":e==="click_booking"?"Clic Booking":e==="click_email"?"Clic Email":e==="engaged"?"Engagé":e;
+              const recentVisits=visits.filter(v=>["pageview","click_booking","click_email","engaged","section_view"].includes(v.event)).slice(-20).reverse();
+              const eventIcon=e=>e==="click_booking"?"📅":e==="click_email"?"✉️":e==="engaged"?"🔥":e==="section_view"?"📍":"👁";
+              const eventColor=e=>e==="click_booking"?"#22c55e":e==="click_email"?"#f59e0b":e==="engaged"?"#f97316":e==="section_view"?"#8b5cf6":"#60a5fa";
+              const eventLabel=e=>e==="pageview"?"Visite":e==="click_booking"?"Clic Booking":e==="click_email"?"Clic Email":e==="engaged"?"Engagé":e==="section_view"?"Section vue":e;
               return (
                 <div style={{background:"#0b0d16",border:"1px solid #ec489922",borderRadius:11,padding:16,marginBottom:16}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
