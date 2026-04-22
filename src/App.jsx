@@ -4877,6 +4877,74 @@ export default function AmigoCRM() {
               );
             })()}
 
+            {/* Visites site labo3d.com */}
+            {(()=>{
+              const visits = data?.siteVisitsLabo3d||[];
+              if(visits.length===0) return null;
+              const now=Date.now();
+              const today=visits.filter(v=>now-v.at<86400000&&v.event==="pageview");
+              const week=visits.filter(v=>now-v.at<7*86400000&&v.event==="pageview");
+              const waClicks=visits.filter(v=>v.event==="click_whatsapp");
+              const engaged=visits.filter(v=>v.event==="engaged");
+              const fromEmail=visits.filter(v=>v.utmSource==="amigo");
+              const allP3d=data?.print3d||[];
+              const findProspect=id=>allP3d.find(p=>p.id===id);
+              const recentVisits=visits.filter(v=>["pageview","click_whatsapp","click_email","engaged"].includes(v.event)).slice(-15).reverse();
+              const eventIcon=e=>e==="click_whatsapp"?"💬":e==="click_email"?"✉️":e==="engaged"?"🔥":"👁";
+              const eventColor=e=>e==="click_whatsapp"?"#22c55e":e==="click_email"?"#f59e0b":e==="engaged"?"#f97316":"#60a5fa";
+              const eventLabel=e=>e==="pageview"?"Visite":e==="click_whatsapp"?"Clic WhatsApp":e==="click_email"?"Clic Email":e==="engaged"?"Engagé":e;
+              return (
+                <div style={{background:"#0b0d16",border:"1px solid #14b8a622",borderRadius:11,padding:16,marginBottom:16}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                    <span style={{fontSize:14}}>🧊</span>
+                    <span style={{fontSize:12,fontWeight:700,color:"#14b8a6"}}>labo3d.com</span>
+                    <span style={{fontSize:10,color:"#4b5563"}}>· {visits.filter(v=>v.event==="pageview").length} visites · {fromEmail.length} depuis emails</span>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
+                    {[
+                      {label:"Aujourd'hui",value:today.length,color:"#f1f5f9"},
+                      {label:"Cette semaine",value:week.length,color:"#60a5fa"},
+                      {label:"Clics WhatsApp",value:waClicks.length,color:"#22c55e"},
+                      {label:"Engagés",value:engaged.length,color:"#f97316"},
+                    ].map(k=>(
+                      <div key={k.label} style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520"}}>
+                        <p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>{k.label}</p>
+                        <p style={{fontSize:18,fontWeight:700,color:k.color}}>{k.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{maxHeight:250,overflow:"auto"}}>
+                  {recentVisits.map((v,i)=>{
+                    const prospect=v.prospectId?findProspect(v.prospectId):null;
+                    return (
+                    <div key={i} onClick={()=>{if(prospect){setProjId("print3d");setView("kanban");setDetailProspect(prospect);}}}
+                      style={{display:"flex",gap:8,alignItems:"center",padding:"6px 4px",borderBottom:"1px solid #0d1020",cursor:prospect?"pointer":"default",borderRadius:4}}
+                      onMouseEnter={e=>{if(prospect)e.currentTarget.style.background="#0c1020";}}
+                      onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
+                      <span style={{fontSize:12,color:eventColor(v.event)}}>{eventIcon(v.event)}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                          <span style={{fontSize:11,fontWeight:600,color:eventColor(v.event)}}>{eventLabel(v.event)}</span>
+                          {prospect&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:4,background:"#14b8a618",color:"#14b8a6",fontWeight:600}}>{prospect.name}</span>}
+                          {!prospect&&v.utmSource==="amigo"&&<span style={{fontSize:10,color:"#14b8a6"}}>via email</span>}
+                        </div>
+                        <div style={{display:"flex",gap:6,marginTop:3,flexWrap:"wrap"}}>
+                          {v.city&&<span style={{fontSize:10,color:"#e2e8f0",background:"#1e1b4b",padding:"1px 6px",borderRadius:3,fontWeight:600}}>📍 {v.city}{v.country&&v.country!=="Brazil"?", "+v.country:""}</span>}
+                          {v.isp&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>🏢 {v.isp}</span>}
+                          {v.device&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>💻 {v.device}</span>}
+                          {v.browser&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>🌐 {v.browser}</span>}
+                          {v.timeOnPage>0&&<span style={{fontSize:10,color:"#60a5fa",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>⏱ {v.timeOnPage}s</span>}
+                          {v.scrollPct>0&&<span style={{fontSize:10,color:"#a78bfa",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>📜 {v.scrollPct}%</span>}
+                        </div>
+                      </div>
+                      <span style={{fontSize:10,color:"#374151",flexShrink:0}}>{ago(v.at)}</span>
+                    </div>);
+                  })}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Relances devis en attente */}
             {(()=>{
               const pendingQuotes = allOrders.filter(o=>o.type==="devis"&&o.status==="Envoyé").map(o=>{
