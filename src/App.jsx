@@ -4855,6 +4855,8 @@ export default function AmigoCRM() {
                           {v.ref&&v.ref!=="direct"&&!v.utmSource&&<span style={{fontSize:10,color:"#4b5563"}}>via {v.ref.replace(/https?:\/\//,"").split("/")[0]}</span>}
                         </div>
                         <div style={{display:"flex",gap:6,marginTop:3,flexWrap:"wrap"}}>
+                          {v.city&&<span style={{fontSize:10,color:"#e2e8f0",background:"#1e1b4b",padding:"1px 6px",borderRadius:3,fontWeight:600}}>📍 {v.city}{v.country&&v.country!=="France"?", "+v.country:""}</span>}
+                          {v.isp&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>🏢 {v.isp}</span>}
                           {v.device&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>💻 {v.device}</span>}
                           {v.browser&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>🌐 {v.browser}</span>}
                           {v.lang&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>🗣 {v.lang.slice(0,5)}</span>}
