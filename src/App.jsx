@@ -4800,6 +4800,51 @@ export default function AmigoCRM() {
               })}
             </div>
 
+            {/* Visites site formationcarnaval.fr */}
+            {(()=>{
+              const visits = data?.siteVisits||[];
+              if(visits.length===0) return null;
+              const now=Date.now();
+              const today=visits.filter(v=>now-v.at<86400000);
+              const week=visits.filter(v=>now-v.at<7*86400000);
+              const bookClicks=visits.filter(v=>v.event==="click_booking");
+              const emailClicks=visits.filter(v=>v.event==="click_email");
+              return (
+                <div style={{background:"#0b0d16",border:"1px solid #ec489922",borderRadius:11,padding:16,marginBottom:16}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                    <span style={{fontSize:14}}>📊</span>
+                    <span style={{fontSize:12,fontWeight:700,color:"#ec4899"}}>formationcarnaval.fr</span>
+                    <span style={{fontSize:10,color:"#4b5563"}}>· {visits.length} visites totales</span>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
+                    <div style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520"}}>
+                      <p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>Aujourd'hui</p>
+                      <p style={{fontSize:18,fontWeight:700,color:"#f1f5f9"}}>{today.length}</p>
+                    </div>
+                    <div style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520"}}>
+                      <p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>Cette semaine</p>
+                      <p style={{fontSize:18,fontWeight:700,color:"#60a5fa"}}>{week.length}</p>
+                    </div>
+                    <div style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520"}}>
+                      <p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>Clics booking</p>
+                      <p style={{fontSize:18,fontWeight:700,color:"#22c55e"}}>{bookClicks.length}</p>
+                    </div>
+                    <div style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520"}}>
+                      <p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>Clics email</p>
+                      <p style={{fontSize:18,fontWeight:700,color:"#f59e0b"}}>{emailClicks.length}</p>
+                    </div>
+                  </div>
+                  {visits.slice(-8).reverse().map((v,i)=>(
+                    <div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"4px 0",borderBottom:i<7?"1px solid #0d1020":"none"}}>
+                      <span style={{fontSize:10,color:v.event==="click_booking"?"#22c55e":v.event==="click_email"?"#f59e0b":"#4b5563"}}>{v.event==="click_booking"?"📅":v.event==="click_email"?"✉️":"👁"}</span>
+                      <span style={{fontSize:11,color:"#94a3b8",flex:1}}>{v.event==="pageview"?"Visite":v.event==="click_booking"?"Clic Réserver un appel":"Clic Email"}{v.ref&&v.ref!=="direct"?" · via "+v.ref.replace(/https?:\/\//,"").split("/")[0]:""}</span>
+                      <span style={{fontSize:10,color:"#374151"}}>{ago(v.at)}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
             {/* Relances devis en attente */}
             {(()=>{
               const pendingQuotes = allOrders.filter(o=>o.type==="devis"&&o.status==="Envoyé").map(o=>{
