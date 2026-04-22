@@ -2031,12 +2031,12 @@ const EMAIL_TEMPLATES = {
     {
       id:"makeup_tournee", label:"Tournée Europe (masse)",
       subject: p => `Workshops Maquillage Carnaval & Formation Rio — ${p.name}`,
-      body: p => `Madame, Monsieur,\n\nJe suis Anthony Donzel, je réside à Rio de Janeiro et travaille avec trois maquilleurs du Carnaval de Rio : Christina Gall, Jorge Abreu et Guilherme Camilo.\n\nJ'organise une tournée européenne de workshops et serai en France en novembre. Je souhaiterais savoir si vous seriez disponible pour accueillir une session à cette occasion.\n\nJe développe également des séjours de formation à Rio pendant le Carnaval, et cherche des écoles partenaires pour y envoyer des étudiants.\n\nVoici le lien de notre site internet : https://www.formationcarnaval.fr\n\nSeriez-vous intéressés par l'un de ces projets ? Réservez un créneau pour en discuter : https://cal.com/anthony-donzel-zpovza/30min\n\nCordialement,\nAnthony Donzel`,
+      body: p => `Madame, Monsieur,\n\nJe suis Anthony Donzel, je réside à Rio de Janeiro et travaille avec trois maquilleurs du Carnaval de Rio : Christina Gall, Jorge Abreu et Guilherme Camilo.\n\nJ'organise une tournée européenne de workshops et serai en France en novembre. Je souhaiterais savoir si vous seriez disponible pour accueillir une session à cette occasion.\n\nJe développe également des séjours de formation à Rio pendant le Carnaval, et cherche des écoles partenaires pour y envoyer des étudiants.\n\nVoici le lien de notre site internet : https://www.formationcarnaval.fr?utm_source=amigo&utm_campaign=tournee2026&utm_content=${p.id}\n\nSeriez-vous intéressés par l'un de ces projets ? Réservez un créneau pour en discuter : https://cal.com/anthony-donzel-zpovza/30min?utm_source=amigo&utm_content=${p.id}\n\nCordialement,\nAnthony Donzel`,
     },
     {
       id:"makeup_tournee_cgall", label:"Tournée Europe (école connue Gall)",
       subject: p => `Workshops Maquillage Carnaval & Formation Rio — ${p.name}`,
-      body: p => `Madame, Monsieur,\n\nJe suis Anthony Donzel, je réside à Rio de Janeiro et travaille avec trois maquilleurs du Carnaval de Rio : Christina Gall, Jorge Abreu et Guilherme Camilo. Christina Gall est déjà intervenue dans votre école.\n\nJ'organise une tournée européenne de workshops et serai en France en novembre. Je souhaiterais savoir si vous seriez disponible pour accueillir une session à cette occasion.\n\nJe développe également des séjours de formation à Rio pendant le Carnaval, et cherche des écoles partenaires pour y envoyer des étudiants.\n\nVoici le lien de notre site internet : https://www.formationcarnaval.fr\n\nSeriez-vous intéressés par l'un de ces projets ? Réservez un créneau pour en discuter : https://cal.com/anthony-donzel-zpovza/30min\n\nCordialement,\nAnthony Donzel`,
+      body: p => `Madame, Monsieur,\n\nJe suis Anthony Donzel, je réside à Rio de Janeiro et travaille avec trois maquilleurs du Carnaval de Rio : Christina Gall, Jorge Abreu et Guilherme Camilo. Christina Gall est déjà intervenue dans votre école.\n\nJ'organise une tournée européenne de workshops et serai en France en novembre. Je souhaiterais savoir si vous seriez disponible pour accueillir une session à cette occasion.\n\nJe développe également des séjours de formation à Rio pendant le Carnaval, et cherche des écoles partenaires pour y envoyer des étudiants.\n\nVoici le lien de notre site internet : https://www.formationcarnaval.fr?utm_source=amigo&utm_campaign=tournee2026&utm_content=${p.id}\n\nSeriez-vous intéressés par l'un de ces projets ? Réservez un créneau pour en discuter : https://cal.com/anthony-donzel-zpovza/30min?utm_source=amigo&utm_content=${p.id}\n\nCordialement,\nAnthony Donzel`,
     },
     {
       id:"makeup_intro", label:"Présentation package",
@@ -4805,42 +4805,70 @@ export default function AmigoCRM() {
               const visits = data?.siteVisits||[];
               if(visits.length===0) return null;
               const now=Date.now();
-              const today=visits.filter(v=>now-v.at<86400000);
-              const week=visits.filter(v=>now-v.at<7*86400000);
+              const today=visits.filter(v=>now-v.at<86400000&&v.event==="pageview");
+              const week=visits.filter(v=>now-v.at<7*86400000&&v.event==="pageview");
               const bookClicks=visits.filter(v=>v.event==="click_booking");
               const emailClicks=visits.filter(v=>v.event==="click_email");
+              const engaged=visits.filter(v=>v.event==="engaged");
+              const fromEmail=visits.filter(v=>v.utmSource==="amigo");
+              const allProspectsFlat=[...(data?.makeup||[]),...(data?.vin||[]),...(data?.vinClients||[]),...(data?.print3d||[])];
+              const findProspect=id=>allProspectsFlat.find(p=>p.id===id);
+              const recentVisits=visits.filter(v=>["pageview","click_booking","click_email","engaged"].includes(v.event)).slice(-15).reverse();
+              const eventIcon=e=>e==="click_booking"?"📅":e==="click_email"?"✉️":e==="engaged"?"🔥":"👁";
+              const eventColor=e=>e==="click_booking"?"#22c55e":e==="click_email"?"#f59e0b":e==="engaged"?"#f97316":"#4b5563";
+              const eventLabel=e=>e==="pageview"?"Visite":e==="click_booking"?"Clic Booking":e==="click_email"?"Clic Email":e==="engaged"?"Engagé":e;
               return (
                 <div style={{background:"#0b0d16",border:"1px solid #ec489922",borderRadius:11,padding:16,marginBottom:16}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
                     <span style={{fontSize:14}}>📊</span>
                     <span style={{fontSize:12,fontWeight:700,color:"#ec4899"}}>formationcarnaval.fr</span>
-                    <span style={{fontSize:10,color:"#4b5563"}}>· {visits.length} visites totales</span>
+                    <span style={{fontSize:10,color:"#4b5563"}}>· {visits.filter(v=>v.event==="pageview").length} visites · {fromEmail.length} depuis emails</span>
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
-                    <div style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520"}}>
-                      <p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>Aujourd'hui</p>
-                      <p style={{fontSize:18,fontWeight:700,color:"#f1f5f9"}}>{today.length}</p>
-                    </div>
-                    <div style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520"}}>
-                      <p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>Cette semaine</p>
-                      <p style={{fontSize:18,fontWeight:700,color:"#60a5fa"}}>{week.length}</p>
-                    </div>
-                    <div style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520"}}>
-                      <p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>Clics booking</p>
-                      <p style={{fontSize:18,fontWeight:700,color:"#22c55e"}}>{bookClicks.length}</p>
-                    </div>
-                    <div style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520"}}>
-                      <p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>Clics email</p>
-                      <p style={{fontSize:18,fontWeight:700,color:"#f59e0b"}}>{emailClicks.length}</p>
-                    </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:12}}>
+                    {[
+                      {label:"Aujourd'hui",value:today.length,color:"#f1f5f9"},
+                      {label:"Cette semaine",value:week.length,color:"#60a5fa"},
+                      {label:"Clics booking",value:bookClicks.length,color:"#22c55e"},
+                      {label:"Clics email",value:emailClicks.length,color:"#f59e0b"},
+                      {label:"Engagés",value:engaged.length,color:"#f97316"},
+                    ].map(k=>(
+                      <div key={k.label} style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520"}}>
+                        <p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>{k.label}</p>
+                        <p style={{fontSize:18,fontWeight:700,color:k.color}}>{k.value}</p>
+                      </div>
+                    ))}
                   </div>
-                  {visits.slice(-8).reverse().map((v,i)=>(
-                    <div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"4px 0",borderBottom:i<7?"1px solid #0d1020":"none"}}>
-                      <span style={{fontSize:10,color:v.event==="click_booking"?"#22c55e":v.event==="click_email"?"#f59e0b":"#4b5563"}}>{v.event==="click_booking"?"📅":v.event==="click_email"?"✉️":"👁"}</span>
-                      <span style={{fontSize:11,color:"#94a3b8",flex:1}}>{v.event==="pageview"?"Visite":v.event==="click_booking"?"Clic Réserver un appel":"Clic Email"}{v.ref&&v.ref!=="direct"?" · via "+v.ref.replace(/https?:\/\//,"").split("/")[0]:""}</span>
-                      <span style={{fontSize:10,color:"#374151"}}>{ago(v.at)}</span>
+                  <div style={{maxHeight:300,overflow:"auto"}}>
+                  {recentVisits.map((v,i)=>{
+                    const prospect=v.prospectId?findProspect(v.prospectId):null;
+                    return (
+                    <div key={i} onClick={()=>{if(prospect){setProjId("makeup");setView("kanban");setDetailProspect(prospect);}}}
+                      style={{display:"flex",gap:8,alignItems:"center",padding:"6px 4px",borderBottom:"1px solid #0d1020",cursor:prospect?"pointer":"default",borderRadius:4}}
+                      onMouseEnter={e=>{if(prospect)e.currentTarget.style.background="#0c1020";}}
+                      onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
+                      <span style={{fontSize:12,color:eventColor(v.event)}}>{eventIcon(v.event)}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                          <span style={{fontSize:11,fontWeight:600,color:eventColor(v.event)}}>{eventLabel(v.event)}</span>
+                          {prospect&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:4,background:"#ec489918",color:"#ec4899",fontWeight:600}}>{prospect.name}</span>}
+                          {!prospect&&v.utmSource==="amigo"&&<span style={{fontSize:10,color:"#ec4899"}}>via email</span>}
+                          {v.ref&&v.ref!=="direct"&&!v.utmSource&&<span style={{fontSize:10,color:"#4b5563"}}>via {v.ref.replace(/https?:\/\//,"").split("/")[0]}</span>}
+                        </div>
+                        <div style={{display:"flex",gap:8,marginTop:2}}>
+                          {v.device&&<span style={{fontSize:9,color:"#374151"}}>{v.device}</span>}
+                          {v.browser&&<span style={{fontSize:9,color:"#374151"}}>{v.browser}</span>}
+                          {v.lang&&<span style={{fontSize:9,color:"#374151"}}>{v.lang.slice(0,5)}</span>}
+                          {v.timeOnPage>0&&<span style={{fontSize:9,color:"#4b5563"}}>{v.timeOnPage}s sur page</span>}
+                          {v.scrollPct>0&&<span style={{fontSize:9,color:"#4b5563"}}>scroll {v.scrollPct}%</span>}
+                          {v.extra&&typeof v.extra==="string"&&v.extra.includes("scroll")&&<span style={{fontSize:9,color:"#f97316"}}>{v.extra}</span>}
+                        </div>
+                      </div>
+                      <span style={{fontSize:10,color:"#374151",flexShrink:0}}>{ago(v.at)}</span>
+                      {prospect&&<span style={{fontSize:11,color:"#374151"}}>›</span>}
                     </div>
-                  ))}
+                    );
+                  })}
+                  </div>
                 </div>
               );
             })()}
