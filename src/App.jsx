@@ -4854,13 +4854,15 @@ export default function AmigoCRM() {
                           {!prospect&&v.utmSource==="amigo"&&<span style={{fontSize:10,color:"#ec4899"}}>via email</span>}
                           {v.ref&&v.ref!=="direct"&&!v.utmSource&&<span style={{fontSize:10,color:"#4b5563"}}>via {v.ref.replace(/https?:\/\//,"").split("/")[0]}</span>}
                         </div>
-                        <div style={{display:"flex",gap:8,marginTop:2}}>
-                          {v.device&&<span style={{fontSize:9,color:"#374151"}}>{v.device}</span>}
-                          {v.browser&&<span style={{fontSize:9,color:"#374151"}}>{v.browser}</span>}
-                          {v.lang&&<span style={{fontSize:9,color:"#374151"}}>{v.lang.slice(0,5)}</span>}
-                          {v.timeOnPage>0&&<span style={{fontSize:9,color:"#4b5563"}}>{v.timeOnPage}s sur page</span>}
-                          {v.scrollPct>0&&<span style={{fontSize:9,color:"#4b5563"}}>scroll {v.scrollPct}%</span>}
-                          {v.extra&&typeof v.extra==="string"&&v.extra.includes("scroll")&&<span style={{fontSize:9,color:"#f97316"}}>{v.extra}</span>}
+                        <div style={{display:"flex",gap:6,marginTop:3,flexWrap:"wrap"}}>
+                          {v.device&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>💻 {v.device}</span>}
+                          {v.browser&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>🌐 {v.browser}</span>}
+                          {v.lang&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>🗣 {v.lang.slice(0,5)}</span>}
+                          {v.screen&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>📐 {v.screen}</span>}
+                          {v.timeOnPage>0&&<span style={{fontSize:10,color:"#60a5fa",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>⏱ {v.timeOnPage}s</span>}
+                          {v.scrollPct>0&&<span style={{fontSize:10,color:"#a78bfa",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>📜 scroll {v.scrollPct}%</span>}
+                          {v.event==="section_view"&&v.extra&&<span style={{fontSize:10,color:"#8b5cf6",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>📍 {v.extra}</span>}
+                          {v.extra&&typeof v.extra==="string"&&v.extra.includes("scroll")&&<span style={{fontSize:10,color:"#f97316",background:"#1f0a0a",padding:"1px 5px",borderRadius:3}}>🔥 {v.extra}</span>}
                         </div>
                       </div>
                       <span style={{fontSize:10,color:"#374151",flexShrink:0}}>{ago(v.at)}</span>
