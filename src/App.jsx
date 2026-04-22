@@ -62,7 +62,7 @@ const PROJECT_EMAIL = {
   vin: "3abresil@gmail.com",
   vinClients: "3abresil@gmail.com",
   print3d: "labo3drio@gmail.com",
-  makeup: "formationcarnaval@gmail.com",
+  makeup: "contact@formationcarnaval.fr",
 };
 
 const EMPRESA = {
@@ -1929,7 +1929,7 @@ const ALLOWED_EMAILS = [
   "jade.investissement@gmail.com",
   "3abresil@gmail.com",
   "labo3drio@gmail.com",
-  "formationcarnaval@gmail.com",
+  "contact@formationcarnaval.fr",
 ];
 
 const emailToUser = email => {
@@ -1940,7 +1940,7 @@ const emailToUser = email => {
   if (lower === "jade.investissement@gmail.com")  return "jade";
   if (lower === "3abresil@gmail.com")             return "anthony"; // compte partagé Vin
   if (lower === "labo3drio@gmail.com")            return "anthony"; // compte partagé Impression 3D
-  if (lower === "formationcarnaval@gmail.com")   return "anthony"; // compte partagé Carnaval
+  if (lower === "contact@formationcarnaval.fr")   return "anthony"; // compte partagé Carnaval
   return null;
 };
 
@@ -2031,7 +2031,12 @@ const EMAIL_TEMPLATES = {
     {
       id:"makeup_tournee", label:"Tournée Europe (masse)",
       subject: p => `Workshops Maquillage Carnaval & Formation Rio — ${p.name}`,
-      body: p => `Madame, Monsieur,\n\nJe suis Anthony Donzel, je réside à Rio de Janeiro et travaille avec trois maquilleurs du Carnaval de Rio : Christina Gall, Jorge Abreu et Guilherme Camilo.\n\nJ'organise une tournée européenne de workshops et serai en France en novembre. Je souhaiterais savoir si vous seriez disponible pour accueillir une session à cette occasion.\n\nJe développe également des séjours de formation à Rio pendant le Carnaval, et cherche des écoles partenaires pour y envoyer des étudiants.\n\nVoici le lien de notre site internet : https://cgall.netlify.app/\n\nSeriez-vous intéressés par l'un de ces projets ? Je reste disponible pour un appel si vous souhaitez en discuter.\n\nCordialement,\nAnthony Donzel`,
+      body: p => `Madame, Monsieur,\n\nJe suis Anthony Donzel, je réside à Rio de Janeiro et travaille avec trois maquilleurs du Carnaval de Rio : Christina Gall, Jorge Abreu et Guilherme Camilo.\n\nJ'organise une tournée européenne de workshops et serai en France en novembre. Je souhaiterais savoir si vous seriez disponible pour accueillir une session à cette occasion.\n\nJe développe également des séjours de formation à Rio pendant le Carnaval, et cherche des écoles partenaires pour y envoyer des étudiants.\n\nVoici le lien de notre site internet : https://cgall.netlify.app/\n\nSeriez-vous intéressés par l'un de ces projets ? Réservez un créneau pour en discuter : https://cal.com/anthony-donzel-zpovza/30min\n\nCordialement,\nAnthony Donzel`,
+    },
+    {
+      id:"makeup_tournee_cgall", label:"Tournée Europe (école connue Gall)",
+      subject: p => `Workshops Maquillage Carnaval & Formation Rio — ${p.name}`,
+      body: p => `Madame, Monsieur,\n\nJe suis Anthony Donzel, je réside à Rio de Janeiro et travaille avec trois maquilleurs du Carnaval de Rio : Christina Gall, Jorge Abreu et Guilherme Camilo. Christina Gall est déjà intervenue dans votre école.\n\nJ'organise une tournée européenne de workshops et serai en France en novembre. Je souhaiterais savoir si vous seriez disponible pour accueillir une session à cette occasion.\n\nJe développe également des séjours de formation à Rio pendant le Carnaval, et cherche des écoles partenaires pour y envoyer des étudiants.\n\nVoici le lien de notre site internet : https://cgall.netlify.app/\n\nSeriez-vous intéressés par l'un de ces projets ? Réservez un créneau pour en discuter : https://cal.com/anthony-donzel-zpovza/30min\n\nCordialement,\nAnthony Donzel`,
     },
     {
       id:"makeup_intro", label:"Présentation package",
