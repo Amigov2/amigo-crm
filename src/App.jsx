@@ -62,7 +62,7 @@ const PROJECT_EMAIL = {
   vin: "3abresil@gmail.com",
   vinClients: "3abresil@gmail.com",
   print3d: "labo3drio@gmail.com",
-  makeup: "contact@formationcarnaval.fr",
+  makeup: "formationcarnaval@gmail.com",
 };
 
 const EMPRESA = {
@@ -579,6 +579,7 @@ function AddOrderModal({ projId, prospects, preselect, onAdd, onClose }) {
   const [deliveryDate, setDeliveryDate] = useState("");
   const [status,       setStatus]       = useState(is3D?"Brouillon":"En attente");
   const [notes,        setNotes]        = useState("");
+  const [paidAmount,   setPaidAmount]   = useState("");
 
   const taxes = isVin && parseFloat(amount) ? calcTax(parseFloat(amount)) : null;
 
@@ -587,7 +588,7 @@ function AddOrderModal({ projId, prospects, preselect, onAdd, onClose }) {
     const prospect = prospects.find(x=>x.id===prospectId) || preselect;
     onAdd({ id:"ord"+uid(), proj:projId, prospectId, prospectName:prospect?.name||"–",
       type, product, qty:parseInt(qty)||1, amount:parseFloat(amount)||0,
-      date, deliveryDate, status, notes, taxData:taxes });
+      date, deliveryDate, status, notes, taxData:taxes, paidAmount:parseFloat(paidAmount)||0 });
   };
 
   return (
@@ -607,6 +608,7 @@ function AddOrderModal({ projId, prospects, preselect, onAdd, onClose }) {
         <Field label="Quantité" value={qty} onChange={setQty} placeholder="1"/>
         <Field label="Date" value={date} onChange={setDate} type="date"/>
         <Field label="Date livraison" value={deliveryDate} onChange={setDeliveryDate} type="date"/>
+        <Field label="Acompte reçu (R$)" value={paidAmount} onChange={setPaidAmount} placeholder="0"/>
         <Field label="Statut" value={status} onChange={setStatus} options={is3D?QUOTE_STATUSES:ORDER_STATUSES}/>
         <div style={{gridColumn:"span 2",marginBottom:11}}>
           <p style={{fontSize:10,color:"#4b5563",marginBottom:4,fontWeight:600,textTransform:"uppercase",letterSpacing:".4px"}}>Notes</p>
@@ -1476,6 +1478,7 @@ function GroupedQuotesTab({ prospect, myOrders, fmt, P, onAddOrder, onViewOrder,
       </div>
       <div style={{textAlign:"right"}}>
         <p style={{fontSize:12,fontWeight:700,color:"#22c55e"}}>{fmt(o.amount*(o.qty||1))}{(o.qty||1)>1&&<span style={{fontSize:9,color:"#4b5563",marginLeft:3}}>({o.qty}x)</span>}</p>
+        {o.paidAmount>0&&<p style={{fontSize:9,color:o.amount*(o.qty||1)-o.paidAmount>0?"#f59e0b":"#4ade80",fontWeight:600}}>{o.amount*(o.qty||1)-o.paidAmount>0?`Solde: ${fmt(o.amount*(o.qty||1)-o.paidAmount)}`:"Soldé ✓"}</p>}
         <span style={{fontSize:10,color:"#f59e0b"}}>{o.status}</span>
       </div>
     </div>
@@ -1929,7 +1932,7 @@ const ALLOWED_EMAILS = [
   "jade.investissement@gmail.com",
   "3abresil@gmail.com",
   "labo3drio@gmail.com",
-  "contact@formationcarnaval.fr",
+  "formationcarnaval@gmail.com",
 ];
 
 const emailToUser = email => {
@@ -1940,7 +1943,7 @@ const emailToUser = email => {
   if (lower === "jade.investissement@gmail.com")  return "jade";
   if (lower === "3abresil@gmail.com")             return "anthony"; // compte partagé Vin
   if (lower === "labo3drio@gmail.com")            return "anthony"; // compte partagé Impression 3D
-  if (lower === "contact@formationcarnaval.fr")   return "anthony"; // compte partagé Carnaval
+  if (lower === "formationcarnaval@gmail.com")   return "anthony"; // compte partagé Carnaval
   return null;
 };
 
@@ -2031,12 +2034,17 @@ const EMAIL_TEMPLATES = {
     {
       id:"makeup_tournee", label:"Tournée Europe (masse)",
       subject: p => `Workshops Maquillage Carnaval & Formation Rio — ${p.name}`,
-      body: p => `Madame, Monsieur,\n\nJe suis Anthony Donzel, je réside à Rio de Janeiro et travaille avec trois maquilleurs du Carnaval de Rio : Christina Gall, Jorge Abreu et Guilherme Camilo.\n\nJ'organise une tournée européenne de workshops et serai en France en novembre. Je souhaiterais savoir si vous seriez disponible pour accueillir une session à cette occasion.\n\nJe développe également des séjours de formation à Rio pendant le Carnaval, et cherche des écoles partenaires pour y envoyer des étudiants.\n\nVoici le lien de notre site internet : https://www.formationcarnaval.fr?utm_source=amigo&utm_campaign=tournee2026&utm_content=${p.id}\n\nSeriez-vous intéressés par l'un de ces projets ? Réservez un créneau pour en discuter : https://cal.com/anthony-donzel-zpovza/30min?utm_source=amigo&utm_content=${p.id}\n\nCordialement,\nAnthony Donzel`,
+      body: p => `Madame, Monsieur,\n\nJe suis Anthony Donzel, je réside à Rio de Janeiro et travaille avec trois maquilleurs du Carnaval de Rio : Christina Gall, Jorge Abreu et Guilherme Camilo.\n\nJ'organise une tournée européenne de workshops et serai en France en novembre. Je souhaiterais savoir si vous seriez disponible pour accueillir une session à cette occasion.\n\nJe développe également des séjours de formation à Rio pendant le Carnaval, et cherche des écoles partenaires pour y envoyer des étudiants.\n\nVoici le lien de notre site internet : https://formationcarnaval.fr\n\nSeriez-vous intéressés par l'un de ces projets ? Réservez un créneau pour en discuter : https://cal.com/anthony-donzel-zpovza/30min\n\nCordialement,\nAnthony Donzel`,
     },
     {
       id:"makeup_tournee_cgall", label:"Tournée Europe (école connue Gall)",
       subject: p => `Workshops Maquillage Carnaval & Formation Rio — ${p.name}`,
-      body: p => `Madame, Monsieur,\n\nJe suis Anthony Donzel, je réside à Rio de Janeiro et travaille avec trois maquilleurs du Carnaval de Rio : Christina Gall, Jorge Abreu et Guilherme Camilo. Christina Gall est déjà intervenue dans votre école.\n\nJ'organise une tournée européenne de workshops et serai en France en novembre. Je souhaiterais savoir si vous seriez disponible pour accueillir une session à cette occasion.\n\nJe développe également des séjours de formation à Rio pendant le Carnaval, et cherche des écoles partenaires pour y envoyer des étudiants.\n\nVoici le lien de notre site internet : https://www.formationcarnaval.fr?utm_source=amigo&utm_campaign=tournee2026&utm_content=${p.id}\n\nSeriez-vous intéressés par l'un de ces projets ? Réservez un créneau pour en discuter : https://cal.com/anthony-donzel-zpovza/30min?utm_source=amigo&utm_content=${p.id}\n\nCordialement,\nAnthony Donzel`,
+      body: p => `Madame, Monsieur,\n\nJe suis Anthony Donzel, je réside à Rio de Janeiro et travaille avec trois maquilleurs du Carnaval de Rio : Christina Gall, Jorge Abreu et Guilherme Camilo. Christina Gall est déjà intervenue dans votre école.\n\nJ'organise une tournée européenne de workshops et serai en France en novembre. Je souhaiterais savoir si vous seriez disponible pour accueillir une session à cette occasion.\n\nJe développe également des séjours de formation à Rio pendant le Carnaval, et cherche des écoles partenaires pour y envoyer des étudiants.\n\nVoici le lien de notre site internet : https://formationcarnaval.fr\n\nSeriez-vous intéressés par l'un de ces projets ? Réservez un créneau pour en discuter : https://cal.com/anthony-donzel-zpovza/30min\n\nCordialement,\nAnthony Donzel`,
+    },
+    {
+      id:"makeup_relance_technique", label:"Relance (problème technique)",
+      subject: p => `Re: Workshops Maquillage Carnaval — ${p.name}`,
+      body: p => `Madame, Monsieur,\n\nJe me permets de vous recontacter suite à mon précédent email concernant nos workshops de maquillage de Carnaval.\n\nNous avons rencontré un problème technique avec notre adresse email, et il est possible que votre éventuelle réponse ne nous soit pas parvenue. Nous nous en excusons.\n\nNotre nouvelle adresse est désormais : formationcarnaval@gmail.com\n\nPour rappel, nous organisons une tournée européenne de workshops avec trois artistes reconnus du Carnaval de Rio : Christina Gall, Jorge Abreu et Guilherme Camilo, et nous serions ravis d'intervenir dans votre établissement.\n\nNotre site : https://formationcarnaval.fr\n\nN'hésitez pas à nous répondre directement à cette adresse ou à réserver un créneau : https://cal.com/anthony-donzel-zpovza/30min\n\nCordialement,\nAnthony Donzel\nformationcarnaval@gmail.com`,
     },
     {
       id:"makeup_intro", label:"Présentation package",
@@ -2486,7 +2494,10 @@ function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, set
   const allowedStatuses = isCmd ? ORDER_STATUSES : QUOTE_STATUSES;
   const statusIdx = isCmd ? ORDER_STATUSES.indexOf(o.status) : -1;
   const orderTotal = o.amount * (o.qty || 1);
-  const pixStr = isCmd && orderTotal > 0 ? pixPayload(orderTotal, o.id.slice(0,25)) : "";
+  const paidAmount = o.paidAmount || 0;
+  const solde = orderTotal - paidAmount;
+  const pixAmount = solde > 0 ? solde : orderTotal;
+  const pixStr = isCmd && pixAmount > 0 ? pixPayload(pixAmount, o.id.slice(0,25)) : "";
   const pixQrUrl = pixStr ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pixStr)}` : "";
   const linkedProspect = o.prospectId
     ? ["makeup","vin","vinClients","print3d"].reduce((found,k) => found || (data?.[k]||[]).find(p=>p.id===o.prospectId), null)
@@ -2499,6 +2510,7 @@ function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, set
   const [eDate, setEDate]       = useState(o.date||"");
   const [eNotes, setENotes]     = useState(o.notes||"");
   const [ePayTerms, setEPayTerms] = useState(o.payTerms||"50% na aprovação, 50% na entrega");
+  const [ePaid, setEPaid] = useState(String(o.paidAmount||0));
   const [quoteLink, setQuoteLink] = useState(o.quoteToken ? `${window.location.origin}/#/quote/${o.quoteToken}` : "");
   const [publishing, setPublishing] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -2543,7 +2555,7 @@ function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, set
   };
   const inputSt = {width:"100%",padding:"5px 7px",borderRadius:5,fontSize:12,outline:"none",background:"#0b0d16",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"};
   const saveEdit = () => {
-    const upd = {product:eProduct, amount:parseFloat(eAmount)||0, qty:parseInt(eQty)||1, date:eDate, notes:eNotes, payTerms:ePayTerms};
+    const upd = {product:eProduct, amount:parseFloat(eAmount)||0, qty:parseInt(eQty)||1, date:eDate, notes:eNotes, payTerms:ePayTerms, paidAmount:parseFloat(ePaid)||0};
     updateOrder(o.id, upd);
     setDetailOrder(d=>({...d,...upd}));
     setEditing(false);
@@ -2631,6 +2643,14 @@ function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, set
           {editing ? <input type="number" value={eQty} onChange={e=>setEQty(e.target.value)} style={inputSt}/> : <p style={{fontSize:13,color:"#f1f5f9"}}>{o.qty||1}</p>}
         </div>
         <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Total</p><p style={{fontSize:15,color:"#22c55e",fontWeight:700}}>{$(editing ? editTotal : orderTotal)}</p></div>
+        <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Acompte reçu</p>
+          {editing ? <input type="number" value={ePaid} onChange={e=>setEPaid(e.target.value)} style={inputSt}/> : <p style={{fontSize:13,color:paidAmount>0?"#4ade80":"#4b5563"}}>{paidAmount>0?$(paidAmount):"–"}</p>}
+        </div>
+        {paidAmount>0&&!editing&&(
+          <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Solde restant</p>
+            <p style={{fontSize:15,fontWeight:700,color:solde>0?"#f59e0b":"#4ade80"}}>{solde>0?$(solde):"Soldé ✓"}</p>
+          </div>
+        )}
         <div><p style={{fontSize:10,color:"#4b5563",fontWeight:600,textTransform:"uppercase",marginBottom:3}}>Date</p>
           {editing ? <input type="date" value={eDate} onChange={e=>setEDate(e.target.value)} style={inputSt}/> : <p style={{fontSize:13,color:"#f1f5f9"}}>{o.date||"–"}</p>}
         </div>
@@ -2662,10 +2682,10 @@ function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, set
       )}
       {isCmd && statusIdx >= 1 && pixQrUrl && (
         <div style={{background:"#080a0f",borderRadius:8,padding:"14px",border:"1px solid #22c55e18",marginBottom:14,textAlign:"center"}}>
-          <p style={{fontSize:11,fontWeight:700,color:"#22c55e",marginBottom:8,textTransform:"uppercase"}}>Pagamento PIX</p>
+          <p style={{fontSize:11,fontWeight:700,color:"#22c55e",marginBottom:8,textTransform:"uppercase"}}>{paidAmount>0&&solde>0?"Pagamento PIX — Solde restant":"Pagamento PIX"}</p>
           <img src={pixQrUrl} alt="QR PIX" style={{width:160,height:160,borderRadius:8,border:"4px solid white"}}/>
           <p style={{fontSize:11,color:"#4b5563",marginTop:8}}>Chave CNPJ: {EMPRESA.cnpj}</p>
-          <p style={{fontSize:13,fontWeight:700,color:"#4ade80",marginTop:4}}>R$ {orderTotal?.toFixed(2)}</p>
+          <p style={{fontSize:13,fontWeight:700,color:"#4ade80",marginTop:4}}>R$ {pixAmount?.toFixed(2)}{paidAmount>0&&solde>0?` (solde sur R$ ${orderTotal?.toFixed(2)})`:""}</p>
           <button onClick={()=>{navigator.clipboard.writeText(pixStr);}} style={{marginTop:8,padding:"5px 14px",background:"#22c55e15",border:"1px solid #22c55e28",borderRadius:6,color:"#4ade80",fontSize:11,fontWeight:600,cursor:"pointer"}}>
             Copier code PIX
           </button>
@@ -3544,7 +3564,7 @@ export default function AmigoCRM() {
       provider: "google",
       options: {
         redirectTo: window.location.origin,
-        scopes: "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly",
+        scopes: "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/analytics.readonly",
         queryParams: { access_type: "offline", prompt: "consent" },
       },
     });
@@ -3585,6 +3605,12 @@ export default function AmigoCRM() {
   const [calMonth,     setCalMonth]     = useState(new Date().getMonth());
   const [calYear,      setCalYear]      = useState(new Date().getFullYear());
   const [showEmailModal, setShowEmailModal] = useState(null);
+  const [showMassRelance, setShowMassRelance] = useState(false);
+  const [massRelanceTpl, setMassRelanceTpl] = useState("makeup_tournee");
+  const [massRelanceStatus, setMassRelanceStatus] = useState(null); // {sent, total, current, errors}
+  const [analyticsData, setAnalyticsData] = useState(null); // {activeUsers, totalUsers7d, pageViews7d, topPages}
+  const GA4_PROPERTIES = { makeup: "534388032", print3d: "534370615" };
+  const GA4_PROPERTY_ID = GA4_PROPERTIES[projId] || null;
   const [eurBrl,       setEurBrl]       = useState(null);
   const [heureFrance,  setHeureFrance]  = useState("");
 
@@ -3615,6 +3641,60 @@ export default function AmigoCRM() {
     }, 3600000);
     return () => clearInterval(t);
   }, []);
+
+  // ── Google Analytics Real-time & 7-day data ────────────────────────────────
+  const fetchAnalytics = useCallback(async () => {
+    if (GA4_PROPERTY_ID.includes("aborting")) return; // placeholder guard
+    try {
+      const token = await getGToken();
+      if (!token) return;
+      // Real-time active users
+      const rtRes = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${GA4_PROPERTY_ID}:runRealtimeReport`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ metrics: [{ name: "activeUsers" }] }),
+      });
+      const rtData = await rtRes.json();
+      const activeUsers = parseInt(rtData?.rows?.[0]?.metricValues?.[0]?.value || "0");
+
+      // 7-day report
+      const reportRes = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${GA4_PROPERTY_ID}:runReport`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
+          metrics: [{ name: "activeUsers" }, { name: "screenPageViews" }],
+        }),
+      });
+      const reportData = await reportRes.json();
+      const totalUsers7d = parseInt(reportData?.rows?.[0]?.metricValues?.[0]?.value || "0");
+      const pageViews7d = parseInt(reportData?.rows?.[0]?.metricValues?.[1]?.value || "0");
+
+      // Top pages 7d
+      const pagesRes = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${GA4_PROPERTY_ID}:runReport`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
+          dimensions: [{ name: "pageTitle" }],
+          metrics: [{ name: "screenPageViews" }],
+          limit: 5,
+          orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
+        }),
+      });
+      const pagesData = await pagesRes.json();
+      const topPages = (pagesData?.rows || []).map(r => ({
+        title: r.dimensionValues[0].value,
+        views: parseInt(r.metricValues[0].value),
+      }));
+
+      setAnalyticsData({ activeUsers, totalUsers7d, pageViews7d, topPages });
+    } catch (e) { console.error("Analytics error:", e); }
+  }, []);
+
+  useEffect(() => {
+    if ((projId === "makeup" || projId === "print3d") && user && GA4_PROPERTY_ID) { setAnalyticsData(null); fetchAnalytics(); const t = setInterval(fetchAnalytics, 30000); return () => clearInterval(t); }
+  }, [projId, user]);
 
   const loadCalendar = async (month, year) => {
     setCalLoading(true);
@@ -4800,150 +4880,55 @@ export default function AmigoCRM() {
               })}
             </div>
 
-            {/* Visites site formationcarnaval.fr */}
-            {(()=>{
-              const visits = data?.siteVisits||[];
-              if(visits.length===0) return null;
-              const now=Date.now();
-              const today=visits.filter(v=>now-v.at<86400000&&v.event==="pageview");
-              const week=visits.filter(v=>now-v.at<7*86400000&&v.event==="pageview");
-              const bookClicks=visits.filter(v=>v.event==="click_booking");
-              const emailClicks=visits.filter(v=>v.event==="click_email");
-              const engaged=visits.filter(v=>v.event==="engaged");
-              const fromEmail=visits.filter(v=>v.utmSource==="amigo");
-              const allProspectsFlat=[...(data?.makeup||[]),...(data?.vin||[]),...(data?.vinClients||[]),...(data?.print3d||[])];
-              const findProspect=id=>allProspectsFlat.find(p=>p.id===id);
-              const recentVisits=visits.filter(v=>["pageview","click_booking","click_email","engaged","section_view"].includes(v.event)).slice(-20).reverse();
-              const eventIcon=e=>e==="click_booking"?"📅":e==="click_email"?"✉️":e==="engaged"?"🔥":e==="section_view"?"📍":"👁";
-              const eventColor=e=>e==="click_booking"?"#22c55e":e==="click_email"?"#f59e0b":e==="engaged"?"#f97316":e==="section_view"?"#8b5cf6":"#60a5fa";
-              const eventLabel=e=>e==="pageview"?"Visite":e==="click_booking"?"Clic Booking":e==="click_email"?"Clic Email":e==="engaged"?"Engagé":e==="section_view"?"Section vue":e;
-              return (
-                <div style={{background:"#0b0d16",border:"1px solid #ec489922",borderRadius:11,padding:16,marginBottom:16}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-                    <span style={{fontSize:14}}>📊</span>
-                    <span style={{fontSize:12,fontWeight:700,color:"#ec4899"}}>formationcarnaval.fr</span>
-                    <span style={{fontSize:10,color:"#4b5563"}}>· {visits.filter(v=>v.event==="pageview").length} visites · {fromEmail.length} depuis emails</span>
+            {/* Google Analytics — formationcarnaval.fr */}
+            {analyticsData && (
+              <div style={{background:"#0b0d16",border:"1px solid #ec489922",borderRadius:11,padding:16,marginBottom:16}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                  <span style={{fontSize:14}}>📊</span>
+                  <span style={{fontSize:12,fontWeight:700,color:"#ec4899"}}>formationcarnaval.fr — Google Analytics</span>
+                  <span style={{fontSize:10,color:"#4b5563",marginLeft:"auto"}}>Temps réel · 30s</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+                  <div style={{padding:12,background:"#080a0f",borderRadius:8,textAlign:"center",border:"1px solid #0f1520"}}>
+                    <div style={{fontSize:28,fontWeight:800,color:analyticsData.activeUsers>0?"#4ade80":"#6b7280"}}>{analyticsData.activeUsers}</div>
+                    <div style={{fontSize:9,color:"#4b5563",letterSpacing:1,textTransform:"uppercase"}}>En ligne maintenant</div>
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:12}}>
-                    {[
-                      {label:"Aujourd'hui",value:today.length,color:"#f1f5f9"},
-                      {label:"Cette semaine",value:week.length,color:"#60a5fa"},
-                      {label:"Clics booking",value:bookClicks.length,color:"#22c55e"},
-                      {label:"Clics email",value:emailClicks.length,color:"#f59e0b"},
-                      {label:"Engagés",value:engaged.length,color:"#f97316"},
-                    ].map(k=>(
-                      <div key={k.label} style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520"}}>
-                        <p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>{k.label}</p>
-                        <p style={{fontSize:18,fontWeight:700,color:k.color}}>{k.value}</p>
-                      </div>
-                    ))}
+                  <div style={{padding:12,background:"#080a0f",borderRadius:8,textAlign:"center",border:"1px solid #0f1520"}}>
+                    <div style={{fontSize:28,fontWeight:800,color:"#60a5fa"}}>{analyticsData.totalUsers7d}</div>
+                    <div style={{fontSize:9,color:"#4b5563",letterSpacing:1,textTransform:"uppercase"}}>Visiteurs 7j</div>
                   </div>
-                  <div style={{maxHeight:300,overflow:"auto"}}>
-                  {recentVisits.map((v,i)=>{
-                    const prospect=v.prospectId?findProspect(v.prospectId):null;
-                    return (
-                    <div key={i} onClick={()=>{if(prospect){setProjId("makeup");setView("kanban");setDetailProspect(prospect);}}}
-                      style={{display:"flex",gap:8,alignItems:"center",padding:"6px 4px",borderBottom:"1px solid #0d1020",cursor:prospect?"pointer":"default",borderRadius:4}}
-                      onMouseEnter={e=>{if(prospect)e.currentTarget.style.background="#0c1020";}}
-                      onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
-                      <span style={{fontSize:12,color:eventColor(v.event)}}>{eventIcon(v.event)}</span>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                          <span style={{fontSize:11,fontWeight:600,color:eventColor(v.event)}}>{eventLabel(v.event)}</span>
-                          {prospect&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:4,background:"#ec489918",color:"#ec4899",fontWeight:600}}>{prospect.name}</span>}
-                          {!prospect&&v.utmSource==="amigo"&&<span style={{fontSize:10,color:"#ec4899"}}>via email</span>}
-                          {v.ref&&v.ref!=="direct"&&!v.utmSource&&<span style={{fontSize:10,color:"#4b5563"}}>via {v.ref.replace(/https?:\/\//,"").split("/")[0]}</span>}
-                        </div>
-                        <div style={{display:"flex",gap:6,marginTop:3,flexWrap:"wrap"}}>
-                          {v.city&&<span style={{fontSize:10,color:"#e2e8f0",background:"#1e1b4b",padding:"1px 6px",borderRadius:3,fontWeight:600}}>📍 {v.city}{v.country&&v.country!=="France"?", "+v.country:""}</span>}
-                          {v.isp&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>🏢 {v.isp}</span>}
-                          {v.device&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>💻 {v.device}</span>}
-                          {v.browser&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>🌐 {v.browser}</span>}
-                          {v.lang&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>🗣 {v.lang.slice(0,5)}</span>}
-                          {v.screen&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>📐 {v.screen}</span>}
-                          {v.timeOnPage>0&&<span style={{fontSize:10,color:"#60a5fa",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>⏱ {v.timeOnPage}s</span>}
-                          {v.scrollPct>0&&<span style={{fontSize:10,color:"#a78bfa",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>📜 scroll {v.scrollPct}%</span>}
-                          {v.event==="section_view"&&v.extra&&<span style={{fontSize:10,color:"#8b5cf6",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>📍 {v.extra}</span>}
-                          {v.extra&&typeof v.extra==="string"&&v.extra.includes("scroll")&&<span style={{fontSize:10,color:"#f97316",background:"#1f0a0a",padding:"1px 5px",borderRadius:3}}>🔥 {v.extra}</span>}
-                        </div>
-                      </div>
-                      <span style={{fontSize:10,color:"#374151",flexShrink:0}}>{ago(v.at)}</span>
-                      {prospect&&<span style={{fontSize:11,color:"#374151"}}>›</span>}
-                    </div>
-                    );
-                  })}
+                  <div style={{padding:12,background:"#080a0f",borderRadius:8,textAlign:"center",border:"1px solid #0f1520"}}>
+                    <div style={{fontSize:28,fontWeight:800,color:"#fbbf24"}}>{analyticsData.pageViews7d}</div>
+                    <div style={{fontSize:9,color:"#4b5563",letterSpacing:1,textTransform:"uppercase"}}>Pages vues 7j</div>
                   </div>
                 </div>
-              );
-            })()}
+              </div>
+            )}
 
-            {/* Visites site labo3d.com */}
-            {(()=>{
-              const visits = data?.siteVisitsLabo3d||[];
-              if(visits.length===0) return null;
-              const now=Date.now();
-              const today=visits.filter(v=>now-v.at<86400000&&v.event==="pageview");
-              const week=visits.filter(v=>now-v.at<7*86400000&&v.event==="pageview");
-              const waClicks=visits.filter(v=>v.event==="click_whatsapp");
-              const engaged=visits.filter(v=>v.event==="engaged");
-              const fromEmail=visits.filter(v=>v.utmSource==="amigo");
-              const allP3d=data?.print3d||[];
-              const findProspect=id=>allP3d.find(p=>p.id===id);
-              const recentVisits=visits.filter(v=>["pageview","click_whatsapp","click_email","engaged"].includes(v.event)).slice(-15).reverse();
-              const eventIcon=e=>e==="click_whatsapp"?"💬":e==="click_email"?"✉️":e==="engaged"?"🔥":"👁";
-              const eventColor=e=>e==="click_whatsapp"?"#22c55e":e==="click_email"?"#f59e0b":e==="engaged"?"#f97316":"#60a5fa";
-              const eventLabel=e=>e==="pageview"?"Visite":e==="click_whatsapp"?"Clic WhatsApp":e==="click_email"?"Clic Email":e==="engaged"?"Engagé":e;
-              return (
-                <div style={{background:"#0b0d16",border:"1px solid #14b8a622",borderRadius:11,padding:16,marginBottom:16}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-                    <span style={{fontSize:14}}>🧊</span>
-                    <span style={{fontSize:12,fontWeight:700,color:"#14b8a6"}}>labo3d.com</span>
-                    <span style={{fontSize:10,color:"#4b5563"}}>· {visits.filter(v=>v.event==="pageview").length} visites · {fromEmail.length} depuis emails</span>
+            {/* Google Analytics — labo3d.com.br */}
+            {analyticsData && (
+              <div style={{background:"#0b0d16",border:"1px solid #14b8a622",borderRadius:11,padding:16,marginBottom:16}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                  <span style={{fontSize:14}}>🧊</span>
+                  <span style={{fontSize:12,fontWeight:700,color:"#14b8a6"}}>labo3d.com.br — Google Analytics</span>
+                  <span style={{fontSize:10,color:"#4b5563",marginLeft:"auto"}}>Temps réel · 30s</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+                  <div style={{padding:12,background:"#080a0f",borderRadius:8,textAlign:"center",border:"1px solid #0f1520"}}>
+                    <div style={{fontSize:28,fontWeight:800,color:analyticsData.activeUsers>0?"#4ade80":"#6b7280"}}>{analyticsData.activeUsers}</div>
+                    <div style={{fontSize:9,color:"#4b5563",letterSpacing:1,textTransform:"uppercase"}}>En ligne maintenant</div>
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
-                    {[
-                      {label:"Aujourd'hui",value:today.length,color:"#f1f5f9"},
-                      {label:"Cette semaine",value:week.length,color:"#60a5fa"},
-                      {label:"Clics WhatsApp",value:waClicks.length,color:"#22c55e"},
-                      {label:"Engagés",value:engaged.length,color:"#f97316"},
-                    ].map(k=>(
-                      <div key={k.label} style={{background:"#080a0f",borderRadius:8,padding:"10px 12px",border:"1px solid #0f1520"}}>
-                        <p style={{fontSize:9,color:"#4b5563",textTransform:"uppercase",marginBottom:2}}>{k.label}</p>
-                        <p style={{fontSize:18,fontWeight:700,color:k.color}}>{k.value}</p>
-                      </div>
-                    ))}
+                  <div style={{padding:12,background:"#080a0f",borderRadius:8,textAlign:"center",border:"1px solid #0f1520"}}>
+                    <div style={{fontSize:28,fontWeight:800,color:"#60a5fa"}}>{analyticsData.totalUsers7d}</div>
+                    <div style={{fontSize:9,color:"#4b5563",letterSpacing:1,textTransform:"uppercase"}}>Visiteurs 7j</div>
                   </div>
-                  <div style={{maxHeight:250,overflow:"auto"}}>
-                  {recentVisits.map((v,i)=>{
-                    const prospect=v.prospectId?findProspect(v.prospectId):null;
-                    return (
-                    <div key={i} onClick={()=>{if(prospect){setProjId("print3d");setView("kanban");setDetailProspect(prospect);}}}
-                      style={{display:"flex",gap:8,alignItems:"center",padding:"6px 4px",borderBottom:"1px solid #0d1020",cursor:prospect?"pointer":"default",borderRadius:4}}
-                      onMouseEnter={e=>{if(prospect)e.currentTarget.style.background="#0c1020";}}
-                      onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
-                      <span style={{fontSize:12,color:eventColor(v.event)}}>{eventIcon(v.event)}</span>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                          <span style={{fontSize:11,fontWeight:600,color:eventColor(v.event)}}>{eventLabel(v.event)}</span>
-                          {prospect&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:4,background:"#14b8a618",color:"#14b8a6",fontWeight:600}}>{prospect.name}</span>}
-                          {!prospect&&v.utmSource==="amigo"&&<span style={{fontSize:10,color:"#14b8a6"}}>via email</span>}
-                        </div>
-                        <div style={{display:"flex",gap:6,marginTop:3,flexWrap:"wrap"}}>
-                          {v.city&&<span style={{fontSize:10,color:"#e2e8f0",background:"#1e1b4b",padding:"1px 6px",borderRadius:3,fontWeight:600}}>📍 {v.city}{v.country&&v.country!=="Brazil"?", "+v.country:""}</span>}
-                          {v.isp&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>🏢 {v.isp}</span>}
-                          {v.device&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>💻 {v.device}</span>}
-                          {v.browser&&<span style={{fontSize:10,color:"#94a3b8",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>🌐 {v.browser}</span>}
-                          {v.timeOnPage>0&&<span style={{fontSize:10,color:"#60a5fa",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>⏱ {v.timeOnPage}s</span>}
-                          {v.scrollPct>0&&<span style={{fontSize:10,color:"#a78bfa",background:"#0f1520",padding:"1px 5px",borderRadius:3}}>📜 {v.scrollPct}%</span>}
-                        </div>
-                      </div>
-                      <span style={{fontSize:10,color:"#374151",flexShrink:0}}>{ago(v.at)}</span>
-                    </div>);
-                  })}
+                  <div style={{padding:12,background:"#080a0f",borderRadius:8,textAlign:"center",border:"1px solid #0f1520"}}>
+                    <div style={{fontSize:28,fontWeight:800,color:"#fbbf24"}}>{analyticsData.pageViews7d}</div>
+                    <div style={{fontSize:9,color:"#4b5563",letterSpacing:1,textTransform:"uppercase"}}>Pages vues 7j</div>
                   </div>
                 </div>
-              );
-            })()}
+              </div>
+            )}
 
             {/* Relances devis en attente */}
             {(()=>{
@@ -5064,6 +5049,12 @@ export default function AmigoCRM() {
                 style={{padding:"8px 13px",background:"#22c55e15",border:"1px solid #22c55e28",borderRadius:8,color:"#4ade80",fontSize:12,fontWeight:600,cursor:"pointer"}}>
                 + {projId==="print3d"?"Devis / Commande":"Commande"}
               </button>
+              {projId==="makeup" && (
+                <button onClick={()=>setShowMassRelance(true)} className="btn"
+                  style={{padding:"8px 13px",background:"#ef444415",border:"1px solid #ef444428",borderRadius:8,color:"#f87171",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                  📧 Relancer tous
+                </button>
+              )}
               {projId==="vin" && (
                 <label className="btn" style={{padding:"8px 13px",background:"#f59e0b15",border:"1px solid #f59e0b28",borderRadius:8,color:"#fbbf24",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
                   📥 Importer XLS
@@ -5898,6 +5889,71 @@ export default function AmigoCRM() {
       {detailProspect&&<ProspectModal prospect={detailProspect} projId={effectiveProjId} onClose={()=>setDetailProspect(null)} onUpdate={updateProspect} onDelete={deleteProspect} orders={projOrders} onAddOrder={p=>{setDetailProspect(null);setShowAddOrder(p);}} onEmail={p=>{setDetailProspect(null);setShowEmailModal(p);}} onViewOrder={o=>{setDetailProspect(null);setDetailOrder(o);}} onSendGroupQuote={async(pid,token)=>{if(!data)return;updateProspect(pid,{groupQuoteToken:token});}} gmailThreads={gmailThreads} prospectEmails={data?.prospectEmails||{}} onSendEmail={sendGmail} onScanForProspect={scanForProspect} onClearEmails={clearProspectEmails} gmailLoading={gmailLoading}/>}
       {showAddEvent&&<AddEventModal onAdd={createCalEvent} onClose={()=>setShowAddEvent(null)} preDate={showAddEvent==="new"?null:showAddEvent} currentUser={user}/>}
       {showEmailModal&&<EmailModal prospect={showEmailModal} projId={effectiveProjId} onClose={()=>setShowEmailModal(null)} onSend={sendGmail} onUpdateStatus={updateProspect}/>}
+
+      {/* MASS RELANCE MODAL */}
+      {showMassRelance&&<ModalWrap title="Relancer tous les prospects makeup" onClose={()=>{setShowMassRelance(false);setMassRelanceStatus(null);}}>
+        {!massRelanceStatus ? (
+          <div>
+            <p style={{color:"#9ca3af",marginBottom:12,lineHeight:1.6}}>
+              Choisir le template à envoyer en masse :
+            </p>
+            <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+              {(EMAIL_TEMPLATES.makeup||[]).map(tpl=>(
+                <label key={tpl.id} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",padding:"8px 12px",background:massRelanceTpl===tpl.id?"#ef444418":"#1f2937",border:massRelanceTpl===tpl.id?"1px solid #ef4444":"1px solid #374151",borderRadius:8,transition:"all .15s"}}>
+                  <input type="radio" name="massTpl" checked={massRelanceTpl===tpl.id} onChange={()=>setMassRelanceTpl(tpl.id)} style={{accentColor:"#ef4444"}}/>
+                  <span style={{color:massRelanceTpl===tpl.id?"#f87171":"#9ca3af",fontWeight:massRelanceTpl===tpl.id?600:400,fontSize:13}}>{tpl.label}</span>
+                </label>
+              ))}
+            </div>
+            <p style={{color:"#9ca3af",marginBottom:16}}>
+              <strong style={{color:"#e5e7eb"}}>{(data?.makeup||[]).filter(p=>p.email).length}</strong> prospects avec email seront contactés.
+            </p>
+            <p style={{color:"#fbbf24",fontSize:12,marginBottom:20}}>⚠ Un délai de 3 secondes entre chaque envoi pour éviter le blocage Gmail.</p>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={async()=>{
+                const tpl = EMAIL_TEMPLATES.makeup.find(t=>t.id===massRelanceTpl);
+                if(!tpl){alert("Template introuvable");return;}
+                const targets=(data?.makeup||[]).filter(p=>p.email);
+                setMassRelanceStatus({sent:0,total:targets.length,current:"",errors:[]});
+                const errors=[];
+                for(let i=0;i<targets.length;i++){
+                  const p=targets[i];
+                  setMassRelanceStatus(prev=>({...prev,sent:i,current:p.name}));
+                  const ok=await sendGmail({to:p.email,subject:tpl.subject(p),body:tpl.body(p),from:PROJECT_EMAIL.makeup});
+                  if(!ok)errors.push(p.name);
+                  await new Promise(r=>setTimeout(r,3000));
+                }
+                setMassRelanceStatus(prev=>({...prev,sent:targets.length,current:"Terminé !",errors}));
+              }} style={{padding:"10px 24px",background:"#ef4444",border:"none",borderRadius:8,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                Envoyer à tous ({(data?.makeup||[]).filter(p=>p.email).length})
+              </button>
+              <button onClick={()=>setShowMassRelance(false)} style={{padding:"10px 24px",background:"#374151",border:"none",borderRadius:8,color:"#9ca3af",fontWeight:600,fontSize:13,cursor:"pointer"}}>
+                Annuler
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p style={{color:"#e5e7eb",marginBottom:12,fontSize:16,fontWeight:700}}>
+              {massRelanceStatus.sent} / {massRelanceStatus.total} envoyés
+            </p>
+            <div style={{background:"#1f2937",borderRadius:8,overflow:"hidden",height:8,marginBottom:16}}>
+              <div style={{height:"100%",background:"#ef4444",width:`${(massRelanceStatus.sent/massRelanceStatus.total)*100}%`,transition:"width .3s"}}/>
+            </div>
+            <p style={{color:"#9ca3af",fontSize:13}}>
+              {massRelanceStatus.current==="Terminé !"
+                ? <span style={{color:"#4ade80",fontWeight:700}}>✓ Envoi terminé !{massRelanceStatus.errors.length>0&&` (${massRelanceStatus.errors.length} erreurs)`}</span>
+                : <>En cours : <strong style={{color:"#e5e7eb"}}>{massRelanceStatus.current}</strong></>}
+            </p>
+            {massRelanceStatus.errors.length>0&&<p style={{color:"#f87171",fontSize:12,marginTop:8}}>Erreurs : {massRelanceStatus.errors.join(", ")}</p>}
+            {massRelanceStatus.current==="Terminé !"&&(
+              <button onClick={()=>{setShowMassRelance(false);setMassRelanceStatus(null);}} style={{marginTop:16,padding:"10px 24px",background:"#374151",border:"none",borderRadius:8,color:"#9ca3af",fontWeight:600,fontSize:13,cursor:"pointer"}}>
+                Fermer
+              </button>
+            )}
+          </div>
+        )}
+      </ModalWrap>}
     </div>
   );
 }
