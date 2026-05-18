@@ -1157,7 +1157,7 @@ function Print3DCalculator({ prospects, orders, onSaveQuote, onSaveWithNewClient
           </button>
           <button onClick={saveQuote} disabled={custoTotal===0||!hasClient}
             style={{flex:1,padding:"10px",background:saved?"#22c55e":"linear-gradient(135deg,#14b8a6,#0d9488)",border:"none",borderRadius:7,color:"white",fontSize:12,fontWeight:600,cursor:(custoTotal===0||!hasClient)?"not-allowed":"pointer",opacity:(custoTotal===0||!hasClient)?0.4:1}}>
-            {saved?"✓ Devis sauvegardé !":!hasClient?"Sélectionne ou crée un client":"💾 Sauvegarder devis"}
+            {saved?"✓ Devis sauvegardé !":custoTotal===0?"⚠️ Renseigne poids + heures":!hasClient?"Sélectionne ou crée un client":"💾 Sauvegarder devis"}
           </button>
         </div>
       </div>
@@ -2563,26 +2563,34 @@ function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, set
   const editTotal = (parseFloat(eAmount)||0) * (parseInt(eQty)||1);
 
   const printInvoice = () => {
+    const isSolde = paidAmount > 0 && solde > 0;
+    const docTitle = isSolde ? `FATURA DE SALDO N° ${o.id.toUpperCase()}` : `FATURA N° ${o.id.toUpperCase()}`;
     const w = window.open("","_blank","width=800,height=600");
-    w.document.write(`<html><head><title>Factura ${o.id}</title><style>
+    w.document.write(`<html><head><title>${docTitle}</title><style>
       body{font-family:Arial,sans-serif;padding:40px;color:#222;max-width:700px;margin:0 auto}
       h1{font-size:22px;margin-bottom:4px} .sub{color:#666;font-size:12px}
       table{width:100%;border-collapse:collapse;margin:20px 0} th,td{padding:8px 12px;border:1px solid #ddd;text-align:left;font-size:13px}
-      th{background:#f5f5f5} .total{font-size:18px;font-weight:bold;color:#16a34a}
+      th{background:#f5f5f5} .total{font-size:18px;font-weight:bold;color:#16a34a} .solde{font-size:20px;font-weight:bold;color:#d97706}
+      .paid{font-size:14px;color:#16a34a;margin:6px 0}
       .pix{text-align:center;margin:20px 0} .pix img{width:180px} .footer{margin-top:30px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:10px}
     </style></head><body>
       <h1>${EMPRESA.nome} — Labo 3D</h1>
       <p class="sub">CNPJ: ${EMPRESA.cnpj} · ${EMPRESA.email} · ${EMPRESA.tel}</p>
       <hr style="margin:16px 0;border:none;border-top:2px solid #222">
-      <h2 style="font-size:16px">FACTURA N° ${o.id.toUpperCase()}</h2>
+      <h2 style="font-size:16px">${docTitle}</h2>
+      ${isSolde?`<p style="font-size:12px;color:#d97706;margin-bottom:10px">Cobrança referente ao saldo restante</p>`:""}
       <table>
         <tr><th>Cliente</th><td>${o.prospectName||"–"}</td></tr>
+        ${linkedProspect?.cnpj?`<tr><th>CNPJ Cliente</th><td>${linkedProspect.cnpj}</td></tr>`:""}
         <tr><th>Produto</th><td>${o.product||"–"}</td></tr>
         <tr><th>Quantidade</th><td>${o.qty||1}</td></tr>
         <tr><th>Data</th><td>${o.date||new Date().toISOString().slice(0,10)}</td></tr>
+        ${o.payTerms?`<tr><th>Condições</th><td>${o.payTerms}</td></tr>`:""}
       </table>
-      <p class="total">TOTAL: R$ ${orderTotal?.toFixed(2)||"0.00"}</p>
-      ${pixQrUrl?`<div class="pix"><p style="font-size:13px;font-weight:bold">Pagamento PIX</p><img src="${pixQrUrl}" alt="QR PIX"/><p style="font-size:11px;color:#666;margin-top:6px">Chave PIX (CNPJ): ${EMPRESA.cnpj}</p></div>`:""}
+      <p class="total">VALOR TOTAL: R$ ${orderTotal?.toFixed(2)||"0.00"}</p>
+      ${paidAmount>0?`<p class="paid">Valor já pago (entrada): R$ ${paidAmount.toFixed(2)}</p>`:""}
+      ${isSolde?`<p class="solde">SALDO A PAGAR: R$ ${solde.toFixed(2)}</p>`:""}
+      ${pixQrUrl?`<div class="pix"><p style="font-size:13px;font-weight:bold">Pagamento PIX${isSolde?" — Saldo":""}</p><img src="${pixQrUrl}" alt="QR PIX"/><p style="font-size:11px;color:#666;margin-top:6px">Chave PIX (CNPJ): ${EMPRESA.cnpj}</p><p style="font-size:15px;font-weight:bold;color:#16a34a;margin-top:4px">R$ ${pixAmount.toFixed(2)}</p></div>`:""}
       <div class="footer">
         <p>${EMPRESA.nome} — Labo 3D · CNPJ ${EMPRESA.cnpj} · ${EMPRESA.cidade}</p>
         <p>Documento gerado em ${new Date().toLocaleDateString("pt-BR")}</p>
@@ -2749,7 +2757,12 @@ function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, set
           <button onClick={()=>{updateOrder(o.id,{type:"commande",status:"En attente"});setDetailOrder(d=>({...d,type:"commande",status:"En attente"}));celebrate();}}
             style={{flex:1,padding:"9px",background:"linear-gradient(135deg,#22c55e,#16a34a)",border:"none",borderRadius:7,color:"white",fontSize:13,fontWeight:600,cursor:"pointer"}}>→ Passer en commande</button>
         )}
-        {isCmd && <button onClick={printInvoice} style={{flex:1,padding:"9px",background:"#3b82f615",border:"1px solid #3b82f628",borderRadius:7,color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer"}}>🖨 Imprimer facture</button>}
+        {isCmd && <button onClick={printInvoice} style={{flex:1,padding:"9px",background:"#3b82f615",border:"1px solid #3b82f628",borderRadius:7,color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer"}}>{paidAmount>0&&solde>0?"🖨 Fatura de saldo":"🖨 Imprimer facture"}</button>}
+        {isCmd && <button onClick={()=>{
+          const info = `NFS-e — ${o.prospectName||"–"}\nServiço: ${o.product||"Impressão 3D"}\nValor: R$ ${orderTotal.toFixed(2)}\nQtd: ${o.qty||1}\nData: ${o.date||new Date().toISOString().slice(0,10)}${linkedProspect?.cnpj?`\nCNPJ Cliente: ${linkedProspect.cnpj}`:""}`;
+          navigator.clipboard.writeText(info);
+          window.open("https://www.nfse.gov.br/","_blank");
+        }} style={{flex:1,padding:"9px",background:"#14b8a615",border:"1px solid #14b8a628",borderRadius:7,color:"#2dd4bf",fontSize:12,fontWeight:600,cursor:"pointer"}}>📄 Emitir NFS-e</button>}
         {isCmd && <button onClick={exportCSV} style={{flex:1,padding:"9px",background:"#f59e0b15",border:"1px solid #f59e0b28",borderRadius:7,color:"#fbbf24",fontSize:12,fontWeight:600,cursor:"pointer"}}>📊 Export CSV</button>}
         <button onClick={()=>setDetailOrder(null)} style={{flex:1,padding:"9px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:7,color:"#6b7280",fontSize:12,cursor:"pointer"}}>Fermer</button>
       </div>
@@ -3744,23 +3757,43 @@ export default function AmigoCRM() {
         return btoa(bin);
       };
       const senderEmail = from || PROJECT_EMAIL[projId] || null;
-      const headers = [];
-      if (senderEmail) headers.push(`From: ${senderEmail}`);
-      headers.push(`To: ${to}`);
-      headers.push(`Subject: =?UTF-8?B?${toB64(subject)}?=`);
-      headers.push("MIME-Version: 1.0");
-      headers.push("Content-Type: text/plain; charset=UTF-8");
-      headers.push("Content-Transfer-Encoding: base64");
-      headers.push("");
-      headers.push(toB64(body));
-      const raw = headers.join("\r\n");
-      const encoded = toB64(raw).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-      const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ raw: encoded }),
-      });
-      return res.ok;
+
+      // Essayer d'abord avec l'alias From demandé
+      const tryWith = async (fromAddr) => {
+        const headers = [];
+        if (fromAddr) headers.push(`From: ${fromAddr}`);
+        headers.push(`To: ${to}`);
+        headers.push(`Subject: =?UTF-8?B?${toB64(subject)}?=`);
+        headers.push("MIME-Version: 1.0");
+        headers.push("Content-Type: text/plain; charset=UTF-8");
+        headers.push("Content-Transfer-Encoding: base64");
+        headers.push("");
+        headers.push(toB64(body));
+        const raw = headers.join("\r\n");
+        const encoded = toB64(raw).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+        const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ raw: encoded }),
+        });
+        return res;
+      };
+
+      const res = await tryWith(senderEmail);
+      if (res.ok) { console.log(`✅ Email envoyé à ${to}`); return true; }
+
+      const errBody = await res.text().catch(()=>"");
+      console.error(`❌ Gmail erreur (${res.status}) pour ${to}:`, errBody);
+
+      // Si l'alias échoue, retenter sans From (envoie depuis le compte connecté)
+      if (senderEmail) {
+        console.warn(`Gmail: alias ${senderEmail} refusé, retry sans From...`);
+        const res2 = await tryWith(null);
+        if (res2.ok) { console.log(`✅ Email envoyé à ${to} (sans alias)`); return true; }
+        const errBody2 = await res2.text().catch(()=>"");
+        console.error(`❌ Gmail retry échoué (${res2.status}) pour ${to}:`, errBody2);
+      }
+      return false;
     } catch(e) { console.error(e); return false; }
   };
 
@@ -5913,17 +5946,49 @@ export default function AmigoCRM() {
               <button onClick={async()=>{
                 const tpl = EMAIL_TEMPLATES.makeup.find(t=>t.id===massRelanceTpl);
                 if(!tpl){alert("Template introuvable");return;}
+                // Vérifier le token AVANT de lancer
+                const preToken = await getGToken();
+                if(!preToken){
+                  alert("⚠️ Token Gmail expiré !\n\nVous devez vous reconnecter :\n1. Déconnectez-vous (bouton en haut)\n2. Reconnectez-vous avec Google\n3. Relancez le mass mailing");
+                  return;
+                }
+                // Test d'envoi réel pour vérifier que le token fonctionne
+                const testRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
+                  headers: { Authorization: `Bearer ${preToken}` }
+                });
+                if(!testRes.ok){
+                  alert("⚠️ Token Gmail invalide !\n\nVous devez vous reconnecter :\n1. Déconnectez-vous (bouton en haut)\n2. Reconnectez-vous avec Google\n3. Relancez le mass mailing");
+                  return;
+                }
                 const targets=(data?.makeup||[]).filter(p=>p.email);
                 setMassRelanceStatus({sent:0,total:targets.length,current:"",errors:[]});
                 const errors=[];
+                const sent=[];
+                let consecutiveErrors = 0;
                 for(let i=0;i<targets.length;i++){
                   const p=targets[i];
                   setMassRelanceStatus(prev=>({...prev,sent:i,current:p.name}));
                   const ok=await sendGmail({to:p.email,subject:tpl.subject(p),body:tpl.body(p),from:PROJECT_EMAIL.makeup});
-                  if(!ok)errors.push(p.name);
+                  if(!ok){
+                    errors.push(p.name);
+                    consecutiveErrors++;
+                    if(consecutiveErrors>=3){
+                      setMassRelanceStatus(prev=>({...prev,sent:i+1,current:"⛔ Stoppé — token expiré ou problème Gmail",errors}));
+                      break;
+                    }
+                  } else {
+                    consecutiveErrors=0;
+                    if(p.status==="À contacter") sent.push(p.id);
+                  }
                   await new Promise(r=>setTimeout(r,3000));
                 }
-                setMassRelanceStatus(prev=>({...prev,sent:targets.length,current:"Terminé !",errors}));
+                // Mise à jour groupée des statuts en une seule écriture
+                if(sent.length>0){
+                  const nd={...data, makeup:(data.makeup||[]).map(p=>sent.includes(p.id)?{...p,status:"Contacté",lastEditAt:Date.now(),lastEditBy:user}:p)};
+                  setData(nd);
+                  try { await storage.set(KEY, JSON.stringify(nd)); setLastSync(Date.now()); } catch(e){ console.error(e); }
+                }
+                if(consecutiveErrors<3) setMassRelanceStatus(prev=>({...prev,sent:targets.length,current:"Terminé !",errors}));
               }} style={{padding:"10px 24px",background:"#ef4444",border:"none",borderRadius:8,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
                 Envoyer à tous ({(data?.makeup||[]).filter(p=>p.email).length})
               </button>
