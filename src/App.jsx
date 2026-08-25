@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
-  "https://sujdarqrksqwcmtapcjw.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN1amRhcnFya3Nxd2NtdGFwY2p3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNzI1NDgsImV4cCI6MjA4ODc0ODU0OH0.X1UaTAq6zdxwYCoAllUDE_GoTS-TlvgZrK1OWKkc_nM"
+  "https://mqaalshpmxzdyjcnxwuc.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1xYWFsc2hwbXh6ZHlqY254d3VjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExODIzNzQsImV4cCI6MjA5Njc1ODM3NH0.Y0ZPx8IwwKp-T5OqOYkqhzYygKX6RIqUlXyU49wuBv8"
 );
 
 const storage = {
@@ -25,10 +25,23 @@ const storage = {
 };
 
 const USERS = {
-  anthony: { label: "Anthony", color: "#3b82f6", avatar: "A" },
-  harold:  { label: "Harold",  color: "#22c55e", avatar: "H" },
-  jade:    { label: "Jade",    color: "#f59e0b", avatar: "J" },
+  anthony: { label: "Anthony", color: "#3b82f6", avatar: "A", email: "anthony.donzel@gmail.com" },
+  harold:  { label: "Harold",  color: "#22c55e", avatar: "H", email: "harold.grenouilleau@gmail.com" },
+  jade:    { label: "Jade",    color: "#f59e0b", avatar: "J", email: "" }, // à compléter
 };
+
+// Mappe un email vers l'entrée USERS (utilisé pour afficher "qui a répondu")
+function userFromEmail(email) {
+  if (!email) return null;
+  const lower = email.toLowerCase();
+  const match = Object.entries(USERS).find(([id, u]) =>
+    (u.email && u.email.toLowerCase() === lower) ||
+    lower.startsWith(id + ".") ||
+    lower.startsWith(id + "@") ||
+    lower === id
+  );
+  return match ? { id: match[0], ...match[1] } : null;
+}
 
 const PROJECTS = {
   makeup: {
@@ -2514,6 +2527,41 @@ function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, set
   const [quoteLink, setQuoteLink] = useState(o.quoteToken ? `${window.location.origin}/#/quote/${o.quoteToken}` : "");
   const [publishing, setPublishing] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [nfLoading, setNfLoading] = useState(false);
+  const [nfError, setNfError] = useState("");
+
+  const callNfApi = async (endpoint, method = "POST") => {
+    setNfLoading(true); setNfError("");
+    try {
+      const r = await fetch(`/api/${endpoint}`, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: method === "POST" ? JSON.stringify({ orderId: o.id, env: "HOMOL" }) : undefined
+      });
+      const j = await r.json();
+      if (!j.ok && (j.error || j.errors)) {
+        const msg = j.error || (j.errors?.[0]?.message) || "Erreur inconnue";
+        setNfError(msg);
+        return null;
+      }
+      // Refresh local : on attend que le polling Supabase remonte les nouvelles valeurs
+      setTimeout(() => setDetailOrder(d => ({ ...d })), 500);
+      return j;
+    } catch (e) {
+      setNfError(e.message);
+      return null;
+    } finally {
+      setNfLoading(false);
+    }
+  };
+
+  const emitNfse = async () => {
+    const j = await callNfApi("emit-nfse");
+    if (j?.ok && j.status === "enviado") {
+      setTimeout(() => callNfApi(`consult-nfse?orderId=${o.id}`, "GET"), 4000);
+    }
+  };
+  const consultNfse = () => callNfApi(`consult-nfse?orderId=${o.id}`, "GET");
 
   const publishQuote = async (republish = false) => {
     setPublishing(true);
@@ -2758,11 +2806,23 @@ function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, set
             style={{flex:1,padding:"9px",background:"linear-gradient(135deg,#22c55e,#16a34a)",border:"none",borderRadius:7,color:"white",fontSize:13,fontWeight:600,cursor:"pointer"}}>→ Passer en commande</button>
         )}
         {isCmd && <button onClick={printInvoice} style={{flex:1,padding:"9px",background:"#3b82f615",border:"1px solid #3b82f628",borderRadius:7,color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer"}}>{paidAmount>0&&solde>0?"🖨 Fatura de saldo":"🖨 Imprimer facture"}</button>}
-        {isCmd && <button onClick={()=>{
-          const info = `NFS-e — ${o.prospectName||"–"}\nServiço: ${o.product||"Impressão 3D"}\nValor: R$ ${orderTotal.toFixed(2)}\nQtd: ${o.qty||1}\nData: ${o.date||new Date().toISOString().slice(0,10)}${linkedProspect?.cnpj?`\nCNPJ Cliente: ${linkedProspect.cnpj}`:""}`;
-          navigator.clipboard.writeText(info);
-          window.open("https://www.nfse.gov.br/","_blank");
-        }} style={{flex:1,padding:"9px",background:"#14b8a615",border:"1px solid #14b8a628",borderRadius:7,color:"#2dd4bf",fontSize:12,fontWeight:600,cursor:"pointer"}}>📄 Emitir NFS-e</button>}
+        {isCmd && (() => {
+          // Un vrai nfNumber Nota Carioca est TOUJOURS numérique. Une string comme
+          // "❌ Assinatura RPS: rps11" veut dire qu'un ancien bug a pipé une erreur
+          // dans ce champ → on l'ignore et on affiche le bouton d'émission normal.
+          const validNfNumber = o.nfNumber && /^\d+$/.test(String(o.nfNumber).trim());
+          if (validNfNumber) {
+            const validUrl = `https://notacarioca.rio.gov.br/contribuinte/notaprint.aspx?ccm=&inscricao=&nf=${o.nfNumber}&cod=${o.nfCodigoVerificacao||""}&v=`;
+            return <a href={validUrl} target="_blank" rel="noopener" style={{flex:1,padding:"9px",background:"#22c55e15",border:"1px solid #22c55e28",borderRadius:7,color:"#4ade80",fontSize:12,fontWeight:600,cursor:"pointer",textDecoration:"none",textAlign:"center"}}>✓ NFS-e Nº {o.nfNumber}</a>;
+          }
+          if (o.nfStatus === "enviado") {
+            return <button onClick={consultNfse} disabled={nfLoading} style={{flex:1,padding:"9px",background:"#f59e0b15",border:"1px solid #f59e0b28",borderRadius:7,color:"#fbbf24",fontSize:12,fontWeight:600,cursor:nfLoading?"default":"pointer",opacity:nfLoading?0.6:1}}>{nfLoading?"⏳ Consultando…":"⏳ Consulter NFS-e"}</button>;
+          }
+          if (o.nfStatus === "erro_envio") {
+            return <button onClick={emitNfse} disabled={nfLoading} title={nfError||"Erreur émission"} style={{flex:1,padding:"9px",background:"#ef444415",border:"1px solid #ef444428",borderRadius:7,color:"#f87171",fontSize:12,fontWeight:600,cursor:nfLoading?"default":"pointer",opacity:nfLoading?0.6:1}}>{nfLoading?"⏳ Reenviando…":"❌ Erro — Réessayer"}</button>;
+          }
+          return <button onClick={emitNfse} disabled={nfLoading} title={nfError} style={{flex:1,padding:"9px",background:"#14b8a615",border:"1px solid #14b8a628",borderRadius:7,color:"#2dd4bf",fontSize:12,fontWeight:600,cursor:nfLoading?"default":"pointer",opacity:nfLoading?0.6:1}}>{nfLoading?"⏳ Emitindo…":nfError?`❌ ${nfError.slice(0,30)}`:"📄 Emitir NFS-e"}</button>;
+        })()}
         {isCmd && <button onClick={exportCSV} style={{flex:1,padding:"9px",background:"#f59e0b15",border:"1px solid #f59e0b28",borderRadius:7,color:"#fbbf24",fontSize:12,fontWeight:600,cursor:"pointer"}}>📊 Export CSV</button>}
         <button onClick={()=>setDetailOrder(null)} style={{flex:1,padding:"9px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:7,color:"#6b7280",fontSize:12,cursor:"pointer"}}>Fermer</button>
       </div>
@@ -3485,6 +3545,380 @@ function PublicGroupQuotePage({ token }) {
   );
 }
 
+const WA_LABO3D_STATUSES = ["novo","em_orcamento","ganho","perdido"];
+const WA_LABO3D_STATUS_LABELS = { novo:"Nouveau", em_orcamento:"En devis", ganho:"Gagné", perdido:"Perdu" };
+const WA_LABO3D_STATUS_COLORS = { novo:"#3b82f6", em_orcamento:"#f59e0b", ganho:"#22c55e", perdido:"#4b5563" };
+
+// Templates de devis Labo 3D — texte PT-BR pré-écrit, insertable en 1 clic dans l'inbox chat.
+// L'ordre reflète la fréquence attendue des demandes (saudação/souvenirs en 1er).
+// Anthony peut override via wa_labo3d.templates dans amigo_data (édition future).
+const DEFAULT_WA_LABO3D_TEMPLATES = [
+  { id:"greeting", label:"👋 Saudação",
+    text:"Olá! Obrigado por entrar em contato com a Labo 3D. Como podemos ajudar?" },
+  { id:"souvenirs", label:"🎁 Souvenirs em lote",
+    text:"Fazemos souvenirs 3D personalizados em lote (mínimo 20 peças).\n\n💰 R$ 15–40/peça (varia por tamanho e complexidade)\n📅 Prazo: 7–14 dias após aprovação\n\nMe conta mais sobre o projeto: quantidade estimada e tema? Se tiver alguma referência visual, manda também." },
+  { id:"figurines", label:"🦸 Figurines articuladas",
+    text:"Figurines articuladas 3D sob medida!\n\n💰 R$ 80–350 (varia por altura, complexidade e articulações)\n📅 Prazo: 10–15 dias úteis\n\nMe manda:\n1. Referência visual (foto/desenho do personagem)\n2. Tamanho desejado (10 cm, 15 cm, 20 cm…)\n3. Nível de detalhes (simples ou realista)" },
+  { id:"cake_topper", label:"🎂 Cake Topper",
+    text:"Cake Topper 3D personalizado, entrega rápida!\n\n💰 R$ 60–180 (varia por altura e detalhes)\n📅 Prazo: 3–7 dias úteis\n\nPara o orçamento preciso de:\n1. Foto de referência (personagem, nome, tema)\n2. Data da festa\n3. Tamanho (padrão 10–15 cm)" },
+  { id:"personagens", label:"🎨 Personagens originais",
+    text:"Criamos personagens originais 3D — do desenho ao modelo impresso!\n\n💰 A partir de R$ 250 (design + impressão)\n📅 Prazo: 14–21 dias úteis\n\nMe descreve:\n1. Conceito do personagem (idade, universo, personalidade)\n2. Referências visuais que gosta\n3. Uso (decoração, brinde, coleção)" },
+  { id:"decoracao", label:"🏠 Decoração",
+    text:"Peças de decoração 3D personalizadas para casa, festa ou empresa.\n\n💰 R$ 40–300 (varia por tamanho e complexidade)\n📅 Prazo: 5–10 dias úteis\n\nMe conta o projeto: ambiente, estilo (moderno/rústico/temático), dimensões aproximadas?" },
+  { id:"envio", label:"🚚 Envio",
+    text:"Enviamos para todo o Brasil via Correios (PAC/SEDEX) ou Melhor Envio.\n\n📦 Rio/RJ: retirada grátis no atelier (Rua Riachuelo 44)\n📦 Outros estados: R$ 25–80 (calculado no orçamento final)\n\nPrazo de entrega adicional: 2–8 dias úteis." },
+  { id:"pagamento", label:"💳 Pagamento",
+    text:"Aceitamos:\n\n✅ PIX (5% de desconto à vista)\n✅ Cartão em até 3x sem juros\n✅ Boleto\n\nPolítica: 50% de sinal para iniciar produção, 50% antes do envio." },
+];
+
+function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
+  const [selectedId, setSelectedId] = useState(null);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const [currentEmail, setCurrentEmail] = useState(null);
+  const [typingByConv, setTypingByConv] = useState({}); // { convId: { email: expireAt } }
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const endRef = useRef(null);
+  const textareaRef = useRef(null);
+  const templatesRef = useRef(null);
+  const typingChannelRef = useRef(null);
+  const lastTypingSentRef = useRef(0);
+
+  // Templates : override user dans waLabo3d.templates, sinon défauts.
+  const templates = (waLabo3d?.templates && waLabo3d.templates.length > 0)
+    ? waLabo3d.templates
+    : DEFAULT_WA_LABO3D_TEMPLATES;
+
+  // Fermeture du dropdown templates au click extérieur
+  useEffect(() => {
+    if (!templatesOpen) return;
+    const onDocClick = (e) => {
+      if (templatesRef.current && !templatesRef.current.contains(e.target)) setTemplatesOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [templatesOpen]);
+
+  const insertTemplate = (tpl) => {
+    // Remplace le contenu du textarea par le template + focus + curseur en fin
+    setText(tpl.text);
+    setTemplatesOpen(false);
+    setTimeout(() => {
+      const ta = textareaRef.current;
+      if (ta) { ta.focus(); ta.setSelectionRange(tpl.text.length, tpl.text.length); }
+    }, 30);
+  };
+
+  const conversations = (waLabo3d?.conversations || []).slice().sort(
+    (a,b) => new Date(b.last_message_at||0) - new Date(a.last_message_at||0)
+  );
+  const selected = conversations.find(c => c.id === selectedId) || null;
+
+  // Récupère l'email du user connecté (Supabase Auth session)
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setCurrentEmail(session?.user?.email || null);
+    })();
+  }, []);
+
+  // Channel Realtime pour "en train de taper" (broadcast, sans persistence)
+  useEffect(() => {
+    const ch = supabase.channel("wa-labo3d-typing", { config: { broadcast: { self: false } } })
+      .on("broadcast", { event: "typing" }, ({ payload }) => {
+        if (!payload?.conversation_id || !payload?.email) return;
+        setTypingByConv(prev => ({
+          ...prev,
+          [payload.conversation_id]: {
+            ...(prev[payload.conversation_id] || {}),
+            [payload.email]: Date.now() + 3500 // expire dans 3.5s
+          }
+        }));
+      })
+      .subscribe();
+    typingChannelRef.current = ch;
+
+    // Nettoie les entries typing expirées toutes les 1s
+    const cleanup = setInterval(() => {
+      setTypingByConv(prev => {
+        const now = Date.now();
+        const next = {};
+        let changed = false;
+        for (const [cid, users] of Object.entries(prev)) {
+          const active = {};
+          for (const [email, exp] of Object.entries(users)) {
+            if (exp > now) active[email] = exp;
+            else changed = true;
+          }
+          if (Object.keys(active).length) next[cid] = active;
+          else if (Object.keys(users).length) changed = true;
+        }
+        return changed ? next : prev;
+      });
+    }, 1000);
+
+    return () => {
+      supabase.removeChannel(ch);
+      clearInterval(cleanup);
+    };
+  }, []);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [selected?.messages?.length, selectedId]);
+
+  const broadcastTyping = () => {
+    if (!selected || !currentEmail) return;
+    const now = Date.now();
+    // throttle : max 1 broadcast toutes les 1200ms
+    if (now - lastTypingSentRef.current < 1200) return;
+    lastTypingSentRef.current = now;
+    typingChannelRef.current?.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { conversation_id: selected.id, email: currentEmail }
+    });
+  };
+
+  const send = async () => {
+    if (!text.trim() || !selected || sending) return;
+    setSending(true); setError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const jwt = session?.access_token;
+      if (!jwt) throw new Error("Session expirée, reconnecte-toi");
+      const resp = await fetch("/api/wa-labo3d-send", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${jwt}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: selected.id, text: text.trim() })
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      setText("");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const patchConv = async (convId, patch) => {
+    const current = waLabo3d || { conversations: [], templates: [] };
+    const next = {
+      ...current,
+      conversations: current.conversations.map(c => c.id === convId ? { ...c, ...patch } : c)
+    };
+    try {
+      await storage.set("wa_labo3d", JSON.stringify(next));
+      onSaveLocal?.(next);
+    } catch (err) {
+      setError("Sauvegarde échouée: " + err.message);
+    }
+  };
+
+  // Marque tous les messages inbound de cette conv comme lus par currentEmail
+  const markAsRead = async (conv) => {
+    if (!currentEmail) return;
+    const nowIso = new Date().toISOString();
+    const readBy = { ...(conv.read_by || {}), [currentEmail]: nowIso };
+    const patch = { read_by: readBy };
+    if (conv.unread) patch.unread = false;
+    await patchConv(conv.id, patch);
+  };
+
+  return (
+    <div style={{display:"flex",height:"calc(100vh - 180px)",gap:0,background:"#0a0d16",borderRadius:8,border:"1px solid #0f1520",overflow:"hidden"}}>
+      {/* ═══ COLONNE GAUCHE : LISTE CONVERSATIONS ═══ */}
+      <div style={{width:320,borderRight:"1px solid #0f1520",display:"flex",flexDirection:"column",flexShrink:0}}>
+        <div style={{padding:"12px 14px",borderBottom:"1px solid #0f1520",display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:14,fontWeight:600,color:"#f1f5f9"}}>💬 Conversations</span>
+          <span style={{fontSize:11,color:"#4b5563",marginLeft:"auto"}}>{conversations.length}</span>
+        </div>
+        <div style={{flex:1,overflowY:"auto"}}>
+          {conversations.length === 0 && (
+            <div style={{padding:24,textAlign:"center",color:"#4b5563",fontSize:12}}>
+              Aucune conversation.<br/>Les messages arriveront ici dès que le webhook Meta sera configuré.
+            </div>
+          )}
+          {conversations.map(c => {
+            const isSel = c.id === selectedId;
+            const last = c.messages?.[c.messages.length-1];
+            const statusColor = WA_LABO3D_STATUS_COLORS[c.status] || "#4b5563";
+            return (
+              <div key={c.id} onClick={()=>{ setSelectedId(c.id); markAsRead(c); }}
+                style={{padding:"10px 14px",borderBottom:"1px solid #0f1520",cursor:"pointer",background:isSel?`${accent}15`:c.unread?"#0d1119":"transparent",borderLeft:isSel?`3px solid ${accent}`:"3px solid transparent"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                  <span style={{fontSize:13,fontWeight:c.unread?700:500,color:"#f1f5f9",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {c.contact_name || c.phone}
+                  </span>
+                  <span style={{fontSize:9,padding:"1px 6px",borderRadius:3,background:`${statusColor}22`,color:statusColor,fontWeight:600}}>
+                    {WA_LABO3D_STATUS_LABELS[c.status] || c.status}
+                  </span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:11,color:"#4b5563",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {last ? (last.direction==="outbound" ? "↗ " : "") + (last.content||"").slice(0,60) : "—"}
+                  </span>
+                  <span style={{fontSize:9,color:"#374151",whiteSpace:"nowrap"}}>
+                    {c.last_message_at ? new Date(c.last_message_at).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit"}) : ""}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ═══ COLONNE CENTRALE : CHAT ═══ */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
+        {!selected ? (
+          <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"#4b5563",fontSize:13}}>
+            Sélectionne une conversation à gauche
+          </div>
+        ) : (
+          <>
+            {/* Header conversation */}
+            <div style={{padding:"12px 16px",borderBottom:"1px solid #0f1520",display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(135deg,${accent}70,${accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"white"}}>
+                {(selected.contact_name || selected.phone).slice(0,1).toUpperCase()}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:14,fontWeight:600,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{selected.contact_name || selected.phone}</div>
+                <div style={{fontSize:11,color:"#4b5563"}}>{selected.phone}</div>
+              </div>
+              <select value={selected.status} onChange={e=>patchConv(selected.id,{status:e.target.value})}
+                style={{background:"#0b0d16",color:"#f1f5f9",border:"1px solid #1a2030",borderRadius:5,padding:"4px 8px",fontSize:11}}>
+                {WA_LABO3D_STATUSES.map(s => (
+                  <option key={s} value={s}>{WA_LABO3D_STATUS_LABELS[s]}</option>
+                ))}
+              </select>
+              <select value={selected.assigned_to || ""} onChange={e=>patchConv(selected.id,{assigned_to:e.target.value||null})}
+                style={{background:"#0b0d16",color:"#f1f5f9",border:"1px solid #1a2030",borderRadius:5,padding:"4px 8px",fontSize:11}}>
+                <option value="">Non assigné</option>
+                {Object.entries(USERS).map(([id,u]) => <option key={id} value={id}>{u.label}</option>)}
+              </select>
+            </div>
+
+            {/* Messages */}
+            <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:8}}>
+              {(() => {
+                const msgs = selected.messages || [];
+                const readBy = selected.read_by || {};
+                // Trouve le dernier msg inbound pour afficher les "vu par"
+                const lastInboundIdx = (() => {
+                  for (let i = msgs.length-1; i >= 0; i--) if (msgs[i].direction === "inbound") return i;
+                  return -1;
+                })();
+                return msgs.map((m, idx) => {
+                  const isOut = m.direction === "outbound";
+                  const senderUser = isOut ? userFromEmail(m.sender_email) : null;
+                  // Pour un msg inbound : liste les users (autres que le contact) qui ont lu la conv APRÈS ce msg
+                  let readers = null;
+                  if (!isOut && idx === lastInboundIdx) {
+                    const msgTs = new Date(m.timestamp).getTime();
+                    readers = Object.entries(readBy)
+                      .filter(([email, at]) => new Date(at).getTime() >= msgTs)
+                      .map(([email]) => userFromEmail(email) || { id: email, label: email.split("@")[0], color: "#4b5563" });
+                  }
+                  return (
+                    <div key={m.id} style={{alignSelf:isOut?"flex-end":"flex-start",maxWidth:"70%"}}>
+                      <div style={{padding:"8px 12px",borderRadius:12,background:isOut?`${accent}22`:"#0d1119",border:`1px solid ${isOut?accent+"33":"#1a2030"}`,color:"#e2e8f0",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+                        {m.content}
+                      </div>
+                      <div style={{fontSize:9,color:"#374151",marginTop:2,textAlign:isOut?"right":"left",padding:"0 4px",display:"flex",gap:5,alignItems:"center",justifyContent:isOut?"flex-end":"flex-start",flexWrap:"wrap"}}>
+                        {isOut && senderUser && (
+                          <span style={{color:senderUser.color,fontWeight:600}}>↗ {senderUser.label}</span>
+                        )}
+                        {isOut && !senderUser && m.sender_email && (
+                          <span style={{color:"#6b7280"}}>↗ {m.sender_email.split("@")[0]}</span>
+                        )}
+                        <span>{m.timestamp ? new Date(m.timestamp).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}) : ""}</span>
+                        {isOut && m.delivery_status && <span>· {m.delivery_status}</span>}
+                        {readers && readers.length > 0 && (
+                          <span style={{marginLeft:4,color:"#4b5563"}}>
+                            vu par {readers.map(r => (
+                              <span key={r.id} style={{color:r.color,fontWeight:600,marginLeft:3}}>{r.label}</span>
+                            ))}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+              <div ref={endRef}/>
+            </div>
+
+            {/* Typing indicator (autres agents en train de taper) */}
+            {(() => {
+              const typing = typingByConv[selected.id] || {};
+              const now = Date.now();
+              const activeTypers = Object.entries(typing)
+                .filter(([email, exp]) => exp > now && email !== currentEmail)
+                .map(([email]) => userFromEmail(email) || { id: email, label: email.split("@")[0], color: "#94a3b8" });
+              if (!activeTypers.length) return null;
+              return (
+                <div style={{padding:"4px 16px",fontSize:11,color:"#94a3b8",fontStyle:"italic"}}>
+                  {activeTypers.map((u,i) => (
+                    <span key={u.id} style={{color:u.color,fontWeight:600}}>{i>0?", ":""}{u.label}</span>
+                  ))}
+                  {" "}rédige…
+                </div>
+              );
+            })()}
+
+            {/* Input envoi */}
+            <div style={{padding:"12px 16px",borderTop:"1px solid #0f1520",position:"relative"}}>
+              {error && <div style={{fontSize:11,color:"#ef4444",marginBottom:6}}>{error}</div>}
+
+              {/* Dropdown Templates — s'ouvre au-dessus du textarea */}
+              {templatesOpen && (
+                <div ref={templatesRef}
+                  style={{position:"absolute",bottom:"100%",left:16,right:16,marginBottom:6,background:"#0b0d16",border:`1px solid ${accent}44`,borderRadius:8,boxShadow:"0 -8px 24px rgba(0,0,0,0.35)",maxHeight:340,overflowY:"auto",zIndex:10}}>
+                  <div style={{padding:"8px 12px",borderBottom:"1px solid #0f1520",fontSize:11,color:"#94a3b8",fontWeight:600}}>
+                    📋 Templates de devis · clique pour insérer
+                  </div>
+                  {templates.map(tpl => (
+                    <div key={tpl.id} onClick={()=>insertTemplate(tpl)}
+                      style={{padding:"10px 12px",borderBottom:"1px solid #0f1520",cursor:"pointer",transition:"background 0.15s"}}
+                      onMouseEnter={e=>e.currentTarget.style.background=`${accent}12`}
+                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <div style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:3}}>{tpl.label}</div>
+                      <div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {tpl.text.split("\n")[0]}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{display:"flex",gap:8,alignItems:"stretch"}}>
+                <button
+                  onClick={()=>setTemplatesOpen(v=>!v)}
+                  title="Templates de devis"
+                  style={{padding:"0 12px",background:templatesOpen?`${accent}33`:"#0b0d16",color:templatesOpen?accent:"#94a3b8",border:`1px solid ${templatesOpen?accent+"55":"#1a2030"}`,borderRadius:6,fontSize:16,cursor:"pointer",fontFamily:"inherit"}}>
+                  📋
+                </button>
+                <textarea ref={textareaRef} value={text}
+                  onChange={e=>{ setText(e.target.value); broadcastTyping(); }}
+                  onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();} }}
+                  placeholder="Écris ton message… (Enter pour envoyer, Shift+Enter pour saut de ligne)"
+                  rows={2}
+                  style={{flex:1,background:"#0b0d16",color:"#f1f5f9",border:"1px solid #1a2030",borderRadius:6,padding:"8px 10px",fontSize:13,fontFamily:"inherit",resize:"none",outline:"none"}}/>
+                <button onClick={send} disabled={!text.trim()||sending}
+                  style={{padding:"0 18px",background:accent,color:"white",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:text.trim()&&!sending?"pointer":"not-allowed",opacity:text.trim()&&!sending?1:0.5}}>
+                  {sending ? "…" : "Envoyer"}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AmigoCRM() {
   // Routes publiques devis — pas besoin d'auth
   const hashMatch = window.location.hash.match(/^#\/quote\/([^?]+)/);
@@ -3506,6 +3940,7 @@ export default function AmigoCRM() {
   const [notif,   setNotif]   = useState(null);
   const [view,    setViewRaw]    = useState(()=>localStorage.getItem("amigo-view")||"dashboard");
   const [theme,   setTheme]   = useState(()=>localStorage.getItem("amigo-theme")||"dark");
+  const [waLabo3d, setWaLabo3d] = useState({ conversations: [], templates: [] });
 
   const THEMES = {
     dark:  { label:"🌑 Dark",  filter:"none" },
@@ -4155,6 +4590,35 @@ export default function AmigoCRM() {
     };
   }, [load]);
 
+  // ── Load + Realtime pour wa_labo3d (WhatsApp Labo 3D) ─────────────────────
+  useEffect(() => {
+    const WA_KEY = "wa_labo3d";
+    const loadWa = async () => {
+      try {
+        const r = await storage.get(WA_KEY);
+        if (!r) return;
+        const parsed = typeof r.value === "string" ? JSON.parse(r.value) : r.value;
+        setWaLabo3d({
+          conversations: parsed?.conversations || [],
+          templates: parsed?.templates || []
+        });
+      } catch (e) { console.error("wa_labo3d load failed:", e); }
+    };
+    loadWa();
+
+    const waChannel = supabase.channel("wa-labo3d-sync")
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "amigo_data", filter: `key=eq.${WA_KEY}` },
+        () => loadWa()
+      )
+      .subscribe();
+    const waPoll = setInterval(loadWa, 15000);
+    return () => {
+      supabase.removeChannel(waChannel);
+      clearInterval(waPoll);
+    };
+  }, []);
+
   // Sync statuts depuis emails déjà sauvegardés — sans rescanner Gmail
   useEffect(() => {
     if (!data || !user) return;
@@ -4782,7 +5246,7 @@ export default function AmigoCRM() {
         </div>
 
         <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
-          {[["dashboard","Dashboard"],["kanban","Pipeline"],["commandes","Commandes"],["finance","Finance"],...(projId==="print3d"?[["stock","Stock"],["blender","🎨 3D Studio"]]:[]),["emails","Emails"],["agenda","Agenda"],["activite","Activité"],...(projId==="vin"?[["carte","🗺 Carte"]]:[]),["idees","💡"]]
+          {[["dashboard","Dashboard"],["kanban","Pipeline"],["commandes","Commandes"],["finance","Finance"],...(projId==="print3d"?[["stock","Stock"],["blender","🎨 3D Studio"],["chat","💬 Chat"]]:[]),["emails","Emails"],["agenda","Agenda"],["activite","Activité"],...(projId==="vin"?[["carte","🗺 Carte"]]:[]),["idees","💡"]]
           .map(([v,l])=>(
             <button key={v} onClick={()=>setView(v)} className="btn"
               style={{padding:"4px 11px",borderRadius:5,fontSize:12,fontWeight:500,background:view===v?`${accent}18`:"transparent",color:view===v?accent:"#94a3b8",border:view===v?`1px solid ${accent}22`:"1px solid transparent",cursor:"pointer"}}>
@@ -5906,6 +6370,9 @@ export default function AmigoCRM() {
             })()}
           </div>
         )}
+
+        {/* ══ CHAT WHATSAPP LABO 3D ══ */}
+        {view==="chat"&&projId==="print3d"&&<WhatsAppInbox waLabo3d={waLabo3d} user={user} accent={accent} onSaveLocal={setWaLabo3d}/>}
 
         {/* ══ CARTE VIN ══ */}
         {view==="carte"&&projId==="vin"&&<CarteVin prospects={prospects} onOpenProspect={setDetailProspect} onAddProspect={()=>setShowAddProspect(true)}/>}

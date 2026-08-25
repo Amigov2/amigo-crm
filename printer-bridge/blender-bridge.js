@@ -22,7 +22,7 @@ let config = {};
 try { config = JSON.parse(fs.readFileSync(path.join(__dirname, "config.json"), "utf8")); } catch {}
 
 const BLENDER_HOST = config.blender?.host || "127.0.0.1";
-const BLENDER_PORT = config.blender?.port || 9876;
+const BLENDER_PORT = config.blender?.port || 3000;
 const WS_PORT = config.blender?.wsPort || 8769;
 
 // ── Minimal WebSocket server (no dependencies) ─────────────────────────────
@@ -520,12 +520,12 @@ ${matCode("Mat_Objet", colorStr)}
 
 // ── Start ──────────────────────────────────────────────────────────────────
 
-server.listen(WS_PORT, () => {
+server.listen(WS_PORT, "0.0.0.0", () => {
   console.log("╔══════════════════════════════════════╗");
   console.log("║  Amigo CRM — Blender Bridge v1.0    ║");
   console.log("╚══════════════════════════════════════╝");
   console.log("");
-  console.log(`🌐 WebSocket: ws://localhost:${WS_PORT}`);
+  console.log(`🌐 WebSocket: ws://0.0.0.0:${WS_PORT} (accessible sur le réseau local)`);
   console.log(`🎨 Blender:   ${BLENDER_HOST}:${BLENDER_PORT}`);
   console.log("");
   console.log("En attente de connexions CRM...");

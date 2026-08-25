@@ -5,3 +5,8 @@ dist/
 .env
 .env.*
 .vercel
+*.pfx
+*.p12
+*.key
+*.pem
+certs/

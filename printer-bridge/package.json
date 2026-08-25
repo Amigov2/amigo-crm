@@ -1,0 +1,13 @@
+{
+  "name": "amigo-printer-bridge",
+  "version": "1.0.0",
+  "description": "Pont imprimantes 3D → Amigo CRM via Supabase",
+  "main": "bridge.js",
+  "scripts": {
+    "start": "node bridge.js"
+  },
+  "dependencies": {
+    "mqtt": "^5.0.0",
+    "@supabase/supabase-js": "^2.39.0"
+  }
+}
