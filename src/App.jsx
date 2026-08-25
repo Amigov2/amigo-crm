@@ -2563,6 +2563,14 @@ function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, set
   };
   const consultNfse = () => callNfApi(`consult-nfse?orderId=${o.id}`, "GET");
 
+  const resetNf = async () => {
+    if (!confirm("Reset tous les champs NF de cette commande ? (permet de refaire l'émission depuis zéro)")) return;
+    const upd = { nfNumber: null, nfStatus: null, nfProtocolo: null, nfEnviadoAt: null, nfEmitidaAt: null, nfErrors: null, nfLastTriedAt: null, nfRpsNumber: null, nfEnv: null, nfCodigoVerificacao: null, nfNumeroLote: null, nfDataEmissao: null, nfXml: null };
+    updateOrder(o.id, upd);
+    setDetailOrder(d => ({ ...d, ...upd }));
+    setNfError(null);
+  };
+
   const publishQuote = async (republish = false) => {
     setPublishing(true);
     try {
@@ -2823,6 +2831,7 @@ function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, set
           }
           return <button onClick={emitNfse} disabled={nfLoading} title={nfError} style={{flex:1,padding:"9px",background:"#14b8a615",border:"1px solid #14b8a628",borderRadius:7,color:"#2dd4bf",fontSize:12,fontWeight:600,cursor:nfLoading?"default":"pointer",opacity:nfLoading?0.6:1}}>{nfLoading?"⏳ Emitindo…":nfError?`❌ ${nfError.slice(0,30)}`:"📄 Emitir NFS-e"}</button>;
         })()}
+        {isCmd && (o.nfNumber || o.nfStatus) && <button onClick={resetNf} title="Reset tous les champs NF (permet de refaire l'émission)" style={{padding:"9px 12px",background:"#6b728015",border:"1px solid #6b728028",borderRadius:7,color:"#9ca3af",fontSize:12,fontWeight:600,cursor:"pointer"}}>🗑 Reset NF</button>}
         {isCmd && <button onClick={exportCSV} style={{flex:1,padding:"9px",background:"#f59e0b15",border:"1px solid #f59e0b28",borderRadius:7,color:"#fbbf24",fontSize:12,fontWeight:600,cursor:"pointer"}}>📊 Export CSV</button>}
         <button onClick={()=>setDetailOrder(null)} style={{flex:1,padding:"9px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:7,color:"#6b7280",fontSize:12,cursor:"pointer"}}>Fermer</button>
       </div>
