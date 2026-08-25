@@ -5814,7 +5814,25 @@ export default function AmigoCRM() {
                     : renderTable(devis, true)}
                 </div>
                 <div style={{marginTop:16}}>
-                  <p style={{fontSize:11,fontWeight:700,color:"#22c55e",marginBottom:8,textTransform:"uppercase",letterSpacing:".5px"}}>📦 Commandes ({commandes.length})</p>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    <p style={{fontSize:11,fontWeight:700,color:"#22c55e",textTransform:"uppercase",letterSpacing:".5px",margin:0}}>📦 Commandes ({commandes.length})</p>
+                    {commandes.length>0&&<button onClick={()=>{
+                      const rows=[["N°","Date","Cliente","CNPJ/CPF","Projeto","Produto","Qtd","Valor Unit.","Valor Total","Pago","Saldo","Status","Notas"]];
+                      const allProsp=data?.[projId]||[];
+                      const all=[...commandes, ...cmdArchives];
+                      for(const o of all){
+                        const p=allProsp.find(x=>x.id===o.prospectId)||{};
+                        const tot=(Number(o.amount)||0)*(Number(o.qty)||1);
+                        const paid=Number(o.paidAmount)||0;
+                        const sol=Math.max(0,tot-paid);
+                        rows.push([o.id,o.date,p.name||o.prospectName||"",p.cnpj||p.cpf||"",o.proj,o.product||"",o.qty||1,(Number(o.amount)||0).toFixed(2),tot.toFixed(2),paid.toFixed(2),sol.toFixed(2),o.status||"",(o.notes||"").replace(/[\r\n]+/g," ")]);
+                      }
+                      const csv=rows.map(r=>r.map(c=>`"${String(c||"").replace(/"/g,'""')}"`).join(",")).join("\n");
+                      const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"});
+                      const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+                      a.download=`ventes_${projId}_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+                    }} style={{padding:"6px 12px",background:"#f59e0b15",border:"1px solid #f59e0b28",borderRadius:6,color:"#fbbf24",fontSize:11,fontWeight:600,cursor:"pointer"}}>📊 Export toutes ventes (CSV comptable)</button>}
+                  </div>
                   {commandes.length===0
                     ? <p style={{fontSize:12,color:"#374151",textAlign:"center",padding:"20px"}}>Aucune commande. Passe un devis accepté en commande.</p>
                     : renderTable(commandes, false)}
