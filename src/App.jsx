@@ -2571,6 +2571,18 @@ function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, set
     setNfError(null);
   };
 
+  const toggleNfManual = () => {
+    if (o.nfManualEmise) {
+      updateOrder(o.id, { nfManualEmise: null, nfManualDate: null });
+      setDetailOrder(d => ({ ...d, nfManualEmise: null, nfManualDate: null }));
+    } else {
+      const dateStr = prompt("Date d'émission de la NF manuelle (YYYY-MM-DD, vide = aujourd'hui) :", new Date().toISOString().slice(0,10));
+      if (dateStr === null) return;
+      updateOrder(o.id, { nfManualEmise: true, nfManualDate: dateStr || new Date().toISOString().slice(0,10) });
+      setDetailOrder(d => ({ ...d, nfManualEmise: true, nfManualDate: dateStr || new Date().toISOString().slice(0,10) }));
+    }
+  };
+
   const publishQuote = async (republish = false) => {
     setPublishing(true);
     try {
@@ -2831,6 +2843,7 @@ function OrderDetailModal({ o, data, projId, $, updateOrder, setDetailOrder, set
           }
           return <button onClick={emitNfse} disabled={nfLoading} title={nfError} style={{flex:1,padding:"9px",background:"#14b8a615",border:"1px solid #14b8a628",borderRadius:7,color:"#2dd4bf",fontSize:12,fontWeight:600,cursor:nfLoading?"default":"pointer",opacity:nfLoading?0.6:1}}>{nfLoading?"⏳ Emitindo…":nfError?`❌ ${nfError.slice(0,30)}`:"📄 Emitir NFS-e"}</button>;
         })()}
+        {isCmd && <button onClick={toggleNfManual} title={o.nfManualEmise?`NF émise manuellement le ${o.nfManualDate||"?"} — clique pour retirer`:"Marquer comme NF déjà émise manuellement (le comptable ne re-facturera pas)"} style={{padding:"9px 12px",background:o.nfManualEmise?"#22c55e15":"#8b5cf615",border:`1px solid ${o.nfManualEmise?"#22c55e28":"#8b5cf628"}`,borderRadius:7,color:o.nfManualEmise?"#4ade80":"#a78bfa",fontSize:12,fontWeight:600,cursor:"pointer"}}>{o.nfManualEmise?`✓ NF manuelle ${o.nfManualDate||""}`:"✋ NF manuelle"}</button>}
         {isCmd && (o.nfNumber || o.nfStatus) && <button onClick={resetNf} title="Reset tous les champs NF (permet de refaire l'émission)" style={{padding:"9px 12px",background:"#6b728015",border:"1px solid #6b728028",borderRadius:7,color:"#9ca3af",fontSize:12,fontWeight:600,cursor:"pointer"}}>🗑 Reset NF</button>}
         {isCmd && <button onClick={exportCSV} style={{flex:1,padding:"9px",background:"#f59e0b15",border:"1px solid #f59e0b28",borderRadius:7,color:"#fbbf24",fontSize:12,fontWeight:600,cursor:"pointer"}}>📊 Export CSV</button>}
         <button onClick={()=>setDetailOrder(null)} style={{flex:1,padding:"9px",background:"#0b0d16",border:"1px solid #0f1520",borderRadius:7,color:"#6b7280",fontSize:12,cursor:"pointer"}}>Fermer</button>
@@ -5817,7 +5830,7 @@ export default function AmigoCRM() {
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                     <p style={{fontSize:11,fontWeight:700,color:"#22c55e",textTransform:"uppercase",letterSpacing:".5px",margin:0}}>📦 Commandes ({commandes.length})</p>
                     {commandes.length>0&&<button onClick={()=>{
-                      const rows=[["N°","Date","Cliente","CNPJ/CPF","Projeto","Produto","Qtd","Valor Unit.","Valor Total","Pago","Saldo","Status","Notas"]];
+                      const rows=[["N°","Date","Cliente","CNPJ/CPF","Projeto","Produto","Qtd","Valor Unit.","Valor Total","Pago","Saldo","Status","NF Manuelle","Notas"]];
                       const allProsp=data?.[projId]||[];
                       const all=[...commandes, ...cmdArchives];
                       for(const o of all){
@@ -5825,7 +5838,8 @@ export default function AmigoCRM() {
                         const tot=(Number(o.amount)||0)*(Number(o.qty)||1);
                         const paid=Number(o.paidAmount)||0;
                         const sol=Math.max(0,tot-paid);
-                        rows.push([o.id,o.date,p.name||o.prospectName||"",p.cnpj||p.cpf||"",o.proj,o.product||"",o.qty||1,(Number(o.amount)||0).toFixed(2),tot.toFixed(2),paid.toFixed(2),sol.toFixed(2),o.status||"",(o.notes||"").replace(/[\r\n]+/g," ")]);
+                        const nfMan=o.nfManualEmise?`Oui${o.nfManualDate?" ("+o.nfManualDate+")":""}`:"";
+                        rows.push([o.id,o.date,p.name||o.prospectName||"",p.cnpj||p.cpf||"",o.proj,o.product||"",o.qty||1,(Number(o.amount)||0).toFixed(2),tot.toFixed(2),paid.toFixed(2),sol.toFixed(2),o.status||"",nfMan,(o.notes||"").replace(/[\r\n]+/g," ")]);
                       }
                       const csv=rows.map(r=>r.map(c=>`"${String(c||"").replace(/"/g,'""')}"`).join(",")).join("\n");
                       const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"});
