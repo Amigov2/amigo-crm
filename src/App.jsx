@@ -5830,22 +5830,30 @@ export default function AmigoCRM() {
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                     <p style={{fontSize:11,fontWeight:700,color:"#22c55e",textTransform:"uppercase",letterSpacing:".5px",margin:0}}>📦 Commandes ({commandes.length})</p>
                     {commandes.length>0&&<button onClick={()=>{
-                      const rows=[["N°","Date","Cliente","CNPJ/CPF","Projeto","Produto","Qtd","Valor Unit.","Valor Total","Pago","Saldo","Status","NF Manuelle","Notas"]];
-                      const allProsp=data?.[projId]||[];
                       const all=[...commandes, ...cmdArchives];
-                      for(const o of all){
+                      const neverExported=all.filter(o=>!o.exportedAt);
+                      const mode=confirm(`${all.length} commandes total, ${neverExported.length} jamais exportees.\n\nOK = toutes\nAnnuler = uniquement les nouvelles`)?"all":"new";
+                      const toExport=mode==="all"?all:neverExported;
+                      if(toExport.length===0){alert("Aucune nouvelle commande a exporter (tout deja envoye au comptable).");return;}
+                      const rows=[["N°","Date","Cliente","CNPJ/CPF","Projeto","Produto","Qtd","Valor Unit.","Valor Total","Pago","Saldo","Status","NF Manuelle","Precedent Export","Notas"]];
+                      const allProsp=data?.[projId]||[];
+                      for(const o of toExport){
                         const p=allProsp.find(x=>x.id===o.prospectId)||{};
                         const tot=(Number(o.amount)||0)*(Number(o.qty)||1);
                         const paid=Number(o.paidAmount)||0;
                         const sol=Math.max(0,tot-paid);
                         const nfMan=o.nfManualEmise?`Oui${o.nfManualDate?" ("+o.nfManualDate+")":""}`:"";
-                        rows.push([o.id,o.date,p.name||o.prospectName||"",p.cnpj||p.cpf||"",o.proj,o.product||"",o.qty||1,(Number(o.amount)||0).toFixed(2),tot.toFixed(2),paid.toFixed(2),sol.toFixed(2),o.status||"",nfMan,(o.notes||"").replace(/[\r\n]+/g," ")]);
+                        const prevExp=o.exportedAt?new Date(o.exportedAt).toISOString().slice(0,10):"";
+                        rows.push([o.id,o.date,p.name||o.prospectName||"",p.cnpj||p.cpf||"",o.proj,o.product||"",o.qty||1,(Number(o.amount)||0).toFixed(2),tot.toFixed(2),paid.toFixed(2),sol.toFixed(2),o.status||"",nfMan,prevExp,(o.notes||"").replace(/[\r\n]+/g," ")]);
                       }
                       const csv=rows.map(r=>r.map(c=>`"${String(c||"").replace(/"/g,'""')}"`).join(",")).join("\n");
                       const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"});
                       const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
-                      a.download=`ventes_${projId}_${new Date().toISOString().slice(0,10)}.csv`; a.click();
-                    }} style={{padding:"6px 12px",background:"#f59e0b15",border:"1px solid #f59e0b28",borderRadius:6,color:"#fbbf24",fontSize:11,fontWeight:600,cursor:"pointer"}}>📊 Export toutes ventes (CSV comptable)</button>}
+                      a.download=`ventes_${projId}_${mode}_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+                      const now=Date.now();
+                      for(const o of toExport) updateOrder(o.id,{exportedAt:now});
+                      setTimeout(()=>alert(`✓ ${toExport.length} commande(s) exportee(s) ${mode==="new"?"(nouvelles uniquement)":"(toutes)"}. Toutes marquees comme envoyees au comptable le ${new Date(now).toLocaleDateString("fr-FR")}.`),300);
+                    }} style={{padding:"6px 12px",background:"#f59e0b15",border:"1px solid #f59e0b28",borderRadius:6,color:"#fbbf24",fontSize:11,fontWeight:600,cursor:"pointer"}}>📊 Export ventes → comptable</button>}
                   </div>
                   {commandes.length===0
                     ? <p style={{fontSize:12,color:"#374151",textAlign:"center",padding:"20px"}}>Aucune commande. Passe un devis accepté en commande.</p>
