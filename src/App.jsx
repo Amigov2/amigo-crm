@@ -3728,6 +3728,10 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [refreshingMedia, setRefreshingMedia] = useState(false);
   const [refreshMediaResult, setRefreshMediaResult] = useState(null);
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [broadcastText, setBroadcastText] = useState("");
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState(null);
   const endRef = useRef(null);
   const textareaRef = useRef(null);
   const templatesRef = useRef(null);
@@ -3888,6 +3892,44 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     }
   };
 
+  // Calcul du nombre de conv dans la fenêtre 24h Meta
+  const now = Date.now();
+  const MS_24H = 24 * 60 * 60 * 1000;
+  const eligibleForBroadcast = conversations.filter(c => {
+    const msgs = c.messages || [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].direction === "inbound") {
+        return (now - new Date(msgs[i].timestamp).getTime() < MS_24H);
+      }
+    }
+    return false;
+  });
+
+  const runBroadcast = async () => {
+    if (broadcasting || !broadcastText.trim()) return;
+    if (!confirm(`Envoyer ce message à ${eligibleForBroadcast.length} conversations (fenêtre 24h) ?`)) return;
+    setBroadcasting(true);
+    setBroadcastResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const jwt = session?.access_token;
+      if (!jwt) throw new Error("Session expirée");
+      const resp = await fetch("/api/wa-labo3d-broadcast", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${jwt}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: broadcastText.trim(), only_recent_24h: true }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      setBroadcastResult(data);
+      if (data.sent > 0) setBroadcastText("");
+    } catch (err) {
+      setBroadcastResult({ error: err.message });
+    } finally {
+      setBroadcasting(false);
+    }
+  };
+
   const refreshMedia = async () => {
     if (refreshingMedia) return;
     if (!confirm("Retélécharger toutes les photos manquantes depuis Meta ? (peut prendre 30-60s)")) return;
@@ -3985,6 +4027,12 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
             title="Retélécharger les photos manquantes depuis Meta"
             style={{padding:"3px 8px",background:refreshingMedia?"#1a2030":`${accent}22`,border:`1px solid ${accent}44`,borderRadius:4,color:accent,fontSize:10,fontWeight:600,cursor:refreshingMedia?"wait":"pointer"}}>
             {refreshingMedia ? "…" : "🔄 Récup. photos"}
+          </button>
+          <button
+            onClick={()=>setBroadcastOpen(true)}
+            title={`Envoyer un message aux ${eligibleForBroadcast.length} conv actives (< 24h)`}
+            style={{padding:"3px 8px",background:"#22c55e22",border:"1px solid #22c55e44",borderRadius:4,color:"#22c55e",fontSize:10,fontWeight:600,cursor:"pointer"}}>
+            🚀 Relancer ({eligibleForBroadcast.length})
           </button>
           {refreshMediaResult && !refreshMediaResult.error && (
             <span style={{fontSize:10,color:"#22c55e",flexBasis:"100%",marginTop:2}}>
@@ -4299,6 +4347,69 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
           </>
         )}
       </div>
+
+      {/* Modale Broadcast — envoi d'un même message à toutes les conv < 24h */}
+      {broadcastOpen && (
+        <div onClick={()=>!broadcasting&&setBroadcastOpen(false)}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{width:"100%",maxWidth:520,background:"#0d1119",border:"1px solid #1a2030",borderRadius:12,padding:20,color:"#e2e8f0"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <h3 style={{margin:0,fontSize:15,fontWeight:600}}>🚀 Relancer les conversations actives</h3>
+              <button onClick={()=>!broadcasting&&setBroadcastOpen(false)}
+                style={{background:"transparent",border:"none",color:"#94a3b8",fontSize:18,cursor:"pointer",padding:4}}>✕</button>
+            </div>
+
+            <p style={{margin:"0 0 12px 0",fontSize:12,color:"#94a3b8",lineHeight:1.5}}>
+              Envoie le même message à <b style={{color:"#22c55e"}}>{eligibleForBroadcast.length} conv</b> qui ont écrit dans les dernières 24h (fenêtre Meta).
+              Les conv plus anciennes seront skippées (elles nécessitent un template approved).
+            </p>
+
+            <textarea
+              value={broadcastText}
+              onChange={e=>setBroadcastText(e.target.value)}
+              placeholder="Oi ! Desculpe a demora, tive um problema técnico. Ainda posso ajudar com o seu pedido ?"
+              rows={5}
+              disabled={broadcasting}
+              style={{width:"100%",background:"#0b0d16",color:"#f1f5f9",border:"1px solid #1a2030",borderRadius:6,padding:"10px 12px",fontSize:13,fontFamily:"inherit",resize:"vertical",outline:"none",boxSizing:"border-box"}}
+            />
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"#64748b",marginTop:4}}>
+              <span>{broadcastText.length} / 4000</span>
+              <span>Délai 250 ms entre chaque envoi</span>
+            </div>
+
+            {broadcastResult && !broadcastResult.error && (
+              <div style={{marginTop:12,padding:"10px 12px",background:"#22c55e18",border:"1px solid #22c55e40",borderRadius:6,fontSize:12,color:"#22c55e"}}>
+                ✅ Envoyé : {broadcastResult.sent} · Échec : {broadcastResult.failed} · Bloqué 24h : {broadcastResult.blocked_24h}
+                {broadcastResult.errors?.length > 0 && (
+                  <details style={{marginTop:6}}>
+                    <summary style={{cursor:"pointer",fontSize:11}}>{broadcastResult.errors.length} erreur(s)</summary>
+                    <ul style={{margin:"6px 0 0 16px",padding:0,fontSize:10,color:"#f59e0b"}}>
+                      {broadcastResult.errors.map((e,i)=>(<li key={i}>{e.phone} — {e.error}</li>))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
+            {broadcastResult?.error && (
+              <div style={{marginTop:12,padding:"10px 12px",background:"#ef444418",border:"1px solid #ef444440",borderRadius:6,fontSize:12,color:"#ef4444"}}>
+                ❌ {broadcastResult.error}
+              </div>
+            )}
+
+            <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end"}}>
+              <button onClick={()=>!broadcasting&&setBroadcastOpen(false)} disabled={broadcasting}
+                style={{padding:"8px 16px",background:"transparent",border:"1px solid #334155",color:"#94a3b8",borderRadius:6,fontSize:13,cursor:broadcasting?"not-allowed":"pointer",fontFamily:"inherit"}}>
+                Fermer
+              </button>
+              <button onClick={runBroadcast} disabled={broadcasting||!broadcastText.trim()||eligibleForBroadcast.length===0}
+                style={{padding:"8px 20px",background:"#22c55e",color:"white",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:broadcasting||!broadcastText.trim()||eligibleForBroadcast.length===0?"not-allowed":"pointer",opacity:broadcasting||!broadcastText.trim()||eligibleForBroadcast.length===0?0.5:1}}>
+                {broadcasting ? `Envoi… (~${eligibleForBroadcast.length * 0.5}s)` : `🚀 Envoyer aux ${eligibleForBroadcast.length} conv`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
