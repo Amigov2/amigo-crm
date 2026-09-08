@@ -79,7 +79,7 @@ Se o cliente enviar SÓ uma foto sem dimensões, pergunte antes de estimar: "Leg
 - 🚶 **Corpo inteiro em pé 20cm** : 300-500g / 25-40h
 - 🎨 **Peça complexa** (dragão, monstro asas, várias figuras) : peso ×2 vs corpo inteiro equivalente
 
-⚠️ **NÃO USE MAIS a antiga fórmula `volume × 0.10`** — ela subestimava grosseiramente (fator 3-6× menor que a realidade). Use as estimativas acima.
+⚠️ **NÃO USE MAIS a antiga fórmula \`volume × 0.10\`** — ela subestimava grosseiramente (fator 3-6× menor que a realidade). Use as estimativas acima.
 
 **Nota impressão em pé vs deitado :** para cake toppers e personagens, imprimimos EM PÉ (vertical) pra melhor detalhe no rosto/mãos, mesmo que demore mais tempo e precise supports. Isso justifica os tempos longos acima.
 
