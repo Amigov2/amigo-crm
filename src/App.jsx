@@ -3691,6 +3691,28 @@ function PushNotifButton({ accent, userEmail }) {
   );
 }
 
+// Formate un numéro WhatsApp brut (ex "5521987654321") en "+55 (21) 98765-4321"
+function formatWaPhone(raw) {
+  if (!raw) return "";
+  const d = String(raw).replace(/\D/g, "");
+  if (d.length === 13 && d.startsWith("55")) {
+    // BR : 55 + DDD (2) + 9 + 8 digits
+    return `+55 (${d.slice(2,4)}) ${d.slice(4,9)}-${d.slice(9)}`;
+  }
+  if (d.length === 12 && d.startsWith("55")) {
+    // BR sans le 9 initial
+    return `+55 (${d.slice(2,4)}) ${d.slice(4,8)}-${d.slice(8)}`;
+  }
+  if (d.length === 11 && d.startsWith("33")) {
+    // FR mobile
+    return `+33 ${d.slice(2,3)} ${d.slice(3,5)} ${d.slice(5,7)} ${d.slice(7,9)} ${d.slice(9)}`;
+  }
+  // Fallback : format international basique
+  return d.length > 4 ? `+${d.slice(0,-4)} ${d.slice(-4)}` : `+${d}`;
+}
+
+const EMOJI_QUICK_PICKS = ["👍", "🙏", "❤️", "🔥", "😊", "🎉", "✨", "🍰", "🎂", "🎨", "📸", "⏳", "✅", "⚠️", "💰", "🚀"];
+
 function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const [selectedId, setSelectedId] = useState(null);
   const [text, setText] = useState("");
@@ -3703,6 +3725,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const [attachedFile, setAttachedFile] = useState(null); // File | null
   const [attachedPreview, setAttachedPreview] = useState(null); // blob URL
   const [uploading, setUploading] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const endRef = useRef(null);
   const textareaRef = useRef(null);
   const templatesRef = useRef(null);
@@ -3962,6 +3985,14 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                     {WA_LABO3D_STATUS_LABELS[c.status] || c.status}
                   </span>
                 </div>
+                <div style={{fontSize:11,color:"#64748b",marginBottom:3,fontVariantNumeric:"tabular-nums",display:"flex",alignItems:"center",gap:5}}>
+                  <span>📱 {formatWaPhone(c.phone)}</span>
+                  <button
+                    onClick={e=>{ e.stopPropagation(); navigator.clipboard?.writeText(c.phone); }}
+                    title="Copier le numéro"
+                    style={{padding:"0 4px",background:"transparent",color:"#64748b",border:"none",cursor:"pointer",fontSize:10}}
+                  >📋</button>
+                </div>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
                   <span style={{fontSize:11,color:"#4b5563",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                     {last ? (last.direction==="outbound" ? "↗ " : "") + (last.content||"").slice(0,60) : "—"}
@@ -4193,6 +4224,26 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                   style={{padding:"0 12px",background:attachedFile?`${accent}33`:"#0b0d16",color:attachedFile?accent:"#94a3b8",border:`1px solid ${attachedFile?accent+"55":"#1a2030"}`,borderRadius:6,fontSize:16,cursor:sending?"not-allowed":"pointer",fontFamily:"inherit"}}>
                   📎
                 </button>
+                <div style={{position:"relative"}}>
+                  <button
+                    onClick={()=>setEmojiOpen(v=>!v)}
+                    title="Emojis"
+                    style={{padding:"0 12px",background:emojiOpen?`${accent}33`:"#0b0d16",color:emojiOpen?accent:"#94a3b8",border:`1px solid ${emojiOpen?accent+"55":"#1a2030"}`,borderRadius:6,fontSize:16,cursor:"pointer",fontFamily:"inherit",height:"100%"}}>
+                    😀
+                  </button>
+                  {emojiOpen && (
+                    <div style={{position:"absolute",bottom:"calc(100% + 6px)",left:0,zIndex:20,background:"#0b0d16",border:"1px solid #1a2030",borderRadius:10,padding:6,display:"grid",gridTemplateColumns:"repeat(8,1fr)",gap:2,width:280,boxShadow:"0 6px 24px rgba(0,0,0,0.5)"}}>
+                      {EMOJI_QUICK_PICKS.map(e => (
+                        <button key={e}
+                          onClick={()=>{ setText(t=>t+e); textareaRef.current?.focus(); }}
+                          style={{background:"transparent",border:"1px solid transparent",borderRadius:6,padding:6,fontSize:18,cursor:"pointer",fontFamily:"inherit"}}
+                          onMouseEnter={e2=>{e2.currentTarget.style.background="#1a2030"; e2.currentTarget.style.borderColor="#334155";}}
+                          onMouseLeave={e2=>{e2.currentTarget.style.background="transparent"; e2.currentTarget.style.borderColor="transparent";}}
+                        >{e}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <textarea ref={textareaRef} value={text}
                   onChange={e=>{ setText(e.target.value); broadcastTyping(); }}
                   onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();} }}
