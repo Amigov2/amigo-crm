@@ -3728,6 +3728,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [refreshingMedia, setRefreshingMedia] = useState(false);
   const [refreshMediaResult, setRefreshMediaResult] = useState(null);
+  const [webhookHealth, setWebhookHealth] = useState(null); // {healthy, status}
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [broadcastText, setBroadcastText] = useState("");
   const [broadcasting, setBroadcasting] = useState(false);
@@ -3744,6 +3745,23 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     const handler = (e) => setIsMobile(e.matches);
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  // Healthcheck du webhook labo3d : ping /api/health?check=1 au mount + toutes les 5 min.
+  useEffect(() => {
+    let alive = true;
+    const check = async () => {
+      try {
+        const r = await fetch("/api/health?check=1");
+        const d = await r.json();
+        if (alive) setWebhookHealth(d.webhook_labo3d || null);
+      } catch {
+        if (alive) setWebhookHealth({ healthy: false, status: 0 });
+      }
+    };
+    check();
+    const iv = setInterval(check, 5 * 60 * 1000);
+    return () => { alive = false; clearInterval(iv); };
   }, []);
 
   // Templates : override user dans waLabo3d.templates, sinon défauts.
@@ -4017,6 +4035,25 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
       <div style={{width:isMobile?"100%":320,borderRight:isMobile?"none":"1px solid #0f1520",display:showList?"flex":"none",flexDirection:"column",flexShrink:0}}>
         <div style={{padding:"12px 14px",borderBottom:"1px solid #0f1520",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           <span style={{fontSize:14,fontWeight:600,color:"#f1f5f9"}}>💬 Conversations</span>
+          {webhookHealth && (
+            <span
+              title={webhookHealth.healthy
+                ? `Bot labo3d OK (HTTP ${webhookHealth.status})`
+                : `⚠️ Bot labo3d DOWN (HTTP ${webhookHealth.status}) — les messages clients ne sont pas traités !`}
+              style={{
+                fontSize:11,
+                padding:"2px 6px",
+                borderRadius:4,
+                fontWeight:600,
+                background: webhookHealth.healthy ? "#22c55e22" : "#ef444422",
+                color: webhookHealth.healthy ? "#22c55e" : "#ef4444",
+                border: `1px solid ${webhookHealth.healthy ? "#22c55e55" : "#ef444455"}`,
+                cursor:"help",
+              }}
+            >
+              {webhookHealth.healthy ? "🟢 Bot" : "🔴 Bot DOWN"}
+            </span>
+          )}
           <PushNotifButton accent={accent} userEmail={currentEmail}/>
           <span style={{fontSize:11,color:"#4b5563"}}>{conversations.length}</span>
           <button
