@@ -3726,6 +3726,8 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const [attachedPreview, setAttachedPreview] = useState(null); // blob URL
   const [uploading, setUploading] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [refreshingMedia, setRefreshingMedia] = useState(false);
+  const [refreshMediaResult, setRefreshMediaResult] = useState(null);
   const endRef = useRef(null);
   const textareaRef = useRef(null);
   const templatesRef = useRef(null);
@@ -3886,6 +3888,29 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     }
   };
 
+  const refreshMedia = async () => {
+    if (refreshingMedia) return;
+    if (!confirm("Retélécharger toutes les photos manquantes depuis Meta ? (peut prendre 30-60s)")) return;
+    setRefreshingMedia(true);
+    setRefreshMediaResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const jwt = session?.access_token;
+      if (!jwt) throw new Error("Session expirée");
+      const resp = await fetch("/api/wa-labo3d-refresh-media", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${jwt}` },
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      setRefreshMediaResult(data);
+    } catch (err) {
+      setRefreshMediaResult({ error: err.message });
+    } finally {
+      setRefreshingMedia(false);
+    }
+  };
+
   const pickFile = () => fileInputRef.current?.click();
 
   const onFileSelected = (e) => {
@@ -3950,10 +3975,25 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     <div style={{display:"flex",height:isMobile?"calc(100dvh - 130px)":"calc(100vh - 180px)",gap:0,background:"#0a0d16",borderRadius:isMobile?0:8,border:isMobile?"none":"1px solid #0f1520",overflow:"hidden"}}>
       {/* ═══ COLONNE GAUCHE : LISTE CONVERSATIONS ═══ */}
       <div style={{width:isMobile?"100%":320,borderRight:isMobile?"none":"1px solid #0f1520",display:showList?"flex":"none",flexDirection:"column",flexShrink:0}}>
-        <div style={{padding:"12px 14px",borderBottom:"1px solid #0f1520",display:"flex",alignItems:"center",gap:8}}>
+        <div style={{padding:"12px 14px",borderBottom:"1px solid #0f1520",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           <span style={{fontSize:14,fontWeight:600,color:"#f1f5f9"}}>💬 Conversations</span>
           <PushNotifButton accent={accent} userEmail={currentEmail}/>
           <span style={{fontSize:11,color:"#4b5563"}}>{conversations.length}</span>
+          <button
+            onClick={refreshMedia}
+            disabled={refreshingMedia}
+            title="Retélécharger les photos manquantes depuis Meta"
+            style={{padding:"3px 8px",background:refreshingMedia?"#1a2030":`${accent}22`,border:`1px solid ${accent}44`,borderRadius:4,color:accent,fontSize:10,fontWeight:600,cursor:refreshingMedia?"wait":"pointer"}}>
+            {refreshingMedia ? "…" : "🔄 Récup. photos"}
+          </button>
+          {refreshMediaResult && !refreshMediaResult.error && (
+            <span style={{fontSize:10,color:"#22c55e",flexBasis:"100%",marginTop:2}}>
+              ✅ Scanné {refreshMediaResult.scanned} · Récupéré {refreshMediaResult.recovered} · Expirées {refreshMediaResult.expired}
+            </span>
+          )}
+          {refreshMediaResult?.error && (
+            <span style={{fontSize:10,color:"#ef4444",flexBasis:"100%",marginTop:2}}>❌ {refreshMediaResult.error}</span>
+          )}
         </div>
         <div style={{flex:1,overflowY:"auto"}}>
           {conversations.length === 0 && (
