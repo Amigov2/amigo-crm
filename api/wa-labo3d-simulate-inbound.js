@@ -13,6 +13,7 @@
 import { loadWaLabo3d, saveWaLabo3d } from "./_lib/supabase.js";
 import { sendMetaMessage } from "./_lib/meta-send.js";
 import { generateResponse } from "./_lib/labo3d-ai.js";
+import { pushToAllSubscribers } from "./_lib/push.js";
 
 function newId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

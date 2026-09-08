@@ -4,7 +4,7 @@
 //
 // Auth : aucune (endpoint interne, mais safe car ne fait qu'un fetch public + save contrôlé).
 
-import { loadWaLabo3d, saveWaLabo3d } from "./_lib/supabase.js";
+import { saveWaLabo3dKB } from "./_lib/supabase.js";
 
 const PAGES = [
   { url: "https://labo3d.com.br/", label: "Home" },
@@ -71,28 +71,24 @@ export default async function handler(req, res) {
   try {
     const t0 = Date.now();
     const pages = await Promise.all(PAGES.map(fetchPage));
-    const current = await loadWaLabo3d();
-    const next = {
-      ...current,
-      knowledge_base: {
-        // Company : source of truth des infos statiques (pas dans le site scrapable de manière fiable)
-        company: {
-          name: "Labo 3D",
-          legal_entity: "3A Import LTDA",
-          cnpj: "21.496.846/0001-34",
-          address: "Rua Riachuelo 44, andar 3, Centro, Rio de Janeiro/RJ, CEP 20230-014",
-          phone: "+55 21 96951-8117",
-          whatsapp_url: "https://wa.me/5521969518117",
-          instagram: "@labo3drio",
-          website: "https://labo3d.com.br",
-          hours: "Segunda a Sexta, 10h às 19h (horário Brasil)",
-          languages: ["pt-BR", "en", "fr"],
-        },
-        pages,
+    const knowledge_base = {
+      company: {
+        name: "Labo 3D",
+        legal_entity: "3A Import LTDA",
+        cnpj: "21.496.846/0001-34",
+        address: "Rua Riachuelo 44, andar 3, Centro, Rio de Janeiro/RJ, CEP 20230-014",
+        phone: "+55 21 96951-8117",
+        whatsapp_url: "https://wa.me/5521969518117",
+        instagram: "@labo3drio",
+        website: "https://labo3d.com.br",
+        hours: "Segunda a Sexta, 10h às 19h (horário Brasil)",
+        languages: ["pt-BR", "en", "fr"],
       },
-      knowledge_base_updated_at: new Date().toISOString(),
+      pages,
     };
-    await saveWaLabo3d(next);
+    const knowledge_base_updated_at = new Date().toISOString();
+    await saveWaLabo3dKB({ knowledge_base, knowledge_base_updated_at });
+    const next = { knowledge_base, knowledge_base_updated_at };
     return res.status(200).json({
       ok: true,
       pages_count: pages.length,
