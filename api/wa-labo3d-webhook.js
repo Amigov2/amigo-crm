@@ -11,6 +11,16 @@ import { buildMeshyPromptFromConv } from "./_lib/meshy-prompt-builder.js";
 import { uploadImageForMeshy } from "./_lib/supabase-storage.js";
 import { preCheckImageForMeshy } from "./_lib/image-precheck.js";
 import { fixTypos } from "./_lib/typo-fix.js";
+import {
+  containsQuote,
+  isAdminPhone,
+  parseAdminReply,
+  replacePriceInQuote,
+  findMostRecentPending,
+  sendPendingQuoteAlert,
+  sendToClient,
+  getAdminPhones,
+} from "./_lib/quote-approval.js";
 
 // Raw body pour vérifier signature HMAC Meta
 export const config = { api: { bodyParser: false } };
@@ -59,6 +69,18 @@ async function handleIncomingMessage(state, msg, contact, metadata) {
   const ts = new Date(parseInt(msg.timestamp, 10) * 1000).toISOString();
   const contactName = contact?.profile?.name || null;
 
+  // ═══ APPROVAL WORKFLOW : intercept si l'expéditeur est un admin ═══
+  // L'admin répond à une alerte de devis pending. On ne traite PAS ce message
+  // comme un message client normal — on l'utilise pour approuver/modifier/personnaliser
+  // le devis IA en attente.
+  if (isAdminPhone(phone)) {
+    const { type, content } = extractContent(msg);
+    if (type === "text") {
+      await handleAdminApprovalReply(state, phone, content, msg.id);
+    }
+    return; // ne pas stocker dans une conv client
+  }
+
   let conv = state.conversations.find(c => c.phone === phone);
   if (!conv) {
     conv = {
@@ -101,6 +123,92 @@ async function handleIncomingMessage(state, msg, contact, metadata) {
     conv.scheduled_reminder.done = true;
     conv.scheduled_reminder.cancelled_by_reply_at = ts;
   }
+}
+
+// Traite une réponse d'admin à une alerte de devis pending.
+// Trouve le devis en attente le plus récent, applique la décision :
+//   - approve → envoie devis IA tel quel au client
+//   - newPrice → override le prix dans le devis, envoie
+//   - customText → envoie tel quel au client comme message
+// First-wins : si Anthony a déjà répondu, Harold reçoit "déjà traité par..."
+async function handleAdminApprovalReply(state, adminPhone, adminText, adminMetaId) {
+  const conv = findMostRecentPending(state);
+  if (!conv) {
+    // Pas de devis en attente → envoie un message d'aide à l'admin
+    await sendMetaMessage({
+      phone: adminPhone,
+      text: `ℹ️ Aucun devis en attente d'approbation actuellement.\n\nTa réponse : "${adminText.slice(0, 100)}"`,
+    });
+    return;
+  }
+
+  // First-wins : vérifie si déjà résolu depuis le dernier check
+  if (conv.pending_quote?.resolved_at) {
+    await sendMetaMessage({
+      phone: adminPhone,
+      text: `⚠️ Le devis ${conv.contact_name || conv.phone} a déjà été traité par ${conv.pending_quote.resolved_by || "quelqu'un"}.`,
+    });
+    return;
+  }
+
+  const decision = parseAdminReply(adminText);
+  const pending = conv.pending_quote;
+  const now = new Date().toISOString();
+  let finalText;
+  let action;
+
+  if (decision.approve) {
+    finalText = pending.text;
+    action = "approved";
+  } else if (decision.newPrice) {
+    finalText = replacePriceInQuote(pending.text, decision.newPrice);
+    action = "price_override";
+  } else {
+    finalText = decision.customText;
+    action = "custom_text";
+  }
+
+  // Envoie au client
+  let metaMessageId = null;
+  try {
+    metaMessageId = await sendToClient(conv, finalText);
+  } catch (e) {
+    await sendMetaMessage({
+      phone: adminPhone,
+      text: `❌ Erreur envoi au client ${conv.contact_name || conv.phone} : ${String(e.message || e).slice(0, 200)}`,
+    });
+    return;
+  }
+
+  // Enregistre le message envoyé côté conv
+  conv.messages = conv.messages || [];
+  conv.messages.push({
+    id: newId("msg"),
+    direction: "outbound",
+    type: "text",
+    content: finalText,
+    timestamp: now,
+    meta_id: metaMessageId,
+    sender_email: `admin:${adminPhone}`,
+    approval_action: action,
+    delivery_status: "sent",
+  });
+  conv.last_message_at = now;
+  conv.unread = false;
+
+  // Marque le pending comme résolu
+  pending.resolved_at = now;
+  pending.resolved_by = adminPhone;
+  pending.resolved_action = action;
+  pending.admin_reply_meta_id = adminMetaId;
+  pending.final_text = finalText;
+
+  // Confirmation à l'admin
+  const summary =
+    action === "approved" ? `✅ Devis envoyé tel quel à ${conv.contact_name || conv.phone}` :
+    action === "price_override" ? `✅ Envoyé avec prix R$ ${decision.newPrice} à ${conv.contact_name || conv.phone}` :
+    `✅ Ton message transmis à ${conv.contact_name || conv.phone}`;
+  await sendMetaMessage({ phone: adminPhone, text: summary });
 }
 
 async function handleStatusUpdate(state, status) {
@@ -255,6 +363,46 @@ async function processAiResponses(convIds) {
       );
 
       const now = new Date().toISOString();
+
+      // ═══ APPROVAL WORKFLOW : intercept si le devis IA contient un prix ═══
+      // Ne PAS envoyer au client — sauvegarde comme pending_quote + WA aux admins.
+      // L'admin approuve/modifie/personnalise via WA, la réponse est ensuite envoyée au client.
+      if (containsQuote(cleanText) && getAdminPhones().length > 0) {
+        conv.pending_quote = {
+          text: cleanText,
+          ai_generated_at: now,
+          ai_usage: result.usage,
+          image_media_id: lastInbound?.media_id || null,
+        };
+        try {
+          const alertResult = await sendPendingQuoteAlert({
+            conv,
+            quoteText: cleanText,
+            imageMediaId: lastInbound?.media_id || null,
+          });
+          console.log("[approval] pending_quote created for", convId, "alert result:", JSON.stringify(alertResult));
+        } catch (alertErr) {
+          console.error("[approval] alert send failed:", alertErr.message);
+          // Fallback : envoie quand même au client pour ne pas bloquer si les admins sont down
+          const metaMessageId = await sendMetaMessage({ phone: conv.phone, text: cleanText });
+          conv.messages.push({
+            id: newId("msg"),
+            direction: "outbound",
+            type: "text",
+            content: cleanText,
+            timestamp: now,
+            meta_id: metaMessageId,
+            sender_email: aiSender,
+            delivery_status: "sent",
+            ai_usage: result.usage,
+            approval_skipped: "admin_alert_failed",
+          });
+          conv.last_message_at = now;
+        }
+        conv.unread = false;
+        dirty = true;
+        continue; // skip le send normal ci-dessous
+      }
 
       // 1. Envoie le message texte principal (sans la tag)
       const metaMessageId = await sendMetaMessage({ phone: conv.phone, text: cleanText });
