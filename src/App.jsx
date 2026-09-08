@@ -4359,7 +4359,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
             </div>
 
             <p style={{margin:"0 0 8px 0",fontSize:12,color:"#94a3b8",lineHeight:1.5}}>
-              Le bot IA va lire l'historique et les photos de <b style={{color:"#22c55e"}}>{eligibleForBroadcast.length} conversations</b> en attente (< 24h Meta) et générer une réponse personnalisée par conv.
+              Le bot IA va lire l'historique et les photos de <b style={{color:"#22c55e"}}>{eligibleForBroadcast.length} conversations</b> en attente ({"<"} 24h Meta) et générer une réponse personnalisée par conv.
             </p>
             <p style={{margin:"0 0 12px 0",fontSize:11,color:"#64748b",lineHeight:1.4}}>
               • Skip si un humain a répondu récemment (cooldown)<br/>
