@@ -176,16 +176,16 @@ async function sendAlerts(status) {
 }
 
 export default async function handler(req, res) {
-  const isCron = !!req.headers["x-vercel-cron"];
   const isCheck = req.query?.check === "1";
   const isReport = req.query?.report === "daily";
+  const canAlertWhenDown = !!req.headers["x-vercel-cron"] || req.query?.alert === "1";
 
   const base = { ok: true, service: "amigo-crm-api", time: new Date().toISOString() };
 
   // Mode 1 : ping simple
-  if (!isCron && !isCheck && !isReport) return res.status(200).json(base);
+  if (!isCheck && !isReport) return res.status(200).json(base);
 
-  // Mode 2 : rapport quotidien (cron 20h SP)
+  // Mode 2 : rapport quotidien
   if (isReport) {
     try {
       const stats = await buildDailyReport();
@@ -197,11 +197,12 @@ export default async function handler(req, res) {
     }
   }
 
-  // Mode 3 : healthcheck (badge CRM + cron toutes les 10 min)
+  // Mode 3 : healthcheck (badge CRM + cron externe iMac)
   const wh = await checkWebhook();
   base.webhook_labo3d = wh;
 
-  if (isCron && !wh.healthy) {
+  // Alerte WA uniquement si le caller a passé alert=1 (cron iMac) ou vient d'un cron Vercel
+  if (canAlertWhenDown && !wh.healthy) {
     const canAlert = await shouldSendAlert();
     if (canAlert) {
       const alertResult = await sendAlerts(wh.status);

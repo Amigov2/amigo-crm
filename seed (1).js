@@ -71,7 +71,7 @@ const CLIENTS_3D = [
   // ── Studios 3D Rio
   mk3D({ name:"DeltaThinkers Rio", geo:"Rio de Janeiro 🇧🇷", sub:"Botafogo", email:"contato@deltathinkers.com", tags:["Hub 3D","Laser","Partenariat"], note:"Hub 3D + laser + CNC. Le plus équipé de Rio. Sous-traitance possible." }),
   mk3D({ name:"Create 3D Rio — Urca", geo:"Rio de Janeiro 🇧🇷", sub:"Urca", email:"create3d@gmail.com", tags:["Prototypes","Trophées"], note:"Urca. Prototypes ingénierie, trophées, maquettes." }),
-  mk3D({ name:"Universe 3D", geo:"Rio de Janeiro 🇧🇷", sub:"Barra da Tijuca", email:"contato@universe3d.com.br", tags:["Architecture","Médical","Résine"], note:"Architecture, médecine, orthodontie. Filament + résine. Location imprimantes." }),
+  mk3D({ name:"Universe 3D", geo:"Rio de Janeiro 🇧🇷", sub:"Barra da Tijuca", email:"contato@universe3d.com.br", tags:["Architecture","Médical"], note:"Architecture, médecine, orthodontie. Filament. Location imprimantes." }),
   mk3D({ name:"Algom 3D — Manufatura Digital", geo:"Rio de Janeiro 🇧🇷", sub:"Centro", email:"contato@algom3d.com.br", tags:["Architecture","Décoration"], note:"Maquettes archi + déco sur mesure. Architectes et designers." }),
   mk3D({ name:"Elabora 3D Estúdio", geo:"Rio de Janeiro 🇧🇷", sub:"Centro", email:"elabora3destudio@gmail.com", tags:["Studio","Modélisation"], note:"Rua do Ouvidor 63. Spécialistes 3D et modélisation. 3500 abonnés." }),
   mk3D({ name:"Fácil 3D Rio de Janeiro", geo:"Rio de Janeiro 🇧🇷", sub:"Méier", email:"contato@facil3d.com.br", tags:["Service","B2B"], note:"Service 3D RJ. Bon rapport qualité-prix." }),
@@ -108,7 +108,7 @@ const CLIENTS_3D = [
   mk3D({ name:"CYRELA — Incorporadora Rio", geo:"Rio de Janeiro 🇧🇷", sub:"Barra da Tijuca", email:"rio@cyrela.com.br", phone:"+55 21 2122-5800", tags:["Immobilier","Promoteur"], note:"Top promoteur immobilier. Maquettes projets résidentiels. Grands budgets." }),
   mk3D({ name:"Gafisa Rio de Janeiro", geo:"Rio de Janeiro 🇧🇷", sub:"Ipanema", email:"rj@gafisa.com.br", tags:["Immobilier","Prestige"], note:"Promoteur haut de gamme. Maquettes commerciales Ipanema, Leblon." }),
   // ── Joaillerie
-  mk3D({ name:"H.Stern — Joalheria", geo:"Rio de Janeiro 🇧🇷", sub:"Ipanema", email:"contact@hstern.com.br", phone:"+55 21 2106-0011", tags:["Joaillerie","Luxe","Prototypes"], note:"Joaillier brésilien mondial. Prototypage bijoux 3D résine/cire. Premium absolu." }),
+  mk3D({ name:"H.Stern — Joalheria", geo:"Rio de Janeiro 🇧🇷", sub:"Ipanema", email:"contact@hstern.com.br", phone:"+55 21 2106-0011", tags:["Joaillerie","Luxe","Prototypes"], note:"Joaillier brésilien mondial. Prototypage bijoux 3D cire. Premium absolu." }),
   mk3D({ name:"Antonio Bernardo Joalheria", geo:"Rio de Janeiro 🇧🇷", sub:"Leblon", email:"contato@antoniobernardo.com.br", tags:["Joaillerie","Design"], note:"Joaillier design contemporain. Prototypes bijoux. Artisanal haut de gamme." }),
   // ── Médical & Dentaire
   mk3D({ name:"OrthoCenter Rio", geo:"Rio de Janeiro 🇧🇷", sub:"Copacabana", email:"rio@orthocenter.com.br", tags:["Orthodontie","Médical","Récurrent"], note:"Centre orthodontie. Aligneurs, modèles dentaires 3D. Très récurrent." }),
