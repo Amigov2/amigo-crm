@@ -3,7 +3,15 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   "https://mqaalshpmxzdyjcnxwuc.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1xYWFsc2hwbXh6ZHlqY254d3VjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExODIzNzQsImV4cCI6MjA5Njc1ODM3NH0.Y0ZPx8IwwKp-T5OqOYkqhzYygKX6RIqUlXyU49wuBv8"
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1xYWFsc2hwbXh6ZHlqY254d3VjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExODIzNzQsImV4cCI6MjA5Njc1ODM3NH0.Y0ZPx8IwwKp-T5OqOYkqhzYygKX6RIqUlXyU49wuBv8",
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      flowType: "pkce",
+    },
+  }
 );
 
 const storage = {
@@ -46,6 +54,7 @@ function userFromEmail(email) {
 const PROJECTS = {
   makeup: {
     id: "makeup", label: "Carnaval Gall", icon: "💄", color: "#ec4899",
+    hidden: true, // masqué de l'UI, données préservées — réactiver en retirant ce flag
     statuses: ["À contacter","Contacté","En discussion","Qualifié","Relance urgente","Prospect froid"],
     statusColors: { "À contacter":"#3b82f6","Contacté":"#f59e0b","En discussion":"#22c55e","Qualifié":"#8b5cf6","Relance urgente":"#ef4444","Prospect froid":"#4b5563" },
   },
@@ -170,7 +179,7 @@ const SEED_MAKEUP = [
 const SEED_3D = [
   { name:"DeltaThinkers Rio", geo:"Rio de Janeiro 🇧🇷", sub:"Botafogo", contact:"Diretor técnico", email:"contato@deltathinkers.com", phone:"+55 21 3000-0000", tags:["Hub 3D","Laser"], note:"Hub de serviços 3D + corte laser. Le plus équipé de Rio. Sous-traitance possible." },
   { name:"Create 3D — Urca", geo:"Rio de Janeiro 🇧🇷", sub:"Urca", contact:"Lia Scoelho", email:"create3d@gmail.com", phone:"+55 21 99000-0000", tags:["Prototypes","Trophées"], note:"Rua Dr. Xavier Siagaut, Urca. Prototypes, trophées, maquettes." },
-  { name:"Universe 3D", geo:"Rio de Janeiro 🇧🇷", sub:"Barra da Tijuca", contact:"Diretor comercial", email:"contato@universe3d.com.br", phone:"+55 21 3500-0000", tags:["Architecture","Médical"], note:"Architecture, médecine, orthodontie, design. Labo filament + résine." },
+  { name:"Universe 3D", geo:"Rio de Janeiro 🇧🇷", sub:"Barra da Tijuca", contact:"Diretor comercial", email:"contato@universe3d.com.br", phone:"+55 21 3500-0000", tags:["Architecture","Médical"], note:"Architecture, médecine, orthodontie, design. Labo filament." },
   { name:"Algom 3D — Manufatura Digital", geo:"Rio de Janeiro 🇧🇷", sub:"Centro", contact:"Responsável projetos", email:"contato@algom3d.com.br", phone:"+55 21 2500-0000", tags:["Architecture","Décoration"], note:"Maquettes archi + décoration sur mesure. Cible architectes." },
   { name:"Elabora 3D Estúdio", geo:"Rio de Janeiro 🇧🇷", sub:"Centro", contact:"Studio manager", email:"elabora3destudio@gmail.com", phone:"+55 21 99100-0000", tags:["Studio","Modelagem"], note:"Rua do Ouvidor 63 — Centro RJ. Spécialistes impression 3D et modélisation." },
   { name:"Escritório Zanettini Arquitetura RJ", geo:"Rio de Janeiro 🇧🇷", sub:"Ipanema", contact:"Arquiteto responsável", email:"rio@zanettini.com.br", phone:"+55 21 2522-0000", tags:["Architecture","Prestige"], note:"Cabinet archi prestige. Maquettes 3D pour présentations clients." },
@@ -2862,6 +2871,9 @@ function IdeasBox({ data, user, save }) {
     const idea = { id: Date.now(), text: text.trim(), type, by: user, byLabel: USERS[user]?.label, at: Date.now(), status: "nouveau", votes: [] };
     await save({ ...data, ideas: [...(data.ideas || []), idea] });
     setText("");
+    // Notif email (fire-and-forget)
+    fetch("/api/notify-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idea }) })
+      .catch(err => console.error("[notify-idea]", err));
   };
 
   const vote = async (id) => {
@@ -3567,9 +3579,9 @@ function PublicGroupQuotePage({ token }) {
   );
 }
 
-const WA_LABO3D_STATUSES = ["novo","em_orcamento","ganho","perdido"];
-const WA_LABO3D_STATUS_LABELS = { novo:"Nouveau", em_orcamento:"En devis", ganho:"Gagné", perdido:"Perdu" };
-const WA_LABO3D_STATUS_COLORS = { novo:"#3b82f6", em_orcamento:"#f59e0b", ganho:"#22c55e", perdido:"#4b5563" };
+const WA_LABO3D_STATUSES = ["novo","em_orcamento","escalado_humano","aguardando_melhor_foto","gerando_preview","aguardando_aprovacao_preview","aguardando_pagamento","em_producao","pronto","ganho","perdido"];
+const WA_LABO3D_STATUS_LABELS = { novo:"Nouveau", em_orcamento:"En devis", escalado_humano:"🚨 Escalade humain", aguardando_melhor_foto:"📸 Attente meilleure photo", gerando_preview:"🎨 Prévia en cours", aguardando_aprovacao_preview:"👀 Attente approbation", aguardando_pagamento:"⏳ Sinal", em_producao:"🖨 En prod", pronto:"✅ Prêt", ganho:"Gagné", perdido:"Perdu" };
+const WA_LABO3D_STATUS_COLORS = { novo:"#3b82f6", em_orcamento:"#f59e0b", escalado_humano:"#ef4444", aguardando_melhor_foto:"#eab308", gerando_preview:"#ec4899", aguardando_aprovacao_preview:"#f43f5e", aguardando_pagamento:"#a855f7", em_producao:"#06b6d4", pronto:"#84cc16", ganho:"#22c55e", perdido:"#4b5563" };
 
 // Templates de devis Labo 3D — texte PT-BR pré-écrit, insertable en 1 clic dans l'inbox chat.
 // L'ordre reflète la fréquence attendue des demandes (saudação/souvenirs en 1er).
@@ -3593,6 +3605,92 @@ const DEFAULT_WA_LABO3D_TEMPLATES = [
     text:"Aceitamos:\n\n✅ PIX (5% de desconto à vista)\n✅ Cartão em até 3x sem juros\n✅ Boleto\n\nPolítica: 50% de sinal para iniciar produção, 50% antes do envio." },
 ];
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+function PushNotifButton({ accent, userEmail }) {
+  const [state, setState] = useState("checking"); // checking | unsupported | denied | granted | subscribing | subscribed
+  const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const isStandalone = window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone;
+
+  const resyncToBackend = async (sub) => {
+    try {
+      await fetch("/api/subscribe-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: sub.toJSON(), user_email: userEmail || null }),
+      });
+    } catch (e) { console.error("[push] resync failed:", e); }
+  };
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) { setState("unsupported"); return; }
+    if (isIos && !isStandalone) { setState("ios-need-install"); return; }
+    if (Notification.permission === "denied") { setState("denied"); return; }
+    navigator.serviceWorker.register("/sw.js").then(reg =>
+      reg.pushManager.getSubscription().then(sub => {
+        if (sub) {
+          resyncToBackend(sub);
+          setState("subscribed");
+        } else {
+          setState(Notification.permission === "granted" ? "granted" : "default");
+        }
+      })
+    );
+  }, [userEmail]);
+
+  const subscribe = async () => {
+    setState("subscribing");
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") { setState("denied"); return; }
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+      const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+      if (!vapidKey) throw new Error("VAPID key missing");
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidKey),
+      });
+      const r = await fetch("/api/subscribe-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: sub.toJSON(), user_email: userEmail || null }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      setState("subscribed");
+    } catch (e) {
+      console.error("[push] subscribe failed:", e);
+      setState("error");
+    }
+  };
+
+  if (state === "unsupported") return null;
+  if (state === "ios-need-install") return (
+    <span title="Sur iPhone : Partager → Ajouter à l'écran d'accueil pour activer les notifs" style={{fontSize:10,color:"#f59e0b",marginLeft:"auto"}}>📲 Ajoute à l'écran</span>
+  );
+  if (state === "denied") return (
+    <span title="Notifs bloquées — active-les dans les réglages Safari du site" style={{fontSize:10,color:"#ef4444",marginLeft:"auto"}}>🔕 Bloquées</span>
+  );
+  if (state === "subscribed") return (
+    <button onClick={subscribe} title="Cliquez pour re-synchroniser cet appareil" style={{marginLeft:"auto",padding:"3px 8px",background:"#22c55e18",border:"1px solid #22c55e40",borderRadius:4,color:"#22c55e",fontSize:10,fontWeight:600,cursor:"pointer"}}>
+      🔔 Actives
+    </button>
+  );
+  if (state === "subscribing") return (
+    <span style={{fontSize:10,color:"#9ca3af",marginLeft:"auto"}}>…</span>
+  );
+  return (
+    <button onClick={subscribe} style={{marginLeft:"auto",padding:"3px 8px",background:`${accent}22`,border:`1px solid ${accent}44`,borderRadius:4,color:accent,fontSize:10,fontWeight:600,cursor:"pointer"}}>
+      🔔 Activer notifs
+    </button>
+  );
+}
+
 function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const [selectedId, setSelectedId] = useState(null);
   const [text, setText] = useState("");
@@ -3601,11 +3699,23 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const [currentEmail, setCurrentEmail] = useState(null);
   const [typingByConv, setTypingByConv] = useState({}); // { convId: { email: expireAt } }
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches);
+  const [attachedFile, setAttachedFile] = useState(null); // File | null
+  const [attachedPreview, setAttachedPreview] = useState(null); // blob URL
+  const [uploading, setUploading] = useState(false);
   const endRef = useRef(null);
   const textareaRef = useRef(null);
   const templatesRef = useRef(null);
   const typingChannelRef = useRef(null);
   const lastTypingSentRef = useRef(0);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const handler = (e) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
   // Templates : override user dans waLabo3d.templates, sinon défauts.
   const templates = (waLabo3d?.templates && waLabo3d.templates.length > 0)
@@ -3704,25 +3814,79 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   };
 
   const send = async () => {
-    if (!text.trim() || !selected || sending) return;
+    const hasText = !!text.trim();
+    const hasImage = !!attachedFile;
+    if ((!hasText && !hasImage) || !selected || sending) return;
     setSending(true); setError("");
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const jwt = session?.access_token;
       if (!jwt) throw new Error("Session expirée, reconnecte-toi");
+
+      let imageUrl = null;
+      if (hasImage) {
+        setUploading(true);
+        const ext = (attachedFile.name.split(".").pop() || "jpg").toLowerCase();
+        const path = `wa-labo3d/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+        const { error: upErr } = await supabase.storage.from("meshy-inputs").upload(path, attachedFile, {
+          contentType: attachedFile.type || "image/jpeg",
+          upsert: false,
+        });
+        if (upErr) throw new Error("Upload échoué: " + upErr.message);
+        const { data: pub } = supabase.storage.from("meshy-inputs").getPublicUrl(path);
+        imageUrl = pub.publicUrl;
+        setUploading(false);
+      }
+
+      const body = { conversation_id: selected.id };
+      if (hasImage) {
+        body.image_url = imageUrl;
+        if (hasText) body.caption = text.trim();
+      } else {
+        body.text = text.trim();
+      }
+
       const resp = await fetch("/api/wa-labo3d-send", {
         method: "POST",
         headers: { "Authorization": `Bearer ${jwt}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ conversation_id: selected.id, text: text.trim() })
+        body: JSON.stringify(body),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
       setText("");
+      clearAttachment();
     } catch (err) {
       setError(err.message);
     } finally {
       setSending(false);
+      setUploading(false);
     }
+  };
+
+  const pickFile = () => fileInputRef.current?.click();
+
+  const onFileSelected = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 8 * 1024 * 1024) {
+      setError("Photo trop grosse (max 8 MB)");
+      return;
+    }
+    if (!f.type.startsWith("image/")) {
+      setError("Uniquement des images");
+      return;
+    }
+    setAttachedFile(f);
+    if (attachedPreview) URL.revokeObjectURL(attachedPreview);
+    setAttachedPreview(URL.createObjectURL(f));
+    setError("");
+  };
+
+  const clearAttachment = () => {
+    if (attachedPreview) URL.revokeObjectURL(attachedPreview);
+    setAttachedFile(null);
+    setAttachedPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const patchConv = async (convId, patch) => {
@@ -3747,15 +3911,26 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     const patch = { read_by: readBy };
     if (conv.unread) patch.unread = false;
     await patchConv(conv.id, patch);
+    try {
+      const remaining = (waLabo3d?.conversations || []).filter(c => c.id !== conv.id && c.unread).length;
+      if ("setAppBadge" in navigator) {
+        if (remaining > 0) navigator.setAppBadge(remaining).catch(() => {});
+        else navigator.clearAppBadge?.().catch(() => {});
+      }
+    } catch {}
   };
 
+  const showList = !isMobile || !selectedId;
+  const showChat = !isMobile || !!selectedId;
+
   return (
-    <div style={{display:"flex",height:"calc(100vh - 180px)",gap:0,background:"#0a0d16",borderRadius:8,border:"1px solid #0f1520",overflow:"hidden"}}>
+    <div style={{display:"flex",height:isMobile?"calc(100dvh - 130px)":"calc(100vh - 180px)",gap:0,background:"#0a0d16",borderRadius:isMobile?0:8,border:isMobile?"none":"1px solid #0f1520",overflow:"hidden"}}>
       {/* ═══ COLONNE GAUCHE : LISTE CONVERSATIONS ═══ */}
-      <div style={{width:320,borderRight:"1px solid #0f1520",display:"flex",flexDirection:"column",flexShrink:0}}>
+      <div style={{width:isMobile?"100%":320,borderRight:isMobile?"none":"1px solid #0f1520",display:showList?"flex":"none",flexDirection:"column",flexShrink:0}}>
         <div style={{padding:"12px 14px",borderBottom:"1px solid #0f1520",display:"flex",alignItems:"center",gap:8}}>
           <span style={{fontSize:14,fontWeight:600,color:"#f1f5f9"}}>💬 Conversations</span>
-          <span style={{fontSize:11,color:"#4b5563",marginLeft:"auto"}}>{conversations.length}</span>
+          <PushNotifButton accent={accent} userEmail={currentEmail}/>
+          <span style={{fontSize:11,color:"#4b5563"}}>{conversations.length}</span>
         </div>
         <div style={{flex:1,overflowY:"auto"}}>
           {conversations.length === 0 && (
@@ -3767,13 +3942,22 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
             const isSel = c.id === selectedId;
             const last = c.messages?.[c.messages.length-1];
             const statusColor = WA_LABO3D_STATUS_COLORS[c.status] || "#4b5563";
+            const lastReadAt = c.read_by?.[currentEmail] ? new Date(c.read_by[currentEmail]).getTime() : 0;
+            const unreadCount = (c.messages || []).filter(m => m.direction === "inbound" && new Date(m.timestamp).getTime() > lastReadAt).length;
+            const hasUnread = c.unread || unreadCount > 0;
             return (
               <div key={c.id} onClick={()=>{ setSelectedId(c.id); markAsRead(c); }}
-                style={{padding:"10px 14px",borderBottom:"1px solid #0f1520",cursor:"pointer",background:isSel?`${accent}15`:c.unread?"#0d1119":"transparent",borderLeft:isSel?`3px solid ${accent}`:"3px solid transparent"}}>
+                style={{padding:"10px 14px",borderBottom:"1px solid #0f1520",cursor:"pointer",background:isSel?`${accent}15`:hasUnread?"#0d1a12":"transparent",borderLeft:isSel?`3px solid ${accent}`:hasUnread?"3px solid #22c55e":"3px solid transparent"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-                  <span style={{fontSize:13,fontWeight:c.unread?700:500,color:"#f1f5f9",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {hasUnread && <span style={{width:8,height:8,borderRadius:"50%",background:"#22c55e",flexShrink:0,boxShadow:"0 0 6px #22c55e"}}/>}
+                  <span style={{fontSize:13,fontWeight:hasUnread?700:500,color:hasUnread?"#22c55e":"#f1f5f9",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                     {c.contact_name || c.phone}
                   </span>
+                  {unreadCount > 0 && (
+                    <span style={{fontSize:10,padding:"1px 7px",borderRadius:10,background:"#22c55e",color:"#0a0d16",fontWeight:700,minWidth:18,textAlign:"center"}}>
+                      {unreadCount}
+                    </span>
+                  )}
                   <span style={{fontSize:9,padding:"1px 6px",borderRadius:3,background:`${statusColor}22`,color:statusColor,fontWeight:600}}>
                     {WA_LABO3D_STATUS_LABELS[c.status] || c.status}
                   </span>
@@ -3793,7 +3977,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
       </div>
 
       {/* ═══ COLONNE CENTRALE : CHAT ═══ */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
+      <div style={{flex:1,display:showChat?"flex":"none",flexDirection:"column",minWidth:0}}>
         {!selected ? (
           <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"#4b5563",fontSize:13}}>
             Sélectionne une conversation à gauche
@@ -3802,6 +3986,9 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
           <>
             {/* Header conversation */}
             <div style={{padding:"12px 16px",borderBottom:"1px solid #0f1520",display:"flex",alignItems:"center",gap:10}}>
+              {isMobile && (
+                <button onClick={()=>setSelectedId(null)} style={{background:"transparent",border:"none",color:accent,fontSize:20,cursor:"pointer",padding:"0 4px"}}>←</button>
+              )}
               <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(135deg,${accent}70,${accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"white"}}>
                 {(selected.contact_name || selected.phone).slice(0,1).toUpperCase()}
               </div>
@@ -3820,7 +4007,54 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                 <option value="">Non assigné</option>
                 {Object.entries(USERS).map(([id,u]) => <option key={id} value={id}>{u.label}</option>)}
               </select>
+              {selected.status === "aguardando_pagamento" && (
+                <button
+                  onClick={async () => {
+                    if (!confirm("Marquer le sinal comme reçu et envoyer confirmation au client ?")) return;
+                    const msg = "Sinal recebido ✅ Começando o modelo 3D agora! Te aviso quando o preview estiver pronto. 🚀";
+                    try {
+                      await fetch("/api/wa-labo3d-send", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
+                        body: JSON.stringify({ conversation_id: selected.id, text: msg }),
+                      });
+                      await patchConv(selected.id, { status: "em_producao", sinal_received_at: new Date().toISOString() });
+                    } catch (e) { alert("Erreur envoi: " + e.message); }
+                  }}
+                  style={{background:"#22c55e",color:"white",border:"none",borderRadius:5,padding:"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}
+                  title="Confirmer que le sinal PIX a été reçu, envoyer message auto au client et passer en production"
+                >
+                  ✅ Sinal recebido
+                </button>
+              )}
+              {(() => {
+                const botOn = selected.ai_auto !== false;
+                return (
+                  <button
+                    onClick={() => patchConv(selected.id, { ai_auto: !botOn })}
+                    style={{background:botOn?"#22c55e22":"#ef444422",color:botOn?"#22c55e":"#ef4444",border:`1px solid ${botOn?"#22c55e55":"#ef444455"}`,borderRadius:5,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}
+                    title={botOn?"Bot IA actif — clique pour désactiver et gérer manuellement":"Bot IA désactivé — clique pour réactiver"}
+                  >
+                    {botOn ? "🤖 Bot ON" : "👤 Bot OFF"}
+                  </button>
+                );
+              })()}
             </div>
+
+            {/* Bandeau relance auto programmée (info-only) */}
+            {(() => {
+              const r = selected.scheduled_reminder;
+              if (!r || r.done) return null;
+              const at = new Date(r.at);
+              const brDate = at.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" });
+              const attemptLabel = r.attempt === 1 ? "1re relance" : r.attempt === 2 ? "2e relance" : r.attempt === "close" ? "Clôture auto" : `Relance ${r.attempt}`;
+              return (
+                <div style={{padding:"6px 16px",background:"#0b1220",borderBottom:"1px solid #1a2030",fontSize:11,color:"#94a3b8",display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{color:"#a855f7"}}>📅</span>
+                  <span><strong style={{color:"#e2e8f0"}}>{attemptLabel} auto</strong> prévue le <strong style={{color:"#e2e8f0"}}>{brDate}</strong> (9h Rio) — sera annulée si le client répond avant.</span>
+                </div>
+              );
+            })()}
 
             {/* Messages */}
             <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:8}}>
@@ -3843,10 +4077,24 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                       .filter(([email, at]) => new Date(at).getTime() >= msgTs)
                       .map(([email]) => userFromEmail(email) || { id: email, label: email.split("@")[0], color: "#4b5563" });
                   }
+                  const imgUrl = m.type === "image" ? (m.media_url || m.pix_meta?.qr_url) : null;
+                  const videoUrl = m.type === "video" ? m.media_url : null;
                   return (
                     <div key={m.id} style={{alignSelf:isOut?"flex-end":"flex-start",maxWidth:"70%"}}>
                       <div style={{padding:"8px 12px",borderRadius:12,background:isOut?`${accent}22`:"#0d1119",border:`1px solid ${isOut?accent+"33":"#1a2030"}`,color:"#e2e8f0",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
-                        {m.content}
+                        {imgUrl && (
+                          <a href={imgUrl} target="_blank" rel="noopener" style={{display:"block",marginBottom:m.content&&m.content!=="[image]"?6:0}}>
+                            <img src={imgUrl} alt="image" loading="lazy"
+                              style={{maxWidth:"100%",maxHeight:280,borderRadius:8,display:"block"}} />
+                          </a>
+                        )}
+                        {videoUrl && (
+                          <video src={videoUrl} controls playsInline preload="metadata"
+                            style={{maxWidth:"100%",maxHeight:320,borderRadius:8,display:"block",marginBottom:m.content?6:0,background:"#000"}} />
+                        )}
+                        {m.type === "image" && !imgUrl && "🖼 Image (aperçu indisponible)"}
+                        {m.type === "video" && !videoUrl && "🎥 Vidéo (aperçu indisponible)"}
+                        {m.content && m.content !== "[image]" && m.content !== "[video]" && <span>{m.content}</span>}
                       </div>
                       <div style={{fontSize:9,color:"#374151",marginTop:2,textAlign:isOut?"right":"left",padding:"0 4px",display:"flex",gap:5,alignItems:"center",justifyContent:isOut?"flex-end":"flex-start",flexWrap:"wrap"}}>
                         {isOut && senderUser && (
@@ -3915,6 +4163,22 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                 </div>
               )}
 
+              {attachedPreview && (
+                <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"#0b0d16",border:"1px solid #1a2030",borderRadius:6,marginBottom:6}}>
+                  <img src={attachedPreview} alt="preview" style={{width:44,height:44,objectFit:"cover",borderRadius:4}} />
+                  <div style={{flex:1,fontSize:12,color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    📎 {attachedFile?.name} · {Math.round((attachedFile?.size||0)/1024)} KB
+                  </div>
+                  <button onClick={clearAttachment} title="Retirer" style={{padding:"2px 8px",background:"transparent",color:"#f87171",border:"1px solid #7f1d1d",borderRadius:4,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+                </div>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{display:"none"}}
+                onChange={onFileSelected}
+              />
               <div style={{display:"flex",gap:8,alignItems:"stretch"}}>
                 <button
                   onClick={()=>setTemplatesOpen(v=>!v)}
@@ -3922,15 +4186,22 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                   style={{padding:"0 12px",background:templatesOpen?`${accent}33`:"#0b0d16",color:templatesOpen?accent:"#94a3b8",border:`1px solid ${templatesOpen?accent+"55":"#1a2030"}`,borderRadius:6,fontSize:16,cursor:"pointer",fontFamily:"inherit"}}>
                   📋
                 </button>
+                <button
+                  onClick={pickFile}
+                  disabled={sending}
+                  title="Joindre une image"
+                  style={{padding:"0 12px",background:attachedFile?`${accent}33`:"#0b0d16",color:attachedFile?accent:"#94a3b8",border:`1px solid ${attachedFile?accent+"55":"#1a2030"}`,borderRadius:6,fontSize:16,cursor:sending?"not-allowed":"pointer",fontFamily:"inherit"}}>
+                  📎
+                </button>
                 <textarea ref={textareaRef} value={text}
                   onChange={e=>{ setText(e.target.value); broadcastTyping(); }}
                   onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();} }}
-                  placeholder="Écris ton message… (Enter pour envoyer, Shift+Enter pour saut de ligne)"
+                  placeholder={attachedFile ? "Légende optionnelle…" : "Écris ton message… (Enter pour envoyer, Shift+Enter pour saut de ligne)"}
                   rows={2}
                   style={{flex:1,background:"#0b0d16",color:"#f1f5f9",border:"1px solid #1a2030",borderRadius:6,padding:"8px 10px",fontSize:13,fontFamily:"inherit",resize:"none",outline:"none"}}/>
-                <button onClick={send} disabled={!text.trim()||sending}
-                  style={{padding:"0 18px",background:accent,color:"white",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:text.trim()&&!sending?"pointer":"not-allowed",opacity:text.trim()&&!sending?1:0.5}}>
-                  {sending ? "…" : "Envoyer"}
+                <button onClick={send} disabled={(!text.trim()&&!attachedFile)||sending}
+                  style={{padding:"0 18px",background:accent,color:"white",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:(text.trim()||attachedFile)&&!sending?"pointer":"not-allowed",opacity:(text.trim()||attachedFile)&&!sending?1:0.5}}>
+                  {uploading ? "Upload…" : sending ? "…" : "Envoyer"}
                 </button>
               </div>
             </div>
@@ -4315,7 +4586,7 @@ export default function AmigoCRM() {
       // Cérémonies
       "dégustation","degustation","salon","vinexpo","prowein",
     ].some(k=>h.includes(k))) return "vin";
-    if (["3d","impression","print","architecture","maquette","prototype","filament","résine","resine","fraisage","usinage"].some(k=>h.includes(k))) return "print3d";
+    if (["3d","impression","print","architecture","maquette","prototype","filament","fraisage","usinage"].some(k=>h.includes(k))) return "print3d";
     return null;
   };
 
@@ -5201,7 +5472,7 @@ export default function AmigoCRM() {
           <span style={{fontSize:15,fontWeight:600,color:"#f1f5f9"}}>amigo</span>
           <span style={{width:1,height:12,background:"#1a2030",margin:"0 4px"}}/>
           <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
-            {Object.values(PROJECTS).filter(p=>p.id!=="vinClients").map(p=>(
+            {Object.values(PROJECTS).filter(p=>p.id!=="vinClients" && !p.hidden).map(p=>(
               <button key={p.id} onClick={()=>{setProjId(p.id);setView("dashboard");}} className="btn"
                 style={{padding:"4px 10px",borderRadius:5,fontSize:12,fontWeight:500,cursor:"pointer",background:projId===p.id?`${p.color}18`:"transparent",color:projId===p.id?p.color:"#94a3b8",border:projId===p.id?`1px solid ${p.color}22`:"1px solid transparent",display:"flex",alignItems:"center",gap:4}}>
                 {p.icon} {p.label}

@@ -1,4 +1,5 @@
 import { getSupabase, loadWaLabo3d, saveWaLabo3d } from "./_lib/supabase.js";
+import { sendMetaImageByUrl } from "./_lib/meta-send.js";
 
 const META_GRAPH_VERSION = "v20.0";
 
@@ -70,10 +71,11 @@ export default async function handler(req, res) {
   }
 
   const body = req.body || {};
-  let { conversation_id, phone, text, template_name, variables } = body;
+  let { conversation_id, phone, text, template_name, variables, image_url, caption } = body;
 
-  if (!text && !template_name) {
-    return res.status(400).json({ error: "text or template_name required" });
+  const hasImage = !!image_url;
+  if (!text && !template_name && !hasImage) {
+    return res.status(400).json({ error: "text, template_name or image_url required" });
   }
   if (!conversation_id && !phone) {
     return res.status(400).json({ error: "conversation_id or phone required" });
@@ -122,7 +124,15 @@ export default async function handler(req, res) {
   // Envoi via Meta
   let metaMessageId = null;
   try {
-    metaMessageId = await sendMetaMessage({ phone: conv.phone, text: finalText });
+    if (hasImage) {
+      metaMessageId = await sendMetaImageByUrl({
+        phone: conv.phone,
+        imageUrl: image_url,
+        caption: caption || finalText || "",
+      });
+    } else {
+      metaMessageId = await sendMetaMessage({ phone: conv.phone, text: finalText });
+    }
   } catch (err) {
     return res.status(502).json({ error: `Meta send failed: ${err.message}` });
   }
@@ -132,8 +142,9 @@ export default async function handler(req, res) {
   const msg = {
     id: newId("msg"),
     direction: "outbound",
-    type: "text",
-    content: finalText,
+    type: hasImage ? "image" : "text",
+    content: hasImage ? (caption || finalText || "[image]") : finalText,
+    media_url: hasImage ? image_url : undefined,
     timestamp: now,
     meta_id: metaMessageId,
     sender_email: userEmail,
