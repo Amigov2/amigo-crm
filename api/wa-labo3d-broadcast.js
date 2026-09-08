@@ -15,7 +15,6 @@ import { uploadImageForMeshy } from "./_lib/supabase-storage.js";
 
 const MS_24H = 24 * 60 * 60 * 1000;
 const SEND_DELAY_MS = 400;
-const AI_KB_KEY = "wa_labo3d_kb";
 
 function newId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -30,18 +29,6 @@ async function verifyUser(req) {
     const { data, error } = await sb.auth.getUser(jwt);
     if (error || !data?.user?.email) return null;
     return data.user.email;
-  } catch {
-    return null;
-  }
-}
-
-async function loadKnowledgeBase() {
-  try {
-    const sb = getSupabase();
-    const { data } = await sb.from("amigo_data").select("value").eq("key", AI_KB_KEY).maybeSingle();
-    if (!data?.value) return null;
-    const kb = typeof data.value === "string" ? JSON.parse(data.value) : data.value;
-    return kb && kb.pages?.length ? kb : null;
   } catch {
     return null;
   }
@@ -72,12 +59,12 @@ export default async function handler(req, res) {
 
   const { conv_ids = null } = req.body || {};
 
-  const kb = await loadKnowledgeBase();
-  if (!kb) {
-    return res.status(400).json({ error: "no knowledge_base — le bot n'a rien à répondre. Configure la KB d'abord." });
+  const state = await loadWaLabo3d();
+  const kb = state.knowledge_base;
+  if (!kb || !kb.pages?.length) {
+    return res.status(400).json({ error: "no knowledge_base — configure la KB d'abord (bouton Refresh KB dans le CRM)." });
   }
 
-  const state = await loadWaLabo3d();
   const now = Date.now();
 
   let targets = state.conversations || [];
