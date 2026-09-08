@@ -3892,22 +3892,21 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     }
   };
 
-  // Calcul du nombre de conv dans la fenêtre 24h Meta
+  // Calcul du nombre de conv dans la fenêtre 24h Meta où le bot peut répondre
+  // = dernier message = inbound + dans les 24h
   const now = Date.now();
   const MS_24H = 24 * 60 * 60 * 1000;
   const eligibleForBroadcast = conversations.filter(c => {
     const msgs = c.messages || [];
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].direction === "inbound") {
-        return (now - new Date(msgs[i].timestamp).getTime() < MS_24H);
-      }
-    }
-    return false;
+    if (!msgs.length) return false;
+    const last = msgs[msgs.length - 1];
+    if (last.direction !== "inbound") return false;
+    return (now - new Date(last.timestamp).getTime() < MS_24H);
   });
 
   const runBroadcast = async () => {
-    if (broadcasting || !broadcastText.trim()) return;
-    if (!confirm(`Envoyer ce message à ${eligibleForBroadcast.length} conversations (fenêtre 24h) ?`)) return;
+    if (broadcasting) return;
+    if (!confirm(`Lancer le bot IA pour répondre à ${eligibleForBroadcast.length} conversations en attente ?\n\nLe bot lira l'historique et les photos, générera une réponse personnalisée par conv.`)) return;
     setBroadcasting(true);
     setBroadcastResult(null);
     try {
@@ -3917,12 +3916,11 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
       const resp = await fetch("/api/wa-labo3d-broadcast", {
         method: "POST",
         headers: { "Authorization": `Bearer ${jwt}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: broadcastText.trim(), only_recent_24h: true }),
+        body: JSON.stringify({}),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
       setBroadcastResult(data);
-      if (data.sent > 0) setBroadcastText("");
     } catch (err) {
       setBroadcastResult({ error: err.message });
     } finally {
@@ -4030,9 +4028,9 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
           </button>
           <button
             onClick={()=>setBroadcastOpen(true)}
-            title={`Envoyer un message aux ${eligibleForBroadcast.length} conv actives (< 24h)`}
+            title={`Lancer le bot IA sur les ${eligibleForBroadcast.length} conv en attente (< 24h)`}
             style={{padding:"3px 8px",background:"#22c55e22",border:"1px solid #22c55e44",borderRadius:4,color:"#22c55e",fontSize:10,fontWeight:600,cursor:"pointer"}}>
-            🚀 Relancer ({eligibleForBroadcast.length})
+            🤖 Bot répond ({eligibleForBroadcast.length})
           </button>
           {refreshMediaResult && !refreshMediaResult.error && (
             <span style={{fontSize:10,color:"#22c55e",flexBasis:"100%",marginTop:2}}>
@@ -4348,39 +4346,39 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
         )}
       </div>
 
-      {/* Modale Broadcast — envoi d'un même message à toutes les conv < 24h */}
+      {/* Modale : Lancer bot IA sur les conv en attente < 24h */}
       {broadcastOpen && (
         <div onClick={()=>!broadcasting&&setBroadcastOpen(false)}
           style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}>
           <div onClick={e=>e.stopPropagation()}
             style={{width:"100%",maxWidth:520,background:"#0d1119",border:"1px solid #1a2030",borderRadius:12,padding:20,color:"#e2e8f0"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-              <h3 style={{margin:0,fontSize:15,fontWeight:600}}>🚀 Relancer les conversations actives</h3>
+              <h3 style={{margin:0,fontSize:15,fontWeight:600}}>🤖 Lancer le bot IA sur les conv en attente</h3>
               <button onClick={()=>!broadcasting&&setBroadcastOpen(false)}
                 style={{background:"transparent",border:"none",color:"#94a3b8",fontSize:18,cursor:"pointer",padding:4}}>✕</button>
             </div>
 
-            <p style={{margin:"0 0 12px 0",fontSize:12,color:"#94a3b8",lineHeight:1.5}}>
-              Envoie le même message à <b style={{color:"#22c55e"}}>{eligibleForBroadcast.length} conv</b> qui ont écrit dans les dernières 24h (fenêtre Meta).
-              Les conv plus anciennes seront skippées (elles nécessitent un template approved).
+            <p style={{margin:"0 0 8px 0",fontSize:12,color:"#94a3b8",lineHeight:1.5}}>
+              Le bot IA va lire l'historique et les photos de <b style={{color:"#22c55e"}}>{eligibleForBroadcast.length} conversations</b> en attente (< 24h Meta) et générer une réponse personnalisée par conv.
             </p>
-
-            <textarea
-              value={broadcastText}
-              onChange={e=>setBroadcastText(e.target.value)}
-              placeholder="Oi ! Desculpe a demora, tive um problema técnico. Ainda posso ajudar com o seu pedido ?"
-              rows={5}
-              disabled={broadcasting}
-              style={{width:"100%",background:"#0b0d16",color:"#f1f5f9",border:"1px solid #1a2030",borderRadius:6,padding:"10px 12px",fontSize:13,fontFamily:"inherit",resize:"vertical",outline:"none",boxSizing:"border-box"}}
-            />
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"#64748b",marginTop:4}}>
-              <span>{broadcastText.length} / 4000</span>
-              <span>Délai 250 ms entre chaque envoi</span>
-            </div>
+            <p style={{margin:"0 0 12px 0",fontSize:11,color:"#64748b",lineHeight:1.4}}>
+              • Skip si un humain a répondu récemment (cooldown)<br/>
+              • Skip si le message contient un mot-clé d'escalade<br/>
+              • Délai 400 ms entre chaque envoi (throttle Meta)<br/>
+              • Temps estimé : ~{Math.ceil(eligibleForBroadcast.length * 4)}s
+            </p>
 
             {broadcastResult && !broadcastResult.error && (
               <div style={{marginTop:12,padding:"10px 12px",background:"#22c55e18",border:"1px solid #22c55e40",borderRadius:6,fontSize:12,color:"#22c55e"}}>
-                ✅ Envoyé : {broadcastResult.sent} · Échec : {broadcastResult.failed} · Bloqué 24h : {broadcastResult.blocked_24h}
+                ✅ Répondu : {broadcastResult.replied} · Échec : {broadcastResult.failed}
+                {broadcastResult.skipped_by_reason && Object.keys(broadcastResult.skipped_by_reason).length > 0 && (
+                  <div style={{marginTop:6,fontSize:11,color:"#a3a3a3"}}>
+                    Skipped:
+                    {Object.entries(broadcastResult.skipped_by_reason).map(([reason,count])=>(
+                      <span key={reason} style={{marginLeft:8}}>{reason}: {count}</span>
+                    ))}
+                  </div>
+                )}
                 {broadcastResult.errors?.length > 0 && (
                   <details style={{marginTop:6}}>
                     <summary style={{cursor:"pointer",fontSize:11}}>{broadcastResult.errors.length} erreur(s)</summary>
@@ -4402,9 +4400,9 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                 style={{padding:"8px 16px",background:"transparent",border:"1px solid #334155",color:"#94a3b8",borderRadius:6,fontSize:13,cursor:broadcasting?"not-allowed":"pointer",fontFamily:"inherit"}}>
                 Fermer
               </button>
-              <button onClick={runBroadcast} disabled={broadcasting||!broadcastText.trim()||eligibleForBroadcast.length===0}
-                style={{padding:"8px 20px",background:"#22c55e",color:"white",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:broadcasting||!broadcastText.trim()||eligibleForBroadcast.length===0?"not-allowed":"pointer",opacity:broadcasting||!broadcastText.trim()||eligibleForBroadcast.length===0?0.5:1}}>
-                {broadcasting ? `Envoi… (~${eligibleForBroadcast.length * 0.5}s)` : `🚀 Envoyer aux ${eligibleForBroadcast.length} conv`}
+              <button onClick={runBroadcast} disabled={broadcasting||eligibleForBroadcast.length===0}
+                style={{padding:"8px 20px",background:"#22c55e",color:"white",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:broadcasting||eligibleForBroadcast.length===0?"not-allowed":"pointer",opacity:broadcasting||eligibleForBroadcast.length===0?0.5:1}}>
+                {broadcasting ? `Le bot travaille…` : `🤖 Lancer bot sur ${eligibleForBroadcast.length} conv`}
               </button>
             </div>
           </div>
