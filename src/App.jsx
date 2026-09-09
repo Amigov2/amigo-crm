@@ -3733,6 +3733,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const [broadcastText, setBroadcastText] = useState("");
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastResult, setBroadcastResult] = useState(null);
+  const [selectedConvIds, setSelectedConvIds] = useState(() => new Set()); // conv IDs cochées dans la modale broadcast
   const [sendingTemplate, setSendingTemplate] = useState(false);
   const [templateError, setTemplateError] = useState("");
   const endRef = useRef(null);
@@ -3795,6 +3796,17 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     (a,b) => new Date(b.last_message_at||0) - new Date(a.last_message_at||0)
   );
   const selected = conversations.find(c => c.id === selectedId) || null;
+
+  // Fenêtre 24h fermée pour une conv (pas de last inbound ou > 24h)
+  const isConvWindowClosed = (c) => {
+    const msgs = c?.messages || [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].direction === "inbound") {
+        return (Date.now() - new Date(msgs[i].timestamp).getTime()) >= 24 * 3600 * 1000;
+      }
+    }
+    return true;
+  };
 
   // Fenêtre 24h Meta : hors fenêtre, seul un template approuvé passe (erreur 131047 "Re-engagement message")
   const windowState = (() => {
@@ -3974,7 +3986,8 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
 
   const runBroadcast = async () => {
     if (broadcasting) return;
-    if (!confirm(`Lancer le bot IA pour répondre à ${eligibleForBroadcast.length} conversations en attente ?\n\nLe bot lira l'historique et les photos, générera une réponse personnalisée par conv.`)) return;
+    const ids = [...selectedConvIds];
+    if (ids.length === 0) return;
     setBroadcasting(true);
     setBroadcastResult(null);
     try {
@@ -3984,7 +3997,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
       const resp = await fetch("/api/wa-labo3d-broadcast", {
         method: "POST",
         headers: { "Authorization": `Bearer ${jwt}`, "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ conv_ids: ids }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
@@ -4114,8 +4127,8 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
             {refreshingMedia ? "…" : "🔄 Récup. photos"}
           </button>
           <button
-            onClick={()=>setBroadcastOpen(true)}
-            title={`Lancer le bot IA sur les ${eligibleForBroadcast.length} conv en attente (< 24h)`}
+            onClick={()=>{ setSelectedConvIds(new Set(eligibleForBroadcast.map(c=>c.id))); setBroadcastResult(null); setBroadcastOpen(true); }}
+            title={`Choisir sur quelles conversations le bot IA doit répondre (${eligibleForBroadcast.length} éligibles < 24h)`}
             style={{padding:"3px 8px",background:"#22c55e22",border:"1px solid #22c55e44",borderRadius:4,color:"#22c55e",fontSize:10,fontWeight:600,cursor:"pointer"}}>
             🤖 Bot répond ({eligibleForBroadcast.length})
           </button>
@@ -4157,6 +4170,14 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                   <span style={{fontSize:9,padding:"1px 6px",borderRadius:3,background:`${statusColor}22`,color:statusColor,fontWeight:600}}>
                     {WA_LABO3D_STATUS_LABELS[c.status] || c.status}
                   </span>
+                  {isConvWindowClosed(c) && (
+                    <span
+                      title="Fenêtre 24h Meta fermée — nécessite un template approuvé pour rouvrir"
+                      style={{fontSize:9,padding:"1px 6px",borderRadius:3,background:"#7c2d1233",color:"#fdba74",fontWeight:600,whiteSpace:"nowrap"}}
+                    >
+                      🔒 24h+
+                    </span>
+                  )}
                 </div>
                 <div style={{fontSize:11,color:"#64748b",marginBottom:3,fontVariantNumeric:"tabular-nums",display:"flex",alignItems:"center",gap:5}}>
                   <span>📱 {formatWaPhone(c.phone)}</span>
@@ -4466,26 +4487,86 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
         )}
       </div>
 
-      {/* Modale : Lancer bot IA sur les conv en attente < 24h */}
+      {/* Modale : choisir sur quelles conv en attente < 24h le bot IA doit répondre */}
       {broadcastOpen && (
         <div onClick={()=>!broadcasting&&setBroadcastOpen(false)}
           style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}>
           <div onClick={e=>e.stopPropagation()}
-            style={{width:"100%",maxWidth:520,background:"#0d1119",border:"1px solid #1a2030",borderRadius:12,padding:20,color:"#e2e8f0"}}>
+            style={{width:"100%",maxWidth:560,maxHeight:"90vh",display:"flex",flexDirection:"column",background:"#0d1119",border:"1px solid #1a2030",borderRadius:12,padding:20,color:"#e2e8f0"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-              <h3 style={{margin:0,fontSize:15,fontWeight:600}}>🤖 Lancer le bot IA sur les conv en attente</h3>
+              <h3 style={{margin:0,fontSize:15,fontWeight:600}}>🤖 Bot IA — choisir les conv à répondre</h3>
               <button onClick={()=>!broadcasting&&setBroadcastOpen(false)}
                 style={{background:"transparent",border:"none",color:"#94a3b8",fontSize:18,cursor:"pointer",padding:4}}>✕</button>
             </div>
 
             <p style={{margin:"0 0 8px 0",fontSize:12,color:"#94a3b8",lineHeight:1.5}}>
-              Le bot IA va lire l'historique et les photos de <b style={{color:"#22c55e"}}>{eligibleForBroadcast.length} conversations</b> en attente ({"<"} 24h Meta) et générer une réponse personnalisée par conv.
+              <b style={{color:"#22c55e"}}>{eligibleForBroadcast.length} conversations</b> éligibles (dernier message client {"<"} 24h). Coche celles où tu veux que le bot IA génère et envoie une réponse personnalisée.
             </p>
+
+            {eligibleForBroadcast.length > 0 && (
+              <div style={{display:"flex",gap:8,marginBottom:8,fontSize:11}}>
+                <button
+                  onClick={()=>setSelectedConvIds(new Set(eligibleForBroadcast.map(c=>c.id)))}
+                  disabled={broadcasting}
+                  style={{padding:"3px 8px",background:"#22c55e18",color:"#22c55e",border:"1px solid #22c55e44",borderRadius:4,cursor:broadcasting?"not-allowed":"pointer",fontWeight:600}}>
+                  Tout cocher
+                </button>
+                <button
+                  onClick={()=>setSelectedConvIds(new Set())}
+                  disabled={broadcasting}
+                  style={{padding:"3px 8px",background:"#33415518",color:"#94a3b8",border:"1px solid #33415555",borderRadius:4,cursor:broadcasting?"not-allowed":"pointer",fontWeight:600}}>
+                  Tout décocher
+                </button>
+                <span style={{marginLeft:"auto",color:"#64748b",alignSelf:"center"}}>{selectedConvIds.size}/{eligibleForBroadcast.length} sélectionnées</span>
+              </div>
+            )}
+
+            {eligibleForBroadcast.length > 0 && (
+              <div style={{flex:1,overflowY:"auto",border:"1px solid #1a2030",borderRadius:6,background:"#0a0d16",marginBottom:12}}>
+                {eligibleForBroadcast.map(c => {
+                  const checked = selectedConvIds.has(c.id);
+                  const last = c.messages?.[c.messages.length-1];
+                  const preview = (last?.content || "").slice(0, 80);
+                  return (
+                    <label key={c.id}
+                      style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 12px",borderBottom:"1px solid #0f1520",cursor:broadcasting?"not-allowed":"pointer",background:checked?"#22c55e0a":"transparent"}}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={broadcasting}
+                        onChange={()=>{
+                          setSelectedConvIds(prev=>{
+                            const next = new Set(prev);
+                            if (next.has(c.id)) next.delete(c.id); else next.add(c.id);
+                            return next;
+                          });
+                        }}
+                        style={{marginTop:2,accentColor:"#22c55e",cursor:broadcasting?"not-allowed":"pointer"}}
+                      />
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {c.contact_name || c.wa_display_name || c.phone}
+                        </div>
+                        <div style={{fontSize:11,color:"#64748b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {preview || "—"}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            {eligibleForBroadcast.length === 0 && (
+              <div style={{padding:"16px 12px",textAlign:"center",fontSize:12,color:"#64748b",border:"1px dashed #1a2030",borderRadius:6,marginBottom:12}}>
+                Aucune conversation en attente dans la fenêtre 24h Meta.
+              </div>
+            )}
+
             <p style={{margin:"0 0 12px 0",fontSize:11,color:"#64748b",lineHeight:1.4}}>
-              • Skip si un humain a répondu récemment (cooldown)<br/>
-              • Skip si le message contient un mot-clé d'escalade<br/>
+              • Skip si un mot-clé d'escalade est détecté<br/>
               • Délai 400 ms entre chaque envoi (throttle Meta)<br/>
-              • Temps estimé : ~{Math.ceil(eligibleForBroadcast.length * 4)}s
+              • Temps estimé : ~{Math.ceil(selectedConvIds.size * 4)}s
             </p>
 
             {broadcastResult && !broadcastResult.error && (
@@ -4520,9 +4601,9 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                 style={{padding:"8px 16px",background:"transparent",border:"1px solid #334155",color:"#94a3b8",borderRadius:6,fontSize:13,cursor:broadcasting?"not-allowed":"pointer",fontFamily:"inherit"}}>
                 Fermer
               </button>
-              <button onClick={runBroadcast} disabled={broadcasting||eligibleForBroadcast.length===0}
-                style={{padding:"8px 20px",background:"#22c55e",color:"white",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:broadcasting||eligibleForBroadcast.length===0?"not-allowed":"pointer",opacity:broadcasting||eligibleForBroadcast.length===0?0.5:1}}>
-                {broadcasting ? `Le bot travaille…` : `🤖 Lancer bot sur ${eligibleForBroadcast.length} conv`}
+              <button onClick={runBroadcast} disabled={broadcasting||selectedConvIds.size===0}
+                style={{padding:"8px 20px",background:"#22c55e",color:"white",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:broadcasting||selectedConvIds.size===0?"not-allowed":"pointer",opacity:broadcasting||selectedConvIds.size===0?0.5:1}}>
+                {broadcasting ? `Le bot travaille…` : `🤖 Lancer bot sur ${selectedConvIds.size} conv`}
               </button>
             </div>
           </div>
