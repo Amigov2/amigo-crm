@@ -1,5 +1,5 @@
 import { getSupabase, loadWaLabo3d, saveWaLabo3d } from "./_lib/supabase.js";
-import { sendMetaImageByUrl } from "./_lib/meta-send.js";
+import { sendMetaImageByUrl, sendMetaTemplate } from "./_lib/meta-send.js";
 
 const META_GRAPH_VERSION = "v20.0";
 
@@ -71,11 +71,12 @@ export default async function handler(req, res) {
   }
 
   const body = req.body || {};
-  let { conversation_id, phone, text, template_name, variables, image_url, caption } = body;
+  let { conversation_id, phone, text, template_name, variables, image_url, caption, meta_template } = body;
 
   const hasImage = !!image_url;
-  if (!text && !template_name && !hasImage) {
-    return res.status(400).json({ error: "text, template_name or image_url required" });
+  const hasMetaTemplate = !!meta_template?.name;
+  if (!text && !template_name && !hasImage && !hasMetaTemplate) {
+    return res.status(400).json({ error: "text, template_name, meta_template or image_url required" });
   }
   if (!conversation_id && !phone) {
     return res.status(400).json({ error: "conversation_id or phone required" });
@@ -124,7 +125,14 @@ export default async function handler(req, res) {
   // Envoi via Meta
   let metaMessageId = null;
   try {
-    if (hasImage) {
+    if (hasMetaTemplate) {
+      metaMessageId = await sendMetaTemplate({
+        phone: conv.phone,
+        template_name: meta_template.name,
+        language: meta_template.language || "pt_BR",
+        variables: meta_template.variables_ordered || [],
+      });
+    } else if (hasImage) {
       metaMessageId = await sendMetaImageByUrl({
         phone: conv.phone,
         imageUrl: image_url,
@@ -142,13 +150,16 @@ export default async function handler(req, res) {
   const msg = {
     id: newId("msg"),
     direction: "outbound",
-    type: hasImage ? "image" : "text",
-    content: hasImage ? (caption || finalText || "[image]") : finalText,
+    type: hasMetaTemplate ? "template" : (hasImage ? "image" : "text"),
+    content: hasMetaTemplate
+      ? (meta_template.preview_text || `[template ${meta_template.name}]`)
+      : (hasImage ? (caption || finalText || "[image]") : finalText),
     media_url: hasImage ? image_url : undefined,
     timestamp: now,
     meta_id: metaMessageId,
     sender_email: userEmail,
     template_name: template_name || null,
+    meta_template: hasMetaTemplate ? { name: meta_template.name, variables_ordered: meta_template.variables_ordered || [] } : undefined,
     delivery_status: "sent"
   };
   conv.messages.push(msg);

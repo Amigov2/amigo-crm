@@ -3733,6 +3733,8 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const [broadcastText, setBroadcastText] = useState("");
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastResult, setBroadcastResult] = useState(null);
+  const [sendingTemplate, setSendingTemplate] = useState(false);
+  const [templateError, setTemplateError] = useState("");
   const endRef = useRef(null);
   const textareaRef = useRef(null);
   const templatesRef = useRef(null);
@@ -3793,6 +3795,16 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     (a,b) => new Date(b.last_message_at||0) - new Date(a.last_message_at||0)
   );
   const selected = conversations.find(c => c.id === selectedId) || null;
+
+  // Fenêtre 24h Meta : hors fenêtre, seul un template approuvé passe (erreur 131047 "Re-engagement message")
+  const windowState = (() => {
+    if (!selected) return { closed: false, hoursAgo: 0 };
+    const msgs = selected.messages || [];
+    const lastInbound = [...msgs].reverse().find(m => m.direction === "inbound");
+    if (!lastInbound) return { closed: true, hoursAgo: null };
+    const hoursAgo = (Date.now() - new Date(lastInbound.timestamp).getTime()) / 3600000;
+    return { closed: hoursAgo >= 24, hoursAgo };
+  })();
 
   // Récupère l'email du user connecté (Supabase Auth session)
   useEffect(() => {
@@ -3907,6 +3919,44 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     } finally {
       setSending(false);
       setUploading(false);
+    }
+  };
+
+  // Envoie le template Meta approuvé de ré-engagement pour rouvrir la fenêtre 24h.
+  // Seule voie possible hors fenêtre — Meta rejette tout texte libre avec 131047.
+  const sendReengagementTemplate = async () => {
+    if (!selected || sendingTemplate) return;
+    setSendingTemplate(true); setTemplateError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const jwt = session?.access_token;
+      if (!jwt) throw new Error("Session expirée, reconnecte-toi");
+
+      // Prénom du contact : premier mot de contact_name ou wa_display_name, fallback "amigo"
+      const displayName = selected.contact_name || selected.wa_display_name || "";
+      const firstName = (displayName.split(/\s+/)[0] || "amigo").slice(0, 40);
+
+      const previewText = `Olá ${firstName}! 👋 Aqui é o pessoal do LABO 3D. Você ainda tem interesse na sua peça 3D personalizada? Se sim, é só me responder que a gente continua daqui!`;
+
+      const resp = await fetch("/api/wa-labo3d-send", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${jwt}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversation_id: selected.id,
+          meta_template: {
+            name: "labo3d_reengagement_ptbr",
+            language: "pt_BR",
+            variables_ordered: [firstName],
+            preview_text: previewText,
+          },
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    } catch (err) {
+      setTemplateError(err.message);
+    } finally {
+      setSendingTemplate(false);
     }
   };
 
@@ -4210,6 +4260,31 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
               );
             })()}
 
+            {/* Bandeau fenêtre 24h Meta fermée — le client n'a pas répondu depuis > 24h, Meta rejettera tout free-form */}
+            {windowState.closed && (
+              <div style={{padding:"8px 16px",background:"#7c2d1220",borderBottom:"1px solid #7c2d1255",fontSize:11,color:"#fdba74",display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:14}}>🔒</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div>
+                    <strong style={{color:"#fed7aa"}}>Fenêtre 24h Meta fermée</strong>
+                    {windowState.hoursAgo != null && ` — dernière réponse client il y a ${windowState.hoursAgo < 48 ? Math.round(windowState.hoursAgo) + "h" : Math.round(windowState.hoursAgo/24) + "j"}`}
+                    . Envoie le template de ré-engagement pour rouvrir la conv.
+                  </div>
+                  {templateError && (
+                    <div style={{marginTop:4,color:"#f87171"}}>❌ {templateError}</div>
+                  )}
+                </div>
+                <button
+                  onClick={sendReengagementTemplate}
+                  disabled={sendingTemplate}
+                  title="Envoie le template Meta approuvé labo3d_reengagement_ptbr — seul type de message autorisé hors fenêtre 24h"
+                  style={{padding:"6px 12px",background:sendingTemplate?"#7c2d1244":"#f97316",color:"white",border:"none",borderRadius:6,fontSize:11,fontWeight:600,cursor:sendingTemplate?"wait":"pointer",whiteSpace:"nowrap",flexShrink:0}}
+                >
+                  {sendingTemplate ? "Envoi…" : "📩 Envoyer template"}
+                </button>
+              </div>
+            )}
+
             {/* Messages */}
             <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:8}}>
               {(() => {
@@ -4258,7 +4333,14 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                           <span style={{color:"#6b7280"}}>↗ {m.sender_email.split("@")[0]}</span>
                         )}
                         <span>{m.timestamp ? new Date(m.timestamp).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}) : ""}</span>
-                        {isOut && m.delivery_status && <span>· {m.delivery_status}</span>}
+                        {isOut && m.delivery_status && (
+                          <span
+                            style={{color:m.delivery_status==="failed"?"#f87171":undefined,fontWeight:m.delivery_status==="failed"?600:undefined}}
+                            title={m.delivery_status==="failed"&&m.error?`Meta: ${m.error}`:undefined}
+                          >
+                            · {m.delivery_status}{m.delivery_status==="failed"&&m.error?` — ${m.error}`:""}
+                          </span>
+                        )}
                         {readers && readers.length > 0 && (
                           <span style={{marginLeft:4,color:"#4b5563"}}>
                             vu par {readers.map(r => (
@@ -4373,9 +4455,10 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                   placeholder={attachedFile ? "Légende optionnelle…" : "Écris ton message… (Enter pour envoyer, Shift+Enter pour saut de ligne)"}
                   rows={2}
                   style={{flex:1,background:"#0b0d16",color:"#f1f5f9",border:"1px solid #1a2030",borderRadius:6,padding:"8px 10px",fontSize:13,fontFamily:"inherit",resize:"none",outline:"none"}}/>
-                <button onClick={send} disabled={(!text.trim()&&!attachedFile)||sending}
-                  style={{padding:"0 18px",background:accent,color:"white",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:(text.trim()||attachedFile)&&!sending?"pointer":"not-allowed",opacity:(text.trim()||attachedFile)&&!sending?1:0.5}}>
-                  {uploading ? "Upload…" : sending ? "…" : "Envoyer"}
+                <button onClick={send} disabled={(!text.trim()&&!attachedFile)||sending||windowState.closed}
+                  title={windowState.closed?"Fenêtre 24h Meta fermée — utilise un template approuvé":undefined}
+                  style={{padding:"0 18px",background:windowState.closed?"#4b5563":accent,color:"white",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:windowState.closed?"not-allowed":((text.trim()||attachedFile)&&!sending?"pointer":"not-allowed"),opacity:windowState.closed?0.5:((text.trim()||attachedFile)&&!sending?1:0.5)}}>
+                  {windowState.closed ? "🔒 Bloqué 24h" : uploading ? "Upload…" : sending ? "…" : "Envoyer"}
                 </button>
               </div>
             </div>

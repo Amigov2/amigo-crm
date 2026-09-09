@@ -78,6 +78,46 @@ export async function uploadMetaMedia({ buffer, mimeType, filename, phoneNumberI
   return data.id;
 }
 
+// Envoi d'un template WhatsApp approuvé — seule voie autorisée hors fenêtre 24h.
+// variables : tableau ordonné pour {{1}}, {{2}}, ... du corps. Ex: ["Maurício"] pour {{1}}.
+export async function sendMetaTemplate({ phone, template_name, language, variables, phoneNumberId, accessToken }) {
+  const phoneId = phoneNumberId || process.env.META_WA_PHONE_NUMBER_ID_LABO3D;
+  const token = accessToken || process.env.META_WA_ACCESS_TOKEN;
+  if (!phoneId) throw new Error("META_WA_PHONE_NUMBER_ID_LABO3D absent");
+  if (!token) throw new Error("META_WA_ACCESS_TOKEN absent");
+  if (!template_name) throw new Error("template_name required");
+
+  const components = [];
+  if (Array.isArray(variables) && variables.length > 0) {
+    components.push({
+      type: "body",
+      parameters: variables.map(v => ({ type: "text", text: String(v) })),
+    });
+  }
+
+  const url = `https://graph.facebook.com/${META_GRAPH_VERSION}/${phoneId}/messages`;
+  const payload = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: phone.replace(/^\+/, ""),
+    type: "template",
+    template: {
+      name: template_name,
+      language: { code: language || "pt_BR" },
+      ...(components.length ? { components } : {}),
+    },
+  };
+
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data?.error?.message || `Meta API error ${resp.status}`);
+  return data.messages?.[0]?.id || null;
+}
+
 export async function sendMetaImageByMediaId({ phone, mediaId, caption, phoneNumberId, accessToken }) {
   const phoneId = phoneNumberId || process.env.META_WA_PHONE_NUMBER_ID_LABO3D;
   const token = accessToken || process.env.META_WA_ACCESS_TOKEN;
