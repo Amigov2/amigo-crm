@@ -300,20 +300,23 @@ async function processAiResponses(convIds) {
       continue;
     }
     try {
-      // Si le dernier message inbound est une image, la downloader depuis Meta pour Vision
+      // Récupère la DERNIÈRE IMAGE de l'historique inbound (pas le dernier inbound tout court)
+      // — le client peut envoyer une photo puis confirmer par texte "sim", il faut quand même
+      // pouvoir passer la photo à l'IA (Vision) et à Meshy à partir des tours suivants.
       let lastInboundImage = null;
       const lastInbound = [...conv.messages].reverse().find(m => m.direction === "inbound");
-      if (lastInbound?.type === "image" && lastInbound?.media_id) {
+      const lastImageMsg = [...conv.messages].reverse().find(m => m.direction === "inbound" && m.type === "image" && m.media_id);
+      if (lastImageMsg) {
         try {
-          console.log("[wa-labo3d-ai] downloading image media_id=", lastInbound.media_id);
-          lastInboundImage = await downloadMetaMedia(lastInbound.media_id);
+          console.log("[wa-labo3d-ai] downloading image media_id=", lastImageMsg.media_id);
+          lastInboundImage = await downloadMetaMedia(lastImageMsg.media_id);
           console.log("[wa-labo3d-ai] image downloaded, size=", lastInboundImage.size, "mime=", lastInboundImage.mimeType);
-          // Upload sur Supabase Storage pour affichage inline dans AMIGO UI
-          if (!lastInbound.media_url) {
+          // Upload sur Supabase Storage pour affichage inline dans AMIGO UI (si pas déjà fait)
+          if (!lastImageMsg.media_url) {
             try {
               const buf = Buffer.from(lastInboundImage.base64, "base64");
-              const publicUrl = await uploadImageForMeshy({ buffer: buf, filename: `wa-${lastInbound.media_id}.jpg`, mimeType: lastInboundImage.mimeType });
-              lastInbound.media_url = publicUrl;
+              const publicUrl = await uploadImageForMeshy({ buffer: buf, filename: `wa-${lastImageMsg.media_id}.jpg`, mimeType: lastInboundImage.mimeType });
+              lastImageMsg.media_url = publicUrl;
               dirty = true;
               console.log("[wa-labo3d-ai] image cached for UI:", publicUrl);
             } catch (upErr) {
@@ -372,13 +375,13 @@ async function processAiResponses(convIds) {
           text: cleanText,
           ai_generated_at: now,
           ai_usage: result.usage,
-          image_media_id: lastInbound?.media_id || null,
+          image_media_id: lastImageMsg?.media_id || null,
         };
         try {
           const alertResult = await sendPendingQuoteAlert({
             conv,
             quoteText: cleanText,
-            imageMediaId: lastInbound?.media_id || null,
+            imageMediaId: lastImageMsg?.media_id || null,
           });
           console.log("[approval] pending_quote created for", convId, "alert result:", JSON.stringify(alertResult));
         } catch (alertErr) {
