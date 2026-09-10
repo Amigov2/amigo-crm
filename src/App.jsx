@@ -4346,7 +4346,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                         {m.type === "video" && !videoUrl && "🎥 Vidéo (aperçu indisponible)"}
                         {m.content && m.content !== "[image]" && m.content !== "[video]" && <span>{m.content}</span>}
                       </div>
-                      <div style={{fontSize:9,color:"#374151",marginTop:2,textAlign:isOut?"right":"left",padding:"0 4px",display:"flex",gap:5,alignItems:"center",justifyContent:isOut?"flex-end":"flex-start",flexWrap:"wrap"}}>
+                      <div style={{fontSize:10,color:"#94a3b8",marginTop:2,textAlign:isOut?"right":"left",padding:"0 4px",display:"flex",gap:5,alignItems:"center",justifyContent:isOut?"flex-end":"flex-start",flexWrap:"wrap"}}>
                         {isOut && senderUser && (
                           <span style={{color:senderUser.color,fontWeight:600}}>↗ {senderUser.label}</span>
                         )}
