@@ -3956,7 +3956,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
         body: JSON.stringify({
           conversation_id: selected.id,
           meta_template: {
-            name: "labo3d_reengagement_ptbr",
+            name: "_labo3d_reengagement_ptbr",
             language: "pt_BR",
             variables_ordered: [firstName],
             preview_text: previewText,
