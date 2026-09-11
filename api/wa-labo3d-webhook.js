@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { loadWaLabo3d, saveWaLabo3d } from "./_lib/supabase.js";
+import { loadWaLabo3d, saveWaLabo3d, isWaLocking3dEnabled, setPendingQuoteAtomic, resolvePendingQuoteAtomic } from "./_lib/supabase.js";
 import { sendMetaMessage, sendMetaImageByUrl, uploadMetaMedia, sendMetaImageByMediaId } from "./_lib/meta-send.js";
 import { generateResponse } from "./_lib/labo3d-ai.js";
 import { pushToAllSubscribers } from "./_lib/push.js";
@@ -181,8 +181,7 @@ async function handleAdminApprovalReply(state, adminPhone, adminText, adminMetaI
   }
 
   // Enregistre le message envoyé côté conv
-  conv.messages = conv.messages || [];
-  conv.messages.push({
+  const newMsg = {
     id: newId("msg"),
     direction: "outbound",
     type: "text",
@@ -192,16 +191,33 @@ async function handleAdminApprovalReply(state, adminPhone, adminText, adminMetaI
     sender_email: `admin:${adminPhone}`,
     approval_action: action,
     delivery_status: "sent",
-  });
+  };
+  conv.messages = conv.messages || [];
+  conv.messages.push(newMsg);
   conv.last_message_at = now;
   conv.unread = false;
 
   // Marque le pending comme résolu
-  pending.resolved_at = now;
-  pending.resolved_by = adminPhone;
-  pending.resolved_action = action;
-  pending.admin_reply_meta_id = adminMetaId;
-  pending.final_text = finalText;
+  const resolvedFields = {
+    resolved_at: now,
+    resolved_by: adminPhone,
+    resolved_action: action,
+    admin_reply_meta_id: adminMetaId,
+    final_text: finalText,
+  };
+  Object.assign(pending, resolvedFields);
+
+  // Persistance atomique de la résolution + du message outbound côté DB.
+  // Empêche qu'un webhook concurrent ré-affiche "aucun devis en attente"
+  // ou perde le message envoyé au client.
+  if (isWaLocking3dEnabled()) {
+    try {
+      const ok = await resolvePendingQuoteAtomic(conv.id, resolvedFields, newMsg, now);
+      if (!ok) console.warn("[approval] resolvePendingQuoteAtomic returned false for", conv.id);
+    } catch (rpcErr) {
+      console.error("[approval] resolvePendingQuoteAtomic failed:", rpcErr.message);
+    }
+  }
 
   // Confirmation à l'admin
   const summary =
@@ -371,12 +387,23 @@ async function processAiResponses(convIds) {
       // Ne PAS envoyer au client — sauvegarde comme pending_quote + WA aux admins.
       // L'admin approuve/modifie/personnalise via WA, la réponse est ensuite envoyée au client.
       if (containsQuote(cleanText) && getAdminPhones().length > 0) {
-        conv.pending_quote = {
+        const pendingObj = {
           text: cleanText,
           ai_generated_at: now,
           ai_usage: result.usage,
           image_media_id: lastImageMsg?.media_id || null,
         };
+        conv.pending_quote = pendingObj;
+        // Persistance atomique côté DB via RPC pg (verrou row-level, à l'abri d'un save
+        // concurrent qui pourrait écraser le pending entre notre RAM et le save final).
+        if (isWaLocking3dEnabled()) {
+          try {
+            const ok = await setPendingQuoteAtomic(conv.id, pendingObj);
+            if (!ok) console.warn("[approval] setPendingQuoteAtomic returned false for", convId);
+          } catch (rpcErr) {
+            console.error("[approval] setPendingQuoteAtomic failed:", rpcErr.message);
+          }
+        }
         try {
           const alertResult = await sendPendingQuoteAlert({
             conv,
