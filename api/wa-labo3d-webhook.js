@@ -551,7 +551,59 @@ async function processAiResponses(convIds) {
         }
       }
     } catch (err) {
-      console.error("[wa-labo3d-ai] failed for", convId, ":", err.message);
+      // Log structuré pour debug (JSON parseable dans Vercel logs)
+      const conv = state.conversations.find(c => c.id === convId);
+      const lastMsg = conv?.messages?.[conv.messages.length - 1];
+      console.error("[wa-labo3d-ai] failed", JSON.stringify({
+        conv_id: convId,
+        conv_phone: conv?.phone,
+        conv_name: conv?.contact_name,
+        last_msg_ts: lastMsg?.timestamp,
+        last_msg_dir: lastMsg?.direction,
+        last_msg_preview: (lastMsg?.content || "").slice(0, 100),
+        error_name: err.name,
+        error_message: err.message,
+        stack_head: err.stack?.split("\n").slice(0, 4).join(" | "),
+      }));
+      // Fallback client : évite le silence radio qui laisse le client sans réponse
+      // (le vrai bug prod du 12/09 sur Jon Ben et Mariana Secretaria)
+      if (conv?.phone) {
+        try {
+          const fallbackText = "Um instante, nossa equipe já vai te responder! 🙏";
+          const metaId = await sendMetaMessage({ phone: conv.phone, text: fallbackText });
+          conv.messages = conv.messages || [];
+          conv.messages.push({
+            id: newId("msg"),
+            direction: "outbound",
+            type: "text",
+            content: fallbackText,
+            timestamp: new Date().toISOString(),
+            meta_id: metaId,
+            sender_email: aiSender,
+            delivery_status: "sent",
+            fallback_reason: "ai_generation_failed",
+            ai_error: err.message?.slice(0, 200),
+          });
+          conv.last_message_at = new Date().toISOString();
+          conv.needs_human_attention = true;
+          dirty = true;
+          console.log("[wa-labo3d-ai] fallback message sent to", conv.phone);
+        } catch (fbErr) {
+          console.error("[wa-labo3d-ai] fallback send failed:", fbErr.message);
+        }
+        // Push notif admin (déjà envoyé au moment inbound par processWebhook, mais on
+        // ajoute un badge urgent pour signaler qu'un humain doit reprendre la main)
+        try {
+          await pushToAllSubscribers({
+            title: `🚨 Bot IA en erreur — ${conv.contact_name || conv.phone}`,
+            body: `Erreur : ${err.message?.slice(0, 80) || "inconnue"} · Fallback envoyé, réponds manuel.`,
+            url: "/#/print3d/chat",
+            badgeCount: (state.conversations || []).filter(c => c.unread || c.needs_human_attention).length,
+          });
+        } catch (pushErr) {
+          console.error("[wa-labo3d-ai] admin push failed:", pushErr.message);
+        }
+      }
     }
   }
   if (dirty) {

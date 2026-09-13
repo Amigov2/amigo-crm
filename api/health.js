@@ -175,15 +175,112 @@ async function sendAlerts(status) {
   return { alerted: results };
 }
 
+// ─── Check bot "stuck" : conv avec inbound non répondu par le bot depuis N min
+// alors que ai_auto=true et pas escalated → signale un skip silencieux (le bug
+// prod du 12/09 sur Jon Ben et Mariana Secretaria).
+const STUCK_MIN_MINUTES = 5;   // âge min du inbound (laisse le bot répondre)
+const STUCK_MAX_MINUTES = 60;  // au-delà, on considère que c'est trop vieux
+const STUCK_ALERT_KEY = "labo3d_stuck_last_alert";
+const STUCK_THROTTLE_MS = 30 * 60 * 1000; // 30 min entre alertes stuck
+
+async function findStuckConvs(state) {
+  const now = Date.now();
+  const stuck = [];
+  for (const c of state.conversations || []) {
+    if (c.ai_auto === false) continue;
+    if (c.escalated_at) continue;
+    if (c.needs_human_attention) continue;
+    const msgs = c.messages || [];
+    if (!msgs.length) continue;
+    const last = msgs[msgs.length - 1];
+    if (last.direction !== "inbound") continue;
+    const ageMin = (now - new Date(last.timestamp).getTime()) / 60000;
+    if (ageMin < STUCK_MIN_MINUTES || ageMin > STUCK_MAX_MINUTES) continue;
+    stuck.push({
+      conv_id: c.id,
+      name: c.contact_name || c.phone,
+      phone: c.phone,
+      age_min: Math.round(ageMin),
+      last_content: (last.content || "").slice(0, 80),
+    });
+  }
+  return stuck;
+}
+
+async function shouldSendStuckAlert() {
+  try {
+    const sb = getSupabase();
+    const { data } = await sb.from("amigo_data").select("value").eq("key", STUCK_ALERT_KEY).maybeSingle();
+    if (!data?.value) return true;
+    return Date.now() - new Date(data.value).getTime() > STUCK_THROTTLE_MS;
+  } catch { return true; }
+}
+
+async function markStuckAlertSent() {
+  try {
+    const sb = getSupabase();
+    await sb.from("amigo_data").upsert({ key: STUCK_ALERT_KEY, value: new Date().toISOString() });
+  } catch {}
+}
+
+async function sendStuckAlert(stuckList) {
+  const phones = (process.env.ALERT_WA_PHONES || "").split(",").map(s => s.trim()).filter(Boolean);
+  if (!phones.length) return { skipped: "no_phones_configured" };
+  const lines = [
+    `🤖 *Bot LABO3D stuck* — ${stuckList.length} conv sans réponse`,
+    ``,
+    ...stuckList.slice(0, 10).map(s => `• ${s.name} (${s.age_min} min) — "${s.last_content}"`),
+    ``,
+    `👉 https://amigo-labo3d.vercel.app/#/print3d/chat`,
+  ];
+  if (stuckList.length > 10) lines.splice(-2, 0, `... +${stuckList.length - 10} autres`);
+  const text = lines.join("\n");
+  const results = [];
+  for (const phone of phones) {
+    try {
+      const id = await sendMetaMessage({ phone, text });
+      results.push({ phone, ok: true, meta_id: id });
+    } catch (e) {
+      results.push({ phone, ok: false, error: String(e.message || e).slice(0, 200) });
+    }
+  }
+  return { stuck_alert_sent: results };
+}
+
 export default async function handler(req, res) {
   const isCheck = req.query?.check === "1";
+  const isStuck = req.query?.check === "stuck";
   const isReport = req.query?.report === "daily";
   const canAlertWhenDown = !!req.headers["x-vercel-cron"] || req.query?.alert === "1";
 
   const base = { ok: true, service: "amigo-crm-api", time: new Date().toISOString() };
 
   // Mode 1 : ping simple
-  if (!isCheck && !isReport) return res.status(200).json(base);
+  if (!isCheck && !isStuck && !isReport) return res.status(200).json(base);
+
+  // Mode 4 : check bot stuck (conv inbound sans réponse bot)
+  // Cron cron-job.org : /api/health?check=stuck&alert=1 toutes les 10 min
+  if (isStuck) {
+    try {
+      const state = await loadWaLabo3d();
+      const stuck = await findStuckConvs(state);
+      base.stuck_count = stuck.length;
+      base.stuck = stuck;
+      if (canAlertWhenDown && stuck.length > 0) {
+        const canAlert = await shouldSendStuckAlert();
+        if (canAlert) {
+          const alertRes = await sendStuckAlert(stuck);
+          await markStuckAlertSent();
+          Object.assign(base, alertRes);
+        } else {
+          base.alert = "throttled_30m";
+        }
+      }
+      return res.status(200).json(base);
+    } catch (e) {
+      return res.status(500).json({ ...base, error: String(e.message || e).slice(0, 300) });
+    }
+  }
 
   // Mode 2 : rapport quotidien
   if (isReport) {
