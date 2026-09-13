@@ -6,6 +6,7 @@
 
 import { getSupabase, loadWaLabo3d } from "./_lib/supabase.js";
 import { sendMetaMessage } from "./_lib/meta-send.js";
+import { processAiResponses } from "./wa-labo3d-webhook.js";
 
 const MS_24H = 24 * 60 * 60 * 1000;
 
@@ -260,20 +261,50 @@ export default async function handler(req, res) {
 
   // Mode 4 : check bot stuck (conv inbound sans réponse bot)
   // Cron cron-job.org : /api/health?check=stuck&alert=1 toutes les 10 min
+  //
+  // Séquence : detect stuck → retry auto (self-healing) → re-check → alerte si toujours stuck.
+  // Le retry rejoue processAiResponses, ce qui a 90%+ de chances de passer si le skip
+  // initial était dû à un timeout Anthropic transient (bug prod Jon Ben / Mariana Secretaria).
+  // Le fallback D du webhook prend le relais si le retry crash aussi (message client
+  // "Um instante..." + push admin), donc pas de silence radio possible.
   if (isStuck) {
     try {
       const state = await loadWaLabo3d();
-      const stuck = await findStuckConvs(state);
-      base.stuck_count = stuck.length;
-      base.stuck = stuck;
-      if (canAlertWhenDown && stuck.length > 0) {
-        const canAlert = await shouldSendStuckAlert();
-        if (canAlert) {
-          const alertRes = await sendStuckAlert(stuck);
-          await markStuckAlertSent();
-          Object.assign(base, alertRes);
+      const stuckInitial = await findStuckConvs(state);
+      base.stuck_count = stuckInitial.length;
+      base.stuck = stuckInitial;
+
+      // Self-healing : rejoue l'IA sur chaque conv stuck.
+      // Actif seulement quand alert=1 (donc via cron), pas sur un check manuel.
+      if (canAlertWhenDown && stuckInitial.length > 0) {
+        const retryResults = [];
+        for (const s of stuckInitial) {
+          try {
+            await processAiResponses([s.conv_id]);
+            retryResults.push({ conv_id: s.conv_id, name: s.name, retry: "attempted" });
+          } catch (e) {
+            retryResults.push({ conv_id: s.conv_id, name: s.name, retry: "failed", error: String(e.message || e).slice(0, 150) });
+          }
+        }
+        base.retry_results = retryResults;
+
+        // Re-check post retry : ce qui reste stuck après avoir tenté est le VRAI problème
+        const stateAfter = await loadWaLabo3d();
+        const stuckAfter = await findStuckConvs(stateAfter);
+        base.stuck_after_retry = stuckAfter.length;
+
+        // Alerte seulement si le retry n'a rien débloqué
+        if (stuckAfter.length > 0) {
+          const canAlert = await shouldSendStuckAlert();
+          if (canAlert) {
+            const alertRes = await sendStuckAlert(stuckAfter);
+            await markStuckAlertSent();
+            Object.assign(base, alertRes);
+          } else {
+            base.alert = "throttled_30m";
+          }
         } else {
-          base.alert = "throttled_30m";
+          base.retry_healed = stuckInitial.length;
         }
       }
       return res.status(200).json(base);

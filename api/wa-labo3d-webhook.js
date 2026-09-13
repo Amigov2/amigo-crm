@@ -291,7 +291,7 @@ async function processWebhook(body) {
   return { convIdsWithNewInbound: Array.from(convIdsWithNewInbound) };
 }
 
-async function processAiResponses(convIds) {
+export async function processAiResponses(convIds) {
   if (!convIds?.length) return;
   let state;
   try {
