@@ -398,12 +398,46 @@ export async function generateResponse({ conversation, knowledge_base, lastInbou
   if (!resp.ok) {
     throw new Error(`Anthropic API ${resp.status}: ${data?.error?.message || JSON.stringify(data)}`);
   }
-  const text = data.content?.map(c => c.text || "").join("").trim();
-  if (!text) return { skipped: true, skip_reason: "empty_response" };
+  const rawText = data.content?.map(c => c.text || "").join("").trim();
+  if (!rawText) return { skipped: true, skip_reason: "empty_response" };
+
+  // Post-process : recalcule le sinal côté code si l'IA s'est plantée en arithmétique.
+  // Claude est mauvais en math, il annonce parfois un sinal > total ou incohérent
+  // (bug prod Mirian 13/09 : total R$120 → sinal R$145 au lieu de R$35).
+  const sanitized = sanitizePriceInText(rawText);
+  if (sanitized.changed) {
+    console.log("[labo3d-ai] price sanitized", JSON.stringify({
+      total: sanitized.total,
+      declared_sinal: sanitized.declaredSinal,
+      correct_sinal: sanitized.correctSinal,
+    }));
+  }
 
   return {
-    text,
+    text: sanitized.text,
     usage: data.usage || null,
     skipped: false,
   };
+}
+
+// Corrige le sinal (acompte 30%) si l'IA a mal calculé.
+// Règle métier : sinal = arrondi vers le bas au multiple de R$5 de (preço × 0,30).
+// Tolérance ±2 R$ pour laisser à l'IA une marge d'arrondi mineure.
+export function sanitizePriceInText(text) {
+  const totalMatch = text.match(/[Oo]rçamento\s+estimado\s*[:\-]?\s*\*?\*?\s*R\$\s*(\d+(?:[.,]\d+)?)/);
+  const sinalMatch = text.match(/[Ss]inal\s+de\s+R\$\s*(\d+(?:[.,]\d+)?)/);
+  if (!totalMatch || !sinalMatch) return { text, changed: false };
+
+  const total = parseFloat(totalMatch[1].replace(",", "."));
+  const declaredSinal = parseFloat(sinalMatch[1].replace(",", "."));
+  if (!isFinite(total) || !isFinite(declaredSinal) || total <= 0) return { text, changed: false };
+
+  const correctSinal = Math.floor((total * 0.30) / 5) * 5;
+  if (Math.abs(declaredSinal - correctSinal) <= 2) return { text, changed: false };
+
+  const newText = text.replace(
+    /([Ss]inal\s+de\s+R\$\s*)\d+(?:[.,]\d+)?/,
+    `$1${correctSinal}`
+  );
+  return { text: newText, changed: true, total, declaredSinal, correctSinal };
 }
