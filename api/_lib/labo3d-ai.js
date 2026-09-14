@@ -320,7 +320,20 @@ function buildMessages(conversation) {
   const out = [];
   for (const m of msgs) {
     const role = m.direction === "inbound" ? "user" : "assistant";
-    const content = m.content || "";
+    // Remplace les placeholders média par un texte descriptif quand on a une
+    // transcription ou un filename, pour que le LLM puisse répondre au contenu.
+    let content = m.content || "";
+    if (m.direction === "inbound") {
+      if (m.type === "audio") {
+        content = m.transcription
+          ? `[áudio transcrito do cliente] "${m.transcription}"`
+          : "[áudio recebido — sem transcrição disponível ainda]";
+      } else if (m.type === "document" && m.doc_filename) {
+        content = `[documento recebido: ${m.doc_filename}]`;
+      } else if (m.type === "sticker") {
+        content = "[figurinha]";
+      }
+    }
     if (!content.trim()) continue;
     // Fusionne les messages consécutifs du même role
     if (out.length && out[out.length - 1].role === role) {

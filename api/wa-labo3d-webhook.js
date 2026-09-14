@@ -11,6 +11,7 @@ import { nanoRenderPrintedFigurine } from "./_lib/nano-render.js";
 import { uploadImageForMeshy, downloadAndUploadMedia } from "./_lib/supabase-storage.js";
 import { watermarkImageAndUpload } from "./_lib/watermark.js";
 import { preCheckImageForMeshy } from "./_lib/image-precheck.js";
+import { transcribeAudioViaGemini } from "./_lib/audio-transcribe.js";
 import { fixTypos } from "./_lib/typo-fix.js";
 import {
   containsQuote,
@@ -143,6 +144,7 @@ async function handleIncomingMessage(state, msg, contact, metadata) {
   let media_url = null;
   let mime_type = null;
   let size = null;
+  let transcription = null;
   const isMediaType = ["image", "video", "audio", "document", "sticker"].includes(type);
   if (isMediaType && media_id) {
     try {
@@ -154,6 +156,17 @@ async function handleIncomingMessage(state, msg, contact, metadata) {
       media_url = dl.url;
       mime_type = dl.mime_type;
       size = dl.size;
+      // Transcrit tout de suite les audios pour que le bot puisse répondre au
+      // contenu (au lieu de dire "não consigo ouvir áudio").
+      if (type === "audio" && media_url) {
+        try {
+          const tr = await transcribeAudioViaGemini({ audio_url: media_url, mime_type });
+          transcription = tr.transcription;
+          console.log("[wa-labo3d-webhook] audio transcribed:", transcription.slice(0, 100));
+        } catch (trErr) {
+          console.error("[wa-labo3d-webhook] audio transcription failed:", trErr.message);
+        }
+      }
     } catch (dlErr) {
       console.error(`[wa-labo3d-webhook] media download failed (${type}):`, dlErr.message);
       // On garde quand même le message avec media_id → refresh-media pourra retenter plus tard.
@@ -170,6 +183,7 @@ async function handleIncomingMessage(state, msg, contact, metadata) {
     mime_type: mime_type || doc_mime || null,
     size: size || null,
     doc_filename: doc_filename || null,
+    transcription: transcription || null,
     timestamp: ts,
     meta_id: msg.id,
     from_phone_id: metadata?.phone_number_id || null,

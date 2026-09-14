@@ -4122,9 +4122,9 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
           <button
             onClick={refreshMedia}
             disabled={refreshingMedia}
-            title="Retélécharger les photos manquantes depuis Meta"
+            title="Retélécharger les médias manquants depuis Meta (images, vidéos, audios, documents, stickers)"
             style={{padding:"3px 8px",background:refreshingMedia?"#1a2030":`${accent}22`,border:`1px solid ${accent}44`,borderRadius:4,color:accent,fontSize:10,fontWeight:600,cursor:refreshingMedia?"wait":"pointer"}}>
-            {refreshingMedia ? "…" : "🔄 Récup. photos"}
+            {refreshingMedia ? "…" : "🔄 Récup. médias"}
           </button>
           <button
             onClick={()=>{ setSelectedConvIds(new Set(eligibleForBroadcast.map(c=>c.id))); setBroadcastResult(null); setBroadcastOpen(true); }}
@@ -4355,8 +4355,15 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                             style={{maxWidth:"100%",maxHeight:320,borderRadius:8,display:"block",marginBottom:!hideContent?6:0,background:"#000"}} />
                         )}
                         {audioUrl && (
-                          <audio src={audioUrl} controls preload="metadata"
-                            style={{maxWidth:"100%",display:"block",marginBottom:!hideContent?6:0}} />
+                          <>
+                            <audio src={audioUrl} controls preload="metadata"
+                              style={{maxWidth:"100%",display:"block"}} />
+                            {m.transcription && (
+                              <div style={{marginTop:4,fontSize:12,fontStyle:"italic",color:"#94a3b8",background:"#0a0e15",padding:"4px 8px",borderRadius:6,borderLeft:"2px solid #4b5563"}}>
+                                📝 {m.transcription}
+                              </div>
+                            )}
+                          </>
                         )}
                         {docUrl && (
                           <a href={docUrl} target="_blank" rel="noopener" download={docName}
