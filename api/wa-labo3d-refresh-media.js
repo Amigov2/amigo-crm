@@ -9,6 +9,7 @@
 
 import { getSupabase, loadWaLabo3d, saveWaLabo3d } from "./_lib/supabase.js";
 import { downloadAndUploadMedia } from "./_lib/supabase-storage.js";
+import { transcribeAudioViaGemini } from "./_lib/audio-transcribe.js";
 
 const RECOVERABLE_TYPES = new Set(["image", "video", "audio", "document", "sticker"]);
 
@@ -40,39 +41,52 @@ export default async function handler(req, res) {
   let scanned = 0;
   let recovered = 0;
   let expired = 0;
+  let transcribed = 0;
   const errors = [];
 
   for (const conv of state.conversations || []) {
     for (const msg of conv.messages || []) {
       if (msg.direction !== "inbound") continue;
       if (!RECOVERABLE_TYPES.has(msg.type)) continue;
-      if (msg.media_url) continue;             // déjà OK
-      if (!msg.media_id) continue;             // pas de handle Meta
-      scanned++;
 
-      try {
-        const dl = await downloadAndUploadMedia({
-          media_id: msg.media_id,
-          hint_filename: msg.doc_filename || null,
-          prefix: `wa-refresh-${msg.type}`,
-        });
-        msg.media_url = dl.url;
-        msg.mime_type = msg.mime_type || dl.mime_type;
-        msg.size = msg.size || dl.size;
-        recovered++;
-      } catch (e) {
-        const msgErr = String(e?.message || e);
-        // Meta renvoie souvent "Media not found" ou "invalid media_id" après 30j
-        if (/not found|expired|invalid/i.test(msgErr)) {
-          expired++;
-        } else {
-          errors.push({ conv_id: conv.id, msg_id: msg.id, error: msgErr.slice(0, 200) });
+      // 1) Download+upload si media_url manquant
+      if (!msg.media_url && msg.media_id) {
+        scanned++;
+        try {
+          const dl = await downloadAndUploadMedia({
+            media_id: msg.media_id,
+            hint_filename: msg.doc_filename || null,
+            prefix: `wa-refresh-${msg.type}`,
+          });
+          msg.media_url = dl.url;
+          msg.mime_type = msg.mime_type || dl.mime_type;
+          msg.size = msg.size || dl.size;
+          recovered++;
+        } catch (e) {
+          const msgErr = String(e?.message || e);
+          if (/not found|expired|invalid/i.test(msgErr)) {
+            expired++;
+          } else {
+            errors.push({ conv_id: conv.id, msg_id: msg.id, error: msgErr.slice(0, 200) });
+          }
+          continue;
+        }
+      }
+
+      // 2) Transcrit les audios qui n'ont pas encore de transcription
+      if (msg.type === "audio" && msg.media_url && !msg.transcription) {
+        try {
+          const tr = await transcribeAudioViaGemini({ audio_url: msg.media_url, mime_type: msg.mime_type });
+          msg.transcription = tr.transcription;
+          transcribed++;
+        } catch (e) {
+          errors.push({ conv_id: conv.id, msg_id: msg.id, error: `transcribe: ${String(e?.message || e).slice(0, 180)}` });
         }
       }
     }
   }
 
-  if (recovered > 0) await saveWaLabo3d(state);
+  if (recovered > 0 || transcribed > 0) await saveWaLabo3d(state);
 
   return res.status(200).json({
     ok: true,
@@ -80,6 +94,7 @@ export default async function handler(req, res) {
     scanned,
     recovered,
     expired,
+    transcribed,
     errors_count: errors.length,
     errors: errors.slice(0, 10),
     triggered_by: userEmail,

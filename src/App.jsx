@@ -4309,7 +4309,10 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
             {/* Messages */}
             <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:8}}>
               {(() => {
-                const msgs = selected.messages || [];
+                // Filtre les vieilles reactions orphelines (avant fix 14/09/2026)
+                // qui étaient stockées comme messages séparés avec content="[reaction]".
+                // Les nouvelles reactions sont attachées au message parent via reactions[].
+                const msgs = (selected.messages || []).filter(m => m.type !== "reaction");
                 const readBy = selected.read_by || {};
                 // Trouve le dernier msg inbound pour afficher les "vu par"
                 const lastInboundIdx = (() => {
@@ -4373,7 +4376,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                               <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{docName}</div>
                               <div style={{fontSize:10,color:"#94a3b8"}}>
                                 {docExt.toUpperCase() || "FILE"}
-                                {m.size ? ` · ${(m.size/1024).toFixed(m.size>1024*1024?1:0)} ${m.size>1024*1024?"MB":"KB"}` : ""}
+                                {m.size ? ` · ${m.size > 1024*1024 ? (m.size/(1024*1024)).toFixed(1) + " MB" : (m.size/1024).toFixed(0) + " KB"}` : ""}
                               </div>
                             </div>
                           </a>
