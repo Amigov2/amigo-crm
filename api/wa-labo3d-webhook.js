@@ -7,7 +7,9 @@ import { pixPayload, pixQrCodeUrl } from "./_lib/pix.js";
 import { downloadMetaMedia } from "./_lib/meta-media.js";
 import { notifyHumanEscalation } from "./_lib/notify.js";
 import { buildNanoPromptFromConv } from "./_lib/nano-prompt-builder.js";
+import { nanoRenderPrintedFigurine } from "./_lib/nano-render.js";
 import { uploadImageForMeshy } from "./_lib/supabase-storage.js";
+import { watermarkImageAndUpload } from "./_lib/watermark.js";
 import { preCheckImageForMeshy } from "./_lib/image-precheck.js";
 import { fixTypos } from "./_lib/typo-fix.js";
 import {
@@ -491,14 +493,15 @@ export async function processAiResponses(convIds) {
               conv.status = "aguardando_melhor_foto";
               console.log("[wa-labo3d-ai] photo rejected, asking better photo");
             } else {
-              // Photo OK → upload + build prompt Nano + fire-and-forget vers endpoint
-              // dédié qui fait la génération, l'upload, le watermark et le send Meta.
+              // Photo OK → upload de la ref + build prompt Nano + génération inline
+              // en fire-and-forget (Nano prend ~5-10s, le webhook rend 200 à Meta
+              // sans attendre grâce à la promesse détachée).
               const buf = Buffer.from(lastInboundImage.base64, "base64");
               const publicUrl = await uploadImageForMeshy({ buffer: buf, filename: `${conv.id}.jpg`, mimeType: lastInboundImage.mimeType });
               const nanoPrompts = await buildNanoPromptFromConv(conv);
               console.log("[wa-labo3d-ai] Nano prompt built:", nanoPrompts.prompt.slice(0, 140));
 
-              // Enregistre l'état "génération en cours" avant même le fire-and-forget
+              // Enregistre l'état "génération en cours" avant le fire-and-forget
               conv.pending_meshy = {
                 started_at: new Date().toISOString(),
                 input_url: publicUrl,
@@ -508,18 +511,10 @@ export async function processAiResponses(convIds) {
               };
               conv.status = "gerando_preview";
 
-              // Fire-and-forget vers l'endpoint dédié
-              const host = req.headers["x-forwarded-host"] || req.headers.host;
-              const proto = req.headers["x-forwarded-proto"] || "https";
-              const url = `${proto}://${host}/api/labo3d-generate-preview`;
-              const internalSecret = process.env.INTERNAL_SECRET;
-              const headers = { "Content-Type": "application/json" };
-              if (internalSecret) headers["x-internal-secret"] = internalSecret;
-              fetch(url, {
-                method: "POST",
-                headers,
-                body: JSON.stringify({ conv_id: conv.id, image_url: publicUrl, prompt: nanoPrompts.prompt }),
-              }).catch((e) => console.error("[wa-labo3d-ai] fire-and-forget nano-preview failed:", e.message));
+              // Fire-and-forget : Nano + upload + watermark + send Meta + save state,
+              // sans bloquer la réponse au webhook Meta (20s max).
+              runNanoPreviewBackground({ convId: conv.id, phone: conv.phone, image_url: publicUrl, prompt: nanoPrompts.prompt })
+                .catch((e) => console.error("[wa-labo3d-ai] nano background failed:", e.message));
 
               console.log("[wa-labo3d-ai] Nano preview dispatched", convId, "preview_count=", currentCount);
             }
@@ -701,4 +696,92 @@ export default async function handler(req, res) {
     console.error("[wa-labo3d-webhook] processing error:", err);
   }
   res.status(200).json({ received: true });
+}
+
+// Génère la prévia Nano, l'upload watermarkée sur Supabase, l'envoie via Meta,
+// puis met à jour l'état de la conv. Appelée en fire-and-forget depuis le
+// pipeline AI response — ne doit jamais bloquer la réponse au webhook.
+async function runNanoPreviewBackground({ convId, phone, image_url, prompt }) {
+  const t0 = Date.now();
+  try {
+    const out = await nanoRenderPrintedFigurine({ image_url, prompt });
+    console.log("[nano-bg] nano done in", Date.now() - t0, "ms, out size=", out.base64.length);
+
+    // Upload output raw sur Supabase
+    const rawBuf = Buffer.from(out.base64, "base64");
+    const rawUrl = await uploadImageForMeshy({
+      buffer: rawBuf,
+      filename: `nano-${convId}-${Date.now()}.png`,
+      mimeType: out.mimeType,
+    });
+
+    // Watermark (fallback = raw si watermark plante)
+    let watermarkedUrl = rawUrl;
+    try {
+      watermarkedUrl = await watermarkImageAndUpload(rawUrl, convId);
+    } catch (wmErr) {
+      console.error("[nano-bg] watermark failed, using raw:", wmErr.message);
+    }
+
+    // Envoi WhatsApp au client
+    await sendMetaMessage({
+      phone,
+      text: "Prévia da sua peça prontinha! Olha só como ela deve ficar depois de impressa 👇\n\n⚠️ *Importante:* isso é uma prévia gerada por IA pra te dar uma noção. O modelo final vai ser refeito na mão pelo Anthony com mais detalhe e acabamento — bem melhor que essa prévia!\n\nSe aprovar a direção, é só me falar 'sim' que mando o PIX pra começar a modelagem definitiva.",
+    });
+    try {
+      await sendMetaImageByUrl({ phone, imageUrl: watermarkedUrl, caption: "🎨 Prévia IA — LABO 3D" });
+    } catch (imgErr) {
+      console.error("[nano-bg] image send failed:", imgErr.message);
+    }
+
+    // Update conv state (relire l'état pour ne pas écraser un autre update entre-temps)
+    const state = await loadWaLabo3d();
+    const conv = (state.conversations || []).find((c) => c.id === convId);
+    if (conv) {
+      const now = new Date().toISOString();
+      conv.pending_meshy = {
+        ...(conv.pending_meshy || {}),
+        completed_at: now,
+        preview_url: watermarkedUrl,
+        raw_output_url: rawUrl,
+        backend: "nano",
+      };
+      conv.meshy_preview_count = (conv.meshy_preview_count || 0) + 1;
+      conv.status = "aguardando_aprovacao_preview";
+      conv.last_message_at = now;
+      await saveWaLabo3d(state);
+      console.log("[nano-bg] sent conv=", convId, "count=", conv.meshy_preview_count);
+    }
+  } catch (e) {
+    console.error("[nano-bg] failed conv=", convId, e.message);
+    try {
+      const state = await loadWaLabo3d();
+      const conv = (state.conversations || []).find((c) => c.id === convId);
+      if (conv) {
+        conv.pending_meshy = {
+          ...(conv.pending_meshy || {}),
+          completed_at: new Date().toISOString(),
+          error: e.message,
+          backend: "nano",
+        };
+        conv.ai_auto = false;
+        conv.status = "escalado_humano";
+        conv.escalated_at = new Date().toISOString();
+        await saveWaLabo3d(state);
+        try {
+          await sendMetaMessage({ phone, text: "Opa, tive um problema técnico gerando a prévia 😅 Vou passar direto pro Anthony que te ajuda pessoalmente em minutos!" });
+        } catch {}
+        await notifyHumanEscalation({ conv, lastMessage: "🎨 Nano prévia FAILED — passer en manuel" });
+        try {
+          await pushToAllSubscribers({
+            title: `🚨 PRÉVIA IA FAIL — ${conv.contact_name || conv.phone}`,
+            body: (e.message || "").slice(0, 100),
+            url: "/#/print3d/chat",
+          });
+        } catch {}
+      }
+    } catch (e2) {
+      console.error("[nano-bg] failure handling failed:", e2.message);
+    }
+  }
 }
