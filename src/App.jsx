@@ -4327,24 +4327,61 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                       .filter(([email, at]) => new Date(at).getTime() >= msgTs)
                       .map(([email]) => userFromEmail(email) || { id: email, label: email.split("@")[0], color: "#4b5563" });
                   }
-                  const imgUrl = m.type === "image" ? (m.media_url || m.pix_meta?.qr_url) : null;
+                  const imgUrl = (m.type === "image" || m.type === "sticker") ? (m.media_url || m.pix_meta?.qr_url) : null;
                   const videoUrl = m.type === "video" ? m.media_url : null;
+                  const audioUrl = m.type === "audio" ? m.media_url : null;
+                  const docUrl = m.type === "document" ? m.media_url : null;
+                  const docName = m.doc_filename || (m.mime_type ? `document.${(m.mime_type.split("/")[1]||"bin").split(";")[0]}` : "document");
+                  const docExt = (docName.split(".").pop() || "").toLowerCase();
+                  const docIcon = docExt === "pdf" ? "📄"
+                    : docExt === "zip" || docExt === "rar" || docExt === "7z" ? "🗜"
+                    : docExt === "doc" || docExt === "docx" ? "📝"
+                    : docExt === "xls" || docExt === "xlsx" || docExt === "csv" ? "📊"
+                    : docExt === "ppt" || docExt === "pptx" ? "📽"
+                    : "📎";
+                  const contentIsPlaceholder = m.content && /^\[(image|vídeo|áudio|figurinha|documento|video|audio)/i.test(m.content);
+                  const hideContent = !m.content || contentIsPlaceholder;
                   return (
                     <div key={m.id} style={{alignSelf:isOut?"flex-end":"flex-start",maxWidth:"70%"}}>
-                      <div style={{padding:"8px 12px",borderRadius:12,background:isOut?`${accent}22`:"#0d1119",border:`1px solid ${isOut?accent+"33":"#1a2030"}`,color:"#e2e8f0",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+                      <div style={{padding:"8px 12px",borderRadius:12,background:isOut?`${accent}22`:"#0d1119",border:`1px solid ${isOut?accent+"33":"#1a2030"}`,color:"#e2e8f0",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",position:"relative"}}>
                         {imgUrl && (
-                          <a href={imgUrl} target="_blank" rel="noopener" style={{display:"block",marginBottom:m.content&&m.content!=="[image]"?6:0}}>
-                            <img src={imgUrl} alt="image" loading="lazy"
-                              style={{maxWidth:"100%",maxHeight:280,borderRadius:8,display:"block"}} />
+                          <a href={imgUrl} target="_blank" rel="noopener" style={{display:"block",marginBottom:!hideContent?6:0}}>
+                            <img src={imgUrl} alt={m.type === "sticker" ? "sticker" : "image"} loading="lazy"
+                              style={{maxWidth:"100%",maxHeight:m.type==="sticker"?140:280,borderRadius:8,display:"block"}} />
                           </a>
                         )}
                         {videoUrl && (
                           <video src={videoUrl} controls playsInline preload="metadata"
-                            style={{maxWidth:"100%",maxHeight:320,borderRadius:8,display:"block",marginBottom:m.content?6:0,background:"#000"}} />
+                            style={{maxWidth:"100%",maxHeight:320,borderRadius:8,display:"block",marginBottom:!hideContent?6:0,background:"#000"}} />
+                        )}
+                        {audioUrl && (
+                          <audio src={audioUrl} controls preload="metadata"
+                            style={{maxWidth:"100%",display:"block",marginBottom:!hideContent?6:0}} />
+                        )}
+                        {docUrl && (
+                          <a href={docUrl} target="_blank" rel="noopener" download={docName}
+                            style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"#1a2030",border:"1px solid #2a3040",borderRadius:8,textDecoration:"none",color:"#e2e8f0",marginBottom:!hideContent?6:0}}>
+                            <span style={{fontSize:22}}>{docIcon}</span>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{docName}</div>
+                              <div style={{fontSize:10,color:"#94a3b8"}}>
+                                {docExt.toUpperCase() || "FILE"}
+                                {m.size ? ` · ${(m.size/1024).toFixed(m.size>1024*1024?1:0)} ${m.size>1024*1024?"MB":"KB"}` : ""}
+                              </div>
+                            </div>
+                          </a>
                         )}
                         {m.type === "image" && !imgUrl && "🖼 Image (aperçu indisponible)"}
                         {m.type === "video" && !videoUrl && "🎥 Vidéo (aperçu indisponible)"}
-                        {m.content && m.content !== "[image]" && m.content !== "[video]" && <span>{m.content}</span>}
+                        {m.type === "audio" && !audioUrl && "🎵 Audio (indisponible)"}
+                        {m.type === "document" && !docUrl && `📎 ${docName} (indisponible)`}
+                        {m.type === "sticker" && !imgUrl && "🃏 Sticker (indisponible)"}
+                        {!hideContent && <span>{m.content}</span>}
+                        {Array.isArray(m.reactions) && m.reactions.length > 0 && (
+                          <div style={{position:"absolute",bottom:-10,[isOut?"left":"right"]:8,background:"#0d1119",border:"1px solid #2a3040",borderRadius:12,padding:"1px 6px",fontSize:12,display:"flex",gap:2,boxShadow:"0 1px 3px rgba(0,0,0,0.4)"}}>
+                            {m.reactions.map((r,i) => <span key={i} title={r.from}>{r.emoji}</span>)}
+                          </div>
+                        )}
                       </div>
                       <div style={{fontSize:10,color:"#94a3b8",marginTop:2,textAlign:isOut?"right":"left",padding:"0 4px",display:"flex",gap:5,alignItems:"center",justifyContent:isOut?"flex-end":"flex-start",flexWrap:"wrap"}}>
                         {isOut && senderUser && (

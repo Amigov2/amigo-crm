@@ -1,5 +1,6 @@
-// Endpoint : rescan toutes les conversations, télécharge depuis Meta les images/videos
-// dont media_url est manquant (crashs webhook antérieurs), upload sur Supabase Storage.
+// Endpoint : rescan toutes les conversations, télécharge depuis Meta tous les
+// médias inbound (image, video, audio, document, sticker) dont media_url est
+// manquant, upload sur Supabase Storage et complète le message.
 //
 // Meta ne garde les medias que ~30 jours. Après ça le download échoue silencieusement.
 //
@@ -7,8 +8,9 @@
 // Réponse : { total, scanned, recovered, expired, errors }
 
 import { getSupabase, loadWaLabo3d, saveWaLabo3d } from "./_lib/supabase.js";
-import { downloadMetaMedia } from "./_lib/meta-media.js";
-import { uploadImageForMeshy } from "./_lib/supabase-storage.js";
+import { downloadAndUploadMedia } from "./_lib/supabase-storage.js";
+
+const RECOVERABLE_TYPES = new Set(["image", "video", "audio", "document", "sticker"]);
 
 async function verifyUser(req) {
   const auth = req.headers.authorization || "";
@@ -43,21 +45,20 @@ export default async function handler(req, res) {
   for (const conv of state.conversations || []) {
     for (const msg of conv.messages || []) {
       if (msg.direction !== "inbound") continue;
-      if (msg.type !== "image" && msg.type !== "video") continue;
+      if (!RECOVERABLE_TYPES.has(msg.type)) continue;
       if (msg.media_url) continue;             // déjà OK
       if (!msg.media_id) continue;             // pas de handle Meta
       scanned++;
 
       try {
-        const media = await downloadMetaMedia(msg.media_id);
-        const buf = Buffer.from(media.base64, "base64");
-        const filename = `wa-refresh-${msg.media_id}.${msg.type === "video" ? "mp4" : "jpg"}`;
-        const publicUrl = await uploadImageForMeshy({
-          buffer: buf,
-          filename,
-          mimeType: media.mimeType,
+        const dl = await downloadAndUploadMedia({
+          media_id: msg.media_id,
+          hint_filename: msg.doc_filename || null,
+          prefix: `wa-refresh-${msg.type}`,
         });
-        msg.media_url = publicUrl;
+        msg.media_url = dl.url;
+        msg.mime_type = msg.mime_type || dl.mime_type;
+        msg.size = msg.size || dl.size;
         recovered++;
       } catch (e) {
         const msgErr = String(e?.message || e);

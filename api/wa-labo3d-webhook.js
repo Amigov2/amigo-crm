@@ -8,7 +8,7 @@ import { downloadMetaMedia } from "./_lib/meta-media.js";
 import { notifyHumanEscalation } from "./_lib/notify.js";
 import { buildNanoPromptFromConv } from "./_lib/nano-prompt-builder.js";
 import { nanoRenderPrintedFigurine } from "./_lib/nano-render.js";
-import { uploadImageForMeshy } from "./_lib/supabase-storage.js";
+import { uploadImageForMeshy, downloadAndUploadMedia } from "./_lib/supabase-storage.js";
 import { watermarkImageAndUpload } from "./_lib/watermark.js";
 import { preCheckImageForMeshy } from "./_lib/image-precheck.js";
 import { fixTypos } from "./_lib/typo-fix.js";
@@ -50,11 +50,24 @@ function extractContent(msg) {
   const t = msg.type;
   if (t === "text") return { type: t, content: msg.text?.body || "" };
   if (t === "image") return { type: t, content: msg.image?.caption || "[image]", media_id: msg.image?.id };
-  if (t === "audio") return { type: t, content: "[audio]", media_id: msg.audio?.id };
-  if (t === "video") return { type: t, content: msg.video?.caption || "[video]", media_id: msg.video?.id };
-  if (t === "document") return { type: t, content: msg.document?.caption || `[document: ${msg.document?.filename || "?"}]`, media_id: msg.document?.id };
-  if (t === "location") return { type: t, content: `[location ${msg.location?.latitude},${msg.location?.longitude}]` };
-  if (t === "contacts") return { type: t, content: `[contact: ${msg.contacts?.[0]?.name?.formatted_name || "?"}]` };
+  if (t === "audio") return { type: t, content: "[áudio]", media_id: msg.audio?.id };
+  if (t === "video") return { type: t, content: msg.video?.caption || "[vídeo]", media_id: msg.video?.id };
+  if (t === "document") return {
+    type: t,
+    content: msg.document?.caption || `[documento: ${msg.document?.filename || "?"}]`,
+    media_id: msg.document?.id,
+    doc_filename: msg.document?.filename || null,
+    doc_mime: msg.document?.mime_type || null,
+  };
+  if (t === "sticker") return { type: t, content: "[figurinha]", media_id: msg.sticker?.id };
+  if (t === "reaction") return {
+    type: t,
+    content: msg.reaction?.emoji || "",
+    reaction_emoji: msg.reaction?.emoji || "",
+    reaction_to_meta_id: msg.reaction?.message_id || null,
+  };
+  if (t === "location") return { type: t, content: `[localização ${msg.location?.latitude},${msg.location?.longitude}]` };
+  if (t === "contacts") return { type: t, content: `[contato: ${msg.contacts?.[0]?.name?.formatted_name || "?"}]` };
   if (t === "button") return { type: t, content: msg.button?.text || "[button]" };
   if (t === "interactive") {
     const ir = msg.interactive;
@@ -105,16 +118,61 @@ async function handleIncomingMessage(state, msg, contact, metadata) {
   // Déduplique sur meta_id (Meta peut renvoyer un webhook en cas de timeout)
   if (conv.messages.some(m => m.meta_id === msg.id)) return;
 
-  const { type, content, media_id } = extractContent(msg);
+  const extracted = extractContent(msg);
+  const { type, content, media_id, doc_filename, doc_mime, reaction_emoji, reaction_to_meta_id } = extracted;
+
+  // ── Reactions : n'ajoutent PAS de nouveau message dans la conv.
+  // On les attache au message parent via reactions[] pour affichage inline.
+  if (type === "reaction" && reaction_to_meta_id) {
+    const parent = conv.messages.find(m => m.meta_id === reaction_to_meta_id);
+    if (parent) {
+      parent.reactions = parent.reactions || [];
+      // Retire une éventuelle réaction précédente du même expéditeur avant d'ajouter (Meta envoie
+      // un event avec emoji="" quand l'utilisateur retire sa réaction).
+      parent.reactions = parent.reactions.filter(r => r.from !== phone);
+      if (reaction_emoji) {
+        parent.reactions.push({ from: phone, emoji: reaction_emoji, at: ts, meta_id: msg.id });
+      }
+      conv.last_message_at = ts;
+    }
+    return;
+  }
+
+  // ── Télécharge et upload immédiatement le media (image/video/audio/document/sticker).
+  // Meta ne garde ses medias que 30j — on veut une copie durable sur Supabase.
+  let media_url = null;
+  let mime_type = null;
+  let size = null;
+  const isMediaType = ["image", "video", "audio", "document", "sticker"].includes(type);
+  if (isMediaType && media_id) {
+    try {
+      const dl = await downloadAndUploadMedia({
+        media_id,
+        hint_filename: doc_filename || null,
+        prefix: `wa-${type}`,
+      });
+      media_url = dl.url;
+      mime_type = dl.mime_type;
+      size = dl.size;
+    } catch (dlErr) {
+      console.error(`[wa-labo3d-webhook] media download failed (${type}):`, dlErr.message);
+      // On garde quand même le message avec media_id → refresh-media pourra retenter plus tard.
+    }
+  }
+
   conv.messages.push({
     id: newId("msg"),
     direction: "inbound",
     type,
     content,
     media_id: media_id || null,
+    media_url: media_url || null,
+    mime_type: mime_type || doc_mime || null,
+    size: size || null,
+    doc_filename: doc_filename || null,
     timestamp: ts,
     meta_id: msg.id,
-    from_phone_id: metadata?.phone_number_id || null
+    from_phone_id: metadata?.phone_number_id || null,
   });
   conv.last_message_at = ts;
   conv.unread = true;
