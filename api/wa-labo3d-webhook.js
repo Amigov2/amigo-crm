@@ -6,8 +6,7 @@ import { pushToAllSubscribers } from "./_lib/push.js";
 import { pixPayload, pixQrCodeUrl } from "./_lib/pix.js";
 import { downloadMetaMedia } from "./_lib/meta-media.js";
 import { notifyHumanEscalation } from "./_lib/notify.js";
-import { meshyStartImageTo3D } from "./_lib/meshy.js";
-import { buildMeshyPromptFromConv } from "./_lib/meshy-prompt-builder.js";
+import { buildNanoPromptFromConv } from "./_lib/nano-prompt-builder.js";
 import { uploadImageForMeshy } from "./_lib/supabase-storage.js";
 import { preCheckImageForMeshy } from "./_lib/image-precheck.js";
 import { fixTypos } from "./_lib/typo-fix.js";
@@ -492,18 +491,40 @@ export async function processAiResponses(convIds) {
               conv.status = "aguardando_melhor_foto";
               console.log("[wa-labo3d-ai] photo rejected, asking better photo");
             } else {
-              // Photo OK → upload + build prompts intelligents + lance Meshy
+              // Photo OK → upload + build prompt Nano + fire-and-forget vers endpoint
+              // dédié qui fait la génération, l'upload, le watermark et le send Meta.
               const buf = Buffer.from(lastInboundImage.base64, "base64");
               const publicUrl = await uploadImageForMeshy({ buffer: buf, filename: `${conv.id}.jpg`, mimeType: lastInboundImage.mimeType });
-              const meshyPrompts = await buildMeshyPromptFromConv(conv);
-              console.log("[wa-labo3d-ai] Meshy prompts built:", JSON.stringify(meshyPrompts));
-              const task_id = await meshyStartImageTo3D({ image_url: publicUrl, ...meshyPrompts });
-              conv.pending_meshy = { task_id, started_at: new Date().toISOString(), input_url: publicUrl, precheck: check, prompts: meshyPrompts };
+              const nanoPrompts = await buildNanoPromptFromConv(conv);
+              console.log("[wa-labo3d-ai] Nano prompt built:", nanoPrompts.prompt.slice(0, 140));
+
+              // Enregistre l'état "génération en cours" avant même le fire-and-forget
+              conv.pending_meshy = {
+                started_at: new Date().toISOString(),
+                input_url: publicUrl,
+                precheck: check,
+                prompt: nanoPrompts.prompt,
+                backend: "nano",
+              };
               conv.status = "gerando_preview";
-              console.log("[wa-labo3d-ai] Meshy started", convId, "task=", task_id, "preview_count=", currentCount, "art_style=", meshyPrompts.art_style);
+
+              // Fire-and-forget vers l'endpoint dédié
+              const host = req.headers["x-forwarded-host"] || req.headers.host;
+              const proto = req.headers["x-forwarded-proto"] || "https";
+              const url = `${proto}://${host}/api/labo3d-generate-preview`;
+              const internalSecret = process.env.INTERNAL_SECRET;
+              const headers = { "Content-Type": "application/json" };
+              if (internalSecret) headers["x-internal-secret"] = internalSecret;
+              fetch(url, {
+                method: "POST",
+                headers,
+                body: JSON.stringify({ conv_id: conv.id, image_url: publicUrl, prompt: nanoPrompts.prompt }),
+              }).catch((e) => console.error("[wa-labo3d-ai] fire-and-forget nano-preview failed:", e.message));
+
+              console.log("[wa-labo3d-ai] Nano preview dispatched", convId, "preview_count=", currentCount);
             }
-          } catch (meshyErr) {
-            console.error("[wa-labo3d-ai] Meshy pre-check/start failed:", meshyErr.message);
+          } catch (renderErr) {
+            console.error("[wa-labo3d-ai] Nano pre-check/dispatch failed:", renderErr.message);
             await sendMetaMessage({ phone: conv.phone, text: "Tô com um problema técnico gerando a prévia agora 😅 O Anthony vai te ajudar pessoalmente, é só um instante!" });
           }
         }
