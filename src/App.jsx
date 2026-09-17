@@ -78,6 +78,10 @@ const PROJECTS = {
 const ORDER_STATUSES = ["En attente","Confirmée","En production","Livré","Facturé","Annulée"];
 const QUOTE_STATUSES = ["Brouillon","Envoyé","Accepté","Refusé","Expiré","Annulé"];
 
+// Lien direct 1-tap vers le formulaire d'avis Google Business Profile LABO 3D.
+// NB: on évite le shortlink g.page/r/ (redirige vers login Google → boucle dans WebView WhatsApp).
+const LABO3D_GOOGLE_REVIEW_URL = "https://search.google.com/local/writereview?placeid=ChIJdYthewJ_mQARIT2Tfb1ZyeI";
+
 // ── Données entreprise pour facturation / PIX ───────────────────────────────
 // Email expéditeur par projet (alias "Envoyer en tant que" dans Gmail)
 const PROJECT_EMAIL = {
@@ -3730,6 +3734,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const [refreshMediaResult, setRefreshMediaResult] = useState(null);
   const [webhookHealth, setWebhookHealth] = useState(null); // {healthy, status}
   const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [hotFilterOn, setHotFilterOn] = useState(false);
   const [broadcastText, setBroadcastText] = useState("");
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastResult, setBroadcastResult] = useState(null);
@@ -3984,6 +3989,34 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     return (now - new Date(last.timestamp).getTime() < MS_24H);
   });
 
+  // 🔥 HOT LEADS : conv où on a proposé un devis / PIX / fermeture et le client
+  // n'a pas encore répondu. Signal pour prioriser une relance ciblée.
+  const HOT_KEYWORDS_RE = /(fecha nesse|fecha aí|combinado\??|vamos fechar|confirma|orçamento estimado|📐|sinal de r\$|pix|r\$\s*\d)/i;
+  const MIN_HOT_AGE_MS = 30 * 60 * 1000;    // au moins 30 min sans réponse client
+  const isHotLead = (c) => {
+    if (c.status === "ganho" || c.status === "perdido") return false;
+    if (c.ai_auto === false && c.status === "escalado_humano") return false; // déjà pris en charge
+    const msgs = c.messages || [];
+    if (!msgs.length) return false;
+    const last = msgs[msgs.length - 1];
+    if (last.direction !== "outbound") return false;
+    const lastAge = now - new Date(last.timestamp).getTime();
+    if (lastAge < MIN_HOT_AGE_MS) return false;
+    if (lastAge >= MS_24H) return false; // hors fenêtre, plus vraiment hot
+    // dernier inbound doit exister (le client a déjà écrit)
+    let lastIn = null;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].direction === "inbound") { lastIn = msgs[i]; break; }
+    }
+    if (!lastIn) return false;
+    // signal hot dans le dernier msg outbound (prix, fermeture, PIX...)
+    const hasPixMeta = !!last.pix_meta || last.type === "image" && (last.content || "").includes("QR PIX");
+    if (hasPixMeta) return true;
+    return HOT_KEYWORDS_RE.test(last.content || "");
+  };
+  const hotLeads = conversations.filter(isHotLead);
+  const filteredConversations = hotFilterOn ? hotLeads : conversations;
+
   const runBroadcast = async () => {
     if (broadcasting) return;
     const ids = [...selectedConvIds];
@@ -4132,6 +4165,12 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
             style={{padding:"3px 8px",background:"#22c55e22",border:"1px solid #22c55e44",borderRadius:4,color:"#22c55e",fontSize:10,fontWeight:600,cursor:"pointer"}}>
             🤖 Bot répond ({eligibleForBroadcast.length})
           </button>
+          <button
+            onClick={()=>setHotFilterOn(v=>!v)}
+            title={hotFilterOn ? "Retour à toutes les conversations" : "Filtrer les conv où on a proposé devis/PIX/fermeture et le client n'a pas encore répondu"}
+            style={{padding:"3px 8px",background:hotFilterOn?"#ef4444":"#ef444422",border:`1px solid ${hotFilterOn?"#ef4444":"#ef444444"}`,borderRadius:4,color:hotFilterOn?"white":"#ef4444",fontSize:10,fontWeight:600,cursor:"pointer"}}>
+            🔥 Hot ({hotLeads.length})
+          </button>
           {refreshMediaResult && !refreshMediaResult.error && (
             <span style={{fontSize:10,color:"#22c55e",flexBasis:"100%",marginTop:2}}>
               ✅ Scanné {refreshMediaResult.scanned} · Récupéré {refreshMediaResult.recovered} · Expirées {refreshMediaResult.expired}
@@ -4147,7 +4186,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
               Aucune conversation.<br/>Les messages arriveront ici dès que le webhook Meta sera configuré.
             </div>
           )}
-          {conversations.map(c => {
+          {filteredConversations.map(c => {
             const isSel = c.id === selectedId;
             const last = c.messages?.[c.messages.length-1];
             const statusColor = WA_LABO3D_STATUS_COLORS[c.status] || "#4b5563";
@@ -4252,6 +4291,37 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                   ✅ Sinal recebido
                 </button>
               )}
+              {["em_producao","pronto","ganho"].includes(selected.status) && (() => {
+                const already = !!selected.review_requested_at;
+                return (
+                  <button
+                    disabled={already}
+                    onClick={async () => {
+                      const rawName = selected.contact_name || selected.wa_display_name || "";
+                      const firstName = (rawName.match(/^[^\s,]+/)?.[0] || "").replace(/^\+?\d.*$/, "");
+                      const greeting = firstName ? `Oi ${firstName}!` : "Oi!";
+                      const msg = `${greeting} 👋\n\nAqui é o Anthony da LABO 3D. Espero que você tenha curtido sua peça! 🎨\n\nSe puder deixar uma avaliação rápida no Google (30 segundos), ajuda muito o atelier a crescer:\n\n👉 ${LABO3D_GOOGLE_REVIEW_URL}\n\nObrigado! 🙏`;
+                      if (!confirm(`Envoyer la demande d'avis Google à ${firstName || selected.phone} ?\n\n(À faire uniquement quand la peça a bien été livrée / retirée)`)) return;
+                      try {
+                        const resp = await fetch("/api/wa-labo3d-send", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
+                          body: JSON.stringify({ conversation_id: selected.id, text: msg }),
+                        });
+                        if (!resp.ok) {
+                          const err = await resp.json().catch(() => ({}));
+                          throw new Error(err.error || `HTTP ${resp.status}`);
+                        }
+                        await patchConv(selected.id, { review_requested_at: new Date().toISOString() });
+                      } catch (e) { alert("Erreur envoi: " + e.message); }
+                    }}
+                    style={{background:already?"#0b0d16":"#fbbf24",color:already?"#64748b":"#0b0d16",border:already?"1px solid #1a2030":"none",borderRadius:5,padding:"5px 10px",fontSize:11,fontWeight:600,cursor:already?"default":"pointer",whiteSpace:"nowrap"}}
+                    title={already ? `Demande d'avis déjà envoyée le ${new Date(selected.review_requested_at).toLocaleDateString("pt-BR")}` : "Envoyer une demande d'avis Google au client (à faire après livraison réelle de la peça)"}
+                  >
+                    {already ? "✓ Avis demandé" : "🌟 Pedir avaliação"}
+                  </button>
+                );
+              })()}
               {(() => {
                 const botOn = selected.ai_auto !== false;
                 return (
