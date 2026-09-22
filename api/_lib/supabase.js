@@ -85,27 +85,76 @@ export async function saveWaLabo3d(payload) {
   // On EXCLUT explicitement knowledge_base du state save → protégé par la clé WA_LABO3D_KB_KEY
   const { knowledge_base, knowledge_base_updated_at, ...rest } = payload;
 
-  // Smart merge quand locking ON : évite d'écraser des pending_quote créés
-  // atomiquement par un autre webhook concurrent entre notre load et notre save.
-  if (isWaLocking3dEnabled()) {
-    try {
-      const fresh = await loadWaLabo3d();
-      const freshConvs = fresh.conversations || [];
-      for (const ramConv of rest.conversations || []) {
-        const dbConv = freshConvs.find(c => c.id === ramConv.id);
-        if (!dbConv) continue;
-        // Préserve pending_quote DB si créé (RPC atomic) alors que RAM n'a rien
+  // Smart merge (toujours ON) : évite d'écraser des données créées par un webhook
+  // concurrent entre notre load et notre save.
+  // Protection :
+  //   1. pending_quote créé/résolu atomiquement par un autre process (uniquement si locking ON)
+  //   2. messages inbound/outbound ajoutés par un webhook parallèle — union par meta_id/id
+  //      (nécessaire quand un client envoie plusieurs messages rapides : Meta envoie
+  //      un webhook par message, ils se chevauchent, et le last-writer écrasait les autres)
+  try {
+    const fresh = await loadWaLabo3d();
+    const freshConvs = fresh.conversations || [];
+    const freshById = new Map(freshConvs.map(c => [c.id, c]));
+
+    for (const ramConv of rest.conversations || []) {
+      const dbConv = freshById.get(ramConv.id);
+      if (!dbConv) continue;
+
+      if (isWaLocking3dEnabled()) {
         if (dbConv.pending_quote && !ramConv.pending_quote) {
           ramConv.pending_quote = dbConv.pending_quote;
-        }
-        // Préserve la résolution DB si RAM a un pending non résolu (l'autre process l'a résolu)
-        else if (dbConv.pending_quote?.resolved_at && !ramConv.pending_quote?.resolved_at) {
+        } else if (dbConv.pending_quote?.resolved_at && !ramConv.pending_quote?.resolved_at) {
           ramConv.pending_quote = dbConv.pending_quote;
         }
       }
-    } catch (mergeErr) {
-      console.warn("[saveWaLabo3d] smart merge failed, proceeding with RAM state:", mergeErr.message);
+
+      // Protection pending_meshy : si un webhook parallèle a queué un job nano
+      // ET que la RAM n'en a pas, on préserve le job DB. Mais on NE écrase JAMAIS
+      // un nouveau job (queued/running) en RAM par un ancien failed/completed DB —
+      // c'est un retry légitime.
+      const dbActiveJob = dbConv.pending_meshy && !dbConv.pending_meshy.completed_at;
+      const ramHasNewJob = ramConv.pending_meshy && ramConv.pending_meshy.status === "queued";
+      if (dbActiveJob && !ramConv.pending_meshy) {
+        ramConv.pending_meshy = dbConv.pending_meshy;
+      }
+      // NOTE: on ne récupère PAS le completed_at DB si RAM a un nouveau queued —
+      // c'est un retry manuel qu'il faut respecter.
+
+      // Union des messages par meta_id (unique) ou id
+      const ramMsgs = ramConv.messages || [];
+      const dbMsgs = dbConv.messages || [];
+      if (dbMsgs.length > 0) {
+        const seen = new Set();
+        const keyOf = (m) => m.meta_id || m.id || `${m.direction}:${m.timestamp}:${(m.content || "").slice(0, 40)}`;
+        const merged = [];
+        for (const m of [...dbMsgs, ...ramMsgs]) {
+          const k = keyOf(m);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          merged.push(m);
+        }
+        merged.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+        ramConv.messages = merged;
+        // Recalcule last_message_at à partir du dernier msg (source de vérité)
+        const lastMsg = merged[merged.length - 1];
+        if (lastMsg) {
+          const ramTs = ramConv.last_message_at ? new Date(ramConv.last_message_at).getTime() : 0;
+          const lastTs = new Date(lastMsg.timestamp || 0).getTime();
+          if (lastTs > ramTs) ramConv.last_message_at = lastMsg.timestamp;
+        }
+      }
     }
+
+    // Convs qui existent en DB mais pas en RAM (créées par un webhook parallèle) → append
+    const ramConvIds = new Set((rest.conversations || []).map(c => c.id));
+    for (const dbConv of freshConvs) {
+      if (!ramConvIds.has(dbConv.id)) {
+        (rest.conversations = rest.conversations || []).push(dbConv);
+      }
+    }
+  } catch (mergeErr) {
+    console.warn("[saveWaLabo3d] smart merge failed, proceeding with RAM state:", mergeErr.message);
   }
 
   const { error } = await sb.from("amigo_data").upsert({

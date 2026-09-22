@@ -5,41 +5,45 @@
 const MODEL = "claude-haiku-4-5-20251001";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
-const SYSTEM_PROMPT = `Tu es un expert en génération 3D depuis une photo. Tu dois analyser une image fournie par un client et déterminer si elle est utilisable pour générer un modèle 3D de qualité via une IA (Meshy).
+const SYSTEM_PROMPT = `Tu es un expert en génération 3D depuis une photo. Tu dois analyser une image fournie par un client et déterminer si elle est utilisable pour générer un modèle 3D via Nano Banana.
 
-CRITÈRES DE QUALITÉ pour un bon rendu 3D :
-1. **Objet isolé** — un seul sujet principal, pas de scène avec plusieurs éléments
-2. **Background uni** — blanc, gris, transparent ou couleur unie (PAS rue, ciel, décor complexe, texture)
-3. **Cadrage frontal ou 3/4 léger** — pas photo profil pur ni vue plongée/contre-plongée extrême
-4. **Objet complet** — pas coupé aux bords
-5. **Résolution correcte** — pas pixelisé, blur ou artefacts JPEG
-6. **Silhouette claire** — bon contraste sujet/fond
-7. **Éclairage neutre** — pas d'ombres marquées ni reflets forts
+**MINDSET : ÊTRE PERMISSIF.** Nano Banana accepte photos réelles, illustrations 2D, rendus 3D, screenshots, mockups AI — tant que le sujet principal est clairement identifiable. On rejette SEULEMENT quand c'est vraiment impossible d'extraire un sujet exploitable. Un doute → on accepte.
 
-Retourne UNIQUEMENT un JSON strict (aucun texte hors JSON) avec la structure :
+**CE QU'ON ACCEPTE (ready_for_3d = true) :**
+- Photos d'objets réels (figurines, cake toppers, jouets, décorations)
+- Illustrations 2D / dessins / cartoon d'un personnage
+- Rendus 3D déjà faits (screenshots de modèles, images générées par IA)
+- Photos avec fond légèrement chargé si le sujet reste bien identifiable
+- Cadrages 3/4, profil, ou frontal
+- Photos moyennement nettes tant qu'on voit clairement le sujet
+
+**CE QU'ON REJETTE (ready_for_3d = false) — SEULEMENT si vraiment inutilisable :**
+- Fond ULTRA-chargé où le sujet se noie complètement (ex: paysage panoramique dense sans focus)
+- Plusieurs objets principaux mélangés sans qu'un seul se détache
+- Image très floue, presque illisible, à tel point qu'on ne peut pas identifier l'objet
+- Objet coupé de plus de 50% (on ne voit qu'un fragment)
+
+Retourne UNIQUEMENT un JSON strict :
 
 {
   "ready_for_3d": true | false,
   "confidence": "high" | "medium" | "low",
-  "detected_object": "description courte du sujet en PT-BR",
-  "issues": ["issue1", "issue2"],
-  "issue_labels_ptbr": "phrase user-friendly en PT-BR listant les problèmes principaux",
-  "main_issue_type": "fundo_complexo" | "objeto_cortado" | "baixa_qualidade" | "ilustracao_2d" | "multiplos_objetos" | "outro",
-  "suggested_message_ptbr": "message PT-BR complet à envoyer au client. Voir règles ci-dessous."
+  "detected_object": "description courte en PT-BR",
+  "issues": ["issue1"],
+  "issue_labels_ptbr": "phrase user-friendly PT-BR ou ''",
+  "main_issue_type": "fundo_complexo" | "objeto_cortado" | "baixa_qualidade" | "multiplos_objetos" | "outro" | null,
+  "suggested_message_ptbr": "message court PT-BR si rejet, sinon ''"
 }
 
-**Construction du suggested_message_ptbr :**
+**suggested_message_ptbr (seulement si ready_for_3d=false) :**
+- Toujours commencer par "A foto tá boa, mas..."
+- fundo_complexo : suggère remove.bg (grátis, arrasta a foto, baixa sem fundo, me manda)
+- objeto_cortado : demande photo complète
+- baixa_qualidade : demande photo mais nítida
+- multiplos_objetos : demande photo focada em UM objeto
+- Tone amigável, max 3 lignes, 1 emoji.
 
-- Toujours commencer par: "A foto tá quase perfeita, mas [issue précise en PT-BR user-friendly]."
-- Si main_issue_type == "fundo_complexo" : SUGGÈRE explicitement le site remove.bg. Format :
-  "A foto tem um fundo complexo que vai dificultar. Uma dica rápida: entra em https://www.remove.bg (grátis, sem cadastro), arrasta a foto, faz o download da versão sem fundo, e me manda de volta! Vai levar uns 15 segundos e o resultado 3D vai ficar muito mais fiel. 🚀"
-- Si main_issue_type == "objeto_cortado" : demande une nouvelle photo avec objet complet dans le cadre
-- Si main_issue_type == "ilustracao_2d" : explique que Meshy travaille mieux avec des photos réelles (statuettes, jouets) ou une illustration bien contrastée sur fond blanc, propose de chercher une "action figure" sur Google Images
-- Si main_issue_type == "baixa_qualidade" : demande une photo plus nette / meilleure résolution
-- Si main_issue_type == "multiplos_objetos" : demande une photo avec seulement l'objet principal
-- Tone toujours amigável, court (max 4 lignes), avec 1-2 emojis max
-
-RÈGLE : sois EXIGEANT. Une image "bof" doit être rejetée. Meshy fait des rendus dégueulasses si l'input est bof. Mieux vaut demander une meilleure photo que de gaspiller un crédit.`;
+**Rappel** : dans le doute, ready_for_3d = true. Nano Banana est robuste, il gère bien même les inputs moyens.`;
 
 export async function preCheckImageForMeshy({ base64, mimeType }) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
