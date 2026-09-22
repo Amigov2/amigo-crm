@@ -5,7 +5,8 @@ import { generateResponse } from "./_lib/labo3d-ai.js";
 import { pushToAllSubscribers } from "./_lib/push.js";
 import { pixPayload, pixQrCodeUrl } from "./_lib/pix.js";
 import { downloadMetaMedia } from "./_lib/meta-media.js";
-import { notifyHumanEscalation } from "./_lib/notify.js";
+import { notifyHumanEscalation, notifyPendingQuote, notifyTeam } from "./_lib/notify.js";
+import { buildApprovalLink, verifySig, approvalHtmlPage } from "./_lib/approval-link.js";
 import { buildNanoPromptFromConv } from "./_lib/nano-prompt-builder.js";
 import { nanoRenderPrintedFigurine } from "./_lib/nano-render.js";
 import { uploadImageForMeshy, downloadAndUploadMedia } from "./_lib/supabase-storage.js";
@@ -25,7 +26,7 @@ import {
 } from "./_lib/quote-approval.js";
 
 // Raw body pour vérifier signature HMAC Meta
-export const config = { api: { bodyParser: false } };
+export const config = { api: { bodyParser: false }, maxDuration: 60 };
 
 async function readRawBody(req) {
   const chunks = [];
@@ -441,20 +442,92 @@ export async function processAiResponses(convIds) {
         }
         continue;
       }
-      // Détecte les tags du prompt IA : [SEND_PIX amount=X], [GENERATE_PREVIEW], [SCHEDULE_FOLLOWUP date=YYYY-MM-DD]
+      // Détecte les tags du prompt IA : [SEND_PIX amount=X], [GENERATE_PREVIEW], [SCHEDULE_FOLLOWUP date=YYYY-MM-DD], [ESCALATE_HUMAN]
       const pixMatch = result.text.match(/\[SEND_PIX\s+amount=(\d+(?:\.\d+)?)\]/i);
-      const previewMatch = result.text.match(/\[GENERATE_PREVIEW\]/i);
+      let previewMatch = result.text.match(/\[GENERATE_PREVIEW\]/i);
       const scheduleMatch = result.text.match(/\[SCHEDULE_FOLLOWUP\s+date=(\d{4}-\d{2}-\d{2})\]/i);
+      const escalateMatch = result.text.match(/\[ESCALATE_HUMAN\]/i);
+
+      // Garde anti-hallucination + anti-promesse-sans-suite + trigger client explicite :
+      // 3 façons de forcer nano si le bot n'a pas émis [GENERATE_PREVIEW] :
+      //   A. Bot hallucine que la prévia est prête
+      //   B. Bot promet une prévia à venir
+      //   C. Client demande explicitement la prévia (côté inbound)
+      const HALLUC_PREVIEW_RE = /(essa é a prévia|aqui está a prévia|ficou exatamente|olha o resultado|a prévia ficou|prévia do seu)/i;
+      const PROMISE_PREVIEW_RE = /(tô finalizando|estou finalizando|vou gerar (a )?prévia|gerando (a )?prévia|finalizo a prévia|vou fazer a prévia|vou preparar a prévia|aguarda uns? minutinhos?|1-2 minutinhos|2-3 minutinhos|já te mando a prévia|prévia impressa em 3d|prévia 3d pra você aprovar|assim eu finalizo)/i;
+      const CLIENT_ASKS_PREVIEW_RE = /(manda\s*a?\s*pr[ée]via|envia\s*a?\s*pr[ée]via|gera\s*a?\s*pr[ée]via|cadê\s*a\s*pr[ée]via|manda\s*ver|manda\s*a\s*prev)/i;
+      const clientAsksPreview = lastInbound?.content && CLIENT_ASKS_PREVIEW_RE.test(lastInbound.content);
+      const botPromisesPreview = HALLUC_PREVIEW_RE.test(result.text) || PROMISE_PREVIEW_RE.test(result.text);
+      const shouldForcePreview = !previewMatch && (botPromisesPreview || clientAsksPreview);
+      if (shouldForcePreview) {
+        console.warn("[wa-labo3d-ai] forcing GENERATE_PREVIEW — reason:", clientAsksPreview ? "client_explicit_request" : "bot_promise_or_halluc");
+        previewMatch = ["[GENERATE_PREVIEW]"];
+      }
       // Guardrail typos : corrige les fautes courantes (Boan oite → Boa noite, etc.)
       const cleanText = fixTypos(
         result.text
           .replace(/\[SEND_PIX[^\]]*\]/gi, "")
           .replace(/\[GENERATE_PREVIEW\]/gi, "")
           .replace(/\[SCHEDULE_FOLLOWUP[^\]]*\]/gi, "")
+          .replace(/\[ESCALATE_HUMAN\]/gi, "")
           .trim()
       );
 
       const now = new Date().toISOString();
+
+      // ═══ PRE-CHECK PRÉVIA AVANT ENVOI ═══
+      // Si le bot promet une prévia mais la photo ne convient pas à Nano, on
+      // ré-écrit son message pour demander une meilleure photo AU LIEU d'envoyer
+      // une promesse contradictoire suivie d'un refus. Évite la double-comm.
+      let effectiveText = cleanText;
+      let previewPlan = null; // { publicUrl, prompt } → dispatch nano après send
+      if (previewMatch && lastInboundImage?.base64) {
+        const MAX_FREE_PREVIEWS = 2;
+        const currentCount = conv.meshy_preview_count || 0;
+        if (currentCount >= MAX_FREE_PREVIEWS && !conv.sinal_received_at) {
+          effectiveText = `Já fizemos ${currentCount} prévias 3D pra você (obrigado pela paciência 🙏). Pra continuar refinando, precisamos avançar pro pagamento do sinal. Se quiser, me confirma o valor e mando o PIX!`;
+          console.log("[wa-labo3d-ai] preview rate limit hit for", convId, "count=", currentCount);
+        } else {
+          try {
+            console.log("[wa-labo3d-ai] pre-checking image quality for", convId);
+            const check = await preCheckImageForMeshy({ base64: lastInboundImage.base64, mimeType: lastInboundImage.mimeType });
+            console.log("[wa-labo3d-ai] precheck result:", JSON.stringify({ ready: check.ready_for_3d, confidence: check.confidence, issues: check.issues, object: check.detected_object }));
+            if (!check.ready_for_3d) {
+              effectiveText = check.suggested_message_ptbr
+                || `A foto tá com uns pontos que dificultam gerar uma boa prévia 3D (${check.issue_labels_ptbr || "qualidade insuficiente"}). Você consegue mandar outra foto do ${check.detected_object || "objeto"} com fundo branco/neutro, vista de frente, sem cortes? Assim eu gero uma prévia bem mais fiel! 📸`;
+              conv.status = "aguardando_melhor_foto";
+              console.log("[wa-labo3d-ai] photo rejected, replacing bot message");
+            } else {
+              const buf = Buffer.from(lastInboundImage.base64, "base64");
+              const publicUrl = await uploadImageForMeshy({ buffer: buf, filename: `${conv.id}.jpg`, mimeType: lastInboundImage.mimeType });
+              const nanoPrompts = await buildNanoPromptFromConv(conv);
+              previewPlan = { publicUrl, prompt: nanoPrompts.prompt, check };
+              console.log("[wa-labo3d-ai] Nano prompt built:", nanoPrompts.prompt.slice(0, 140));
+            }
+          } catch (renderErr) {
+            console.error("[wa-labo3d-ai] pre-check failed, keeping bot msg + skipping preview:", renderErr.message);
+          }
+        }
+      }
+
+      // ═══ QUEUE NANO EN AMONT ═══
+      // Si previewPlan a été calculé (pre-check OK), on queue le job MAINTENANT
+      // AVANT le pending_quote workflow. Sinon si le message contient un R$X,
+      // l'approval intercepte et la queue nano est perdue (les continue skipent
+      // le bloc 2b).
+      if (previewPlan) {
+        conv.pending_meshy = {
+          started_at: new Date().toISOString(),
+          input_url: previewPlan.publicUrl,
+          precheck: previewPlan.check,
+          prompt: previewPlan.prompt,
+          backend: "nano",
+          status: "queued",
+          phone: conv.phone,
+        };
+        conv.status = "gerando_preview";
+        console.log("[wa-labo3d-ai] Nano preview QUEUED for cron", convId);
+      }
 
       // ═══ APPROVAL WORKFLOW : intercept si le devis IA contient un prix ═══
       // Ne PAS envoyer au client — sauvegarde comme pending_quote + WA aux admins.
@@ -477,16 +550,38 @@ export async function processAiResponses(convIds) {
             console.error("[approval] setPendingQuoteAtomic failed:", rpcErr.message);
           }
         }
+        let waOk = false, emailOk = false;
         try {
           const alertResult = await sendPendingQuoteAlert({
             conv,
             quoteText: cleanText,
             imageMediaId: lastImageMsg?.media_id || null,
           });
-          console.log("[approval] pending_quote created for", convId, "alert result:", JSON.stringify(alertResult));
-        } catch (alertErr) {
-          console.error("[approval] alert send failed:", alertErr.message);
-          // Fallback : envoie quand même au client pour ne pas bloquer si les admins sont down
+          waOk = (alertResult?.alerted || []).some(a => a.ok);
+          console.log("[approval] pending_quote created for", convId, "WA alert result:", JSON.stringify(alertResult));
+        } catch (waErr) {
+          console.error("[approval] WA alert failed:", waErr.message);
+        }
+        // Email alert (canal fiable, WA parfois bloqué par Meta silencieusement)
+        try {
+          const emailResult = await notifyPendingQuote({
+            conv,
+            quoteText: cleanText,
+            clientDemand: lastInbound?.content || "",
+            imageBase64: lastInboundImage?.base64 || null,
+            imageMime: lastInboundImage?.mimeType || "image/jpeg",
+            approveUrl: buildApprovalLink(conv.id, "ok"),
+            takeUrl: buildApprovalLink(conv.id, "take"),
+            priceUrl: buildApprovalLink(conv.id, "price"),
+          });
+          emailOk = emailResult?.ok === true;
+          console.log("[approval] email alert result:", JSON.stringify(emailResult));
+        } catch (emailErr) {
+          console.error("[approval] email alert failed:", emailErr.message);
+        }
+        // Fallback : si NI WA NI email n'ont marché, envoie direct au client pour pas bloquer
+        if (!waOk && !emailOk) {
+          console.warn("[approval] both alerts failed, falling back to direct client send for", convId);
           const metaMessageId = await sendMetaMessage({ phone: conv.phone, text: cleanText });
           conv.messages.push({
             id: newId("msg"),
@@ -498,7 +593,7 @@ export async function processAiResponses(convIds) {
             sender_email: aiSender,
             delivery_status: "sent",
             ai_usage: result.usage,
-            approval_skipped: "admin_alert_failed",
+            approval_skipped: "all_alerts_failed",
           });
           conv.last_message_at = now;
         }
@@ -507,13 +602,13 @@ export async function processAiResponses(convIds) {
         continue; // skip le send normal ci-dessous
       }
 
-      // 1. Envoie le message texte principal (sans la tag)
-      const metaMessageId = await sendMetaMessage({ phone: conv.phone, text: cleanText });
+      // 1. Envoie le message texte principal (sans la tag, potentiellement re-écrit par pre-check)
+      const metaMessageId = await sendMetaMessage({ phone: conv.phone, text: effectiveText });
       conv.messages.push({
         id: newId("msg"),
         direction: "outbound",
         type: "text",
-        content: cleanText,
+        content: effectiveText,
         timestamp: now,
         meta_id: metaMessageId,
         sender_email: aiSender,
@@ -524,6 +619,25 @@ export async function processAiResponses(convIds) {
       conv.unread = false;
       dirty = true;
       console.log("[wa-labo3d-ai] responded", convId, "in_tokens=", result.usage?.input_tokens, "out_tokens=", result.usage?.output_tokens, "pix=", !!pixMatch);
+
+      // 2. Si tag ESCALATE_HUMAN → coupe le bot + notifie Anthony/Harold
+      if (escalateMatch) {
+        conv.ai_auto = false;
+        conv.escalated_at = new Date().toISOString();
+        conv.status = "escalado_humano";
+        try {
+          const r = await notifyHumanEscalation({ conv, lastMessage: lastInbound?.content || "" });
+          console.log("[wa-labo3d-ai] bot self-escalation notify result:", JSON.stringify(r));
+          await pushToAllSubscribers({
+            title: `🚨 BOT ESCALADE — ${conv.contact_name || conv.phone}`,
+            body: (lastInbound?.content || "").slice(0, 100),
+            url: "/#/print3d/chat",
+            badgeCount: (state.conversations || []).filter(c => c.unread).length,
+          });
+        } catch (escErr) {
+          console.error("[wa-labo3d-ai] bot self-escalation notify failed:", escErr.message);
+        }
+      }
 
       // 2a. Si tag SCHEDULE_FOLLOWUP → programme une relance auto (attempt 1)
       if (scheduleMatch) {
@@ -540,62 +654,7 @@ export async function processAiResponses(convIds) {
         }
       }
 
-      // 2b. Si tag GENERATE_PREVIEW → pré-check qualité photo, puis lance Meshy async
-      if (previewMatch && lastInboundImage?.base64) {
-        const MAX_FREE_PREVIEWS = 2;
-        const currentCount = conv.meshy_preview_count || 0;
-        if (currentCount >= MAX_FREE_PREVIEWS && !conv.sinal_received_at) {
-          await sendMetaMessage({
-            phone: conv.phone,
-            text: `Já fizemos ${currentCount} prévias 3D pra você (obrigado pela paciência 🙏). Pra continuar refinando, precisamos avançar pro pagamento do sinal. Se quiser, me confirma o valor de novo e mando o PIX!`,
-          });
-          console.log("[wa-labo3d-ai] preview rate limit hit for", convId, "count=", currentCount);
-        } else {
-          try {
-            // 🎯 PRE-CHECK QUALITÉ IMAGE avant de brûler un crédit Meshy
-            console.log("[wa-labo3d-ai] pre-checking image quality for", convId);
-            const check = await preCheckImageForMeshy({ base64: lastInboundImage.base64, mimeType: lastInboundImage.mimeType });
-            console.log("[wa-labo3d-ai] precheck result:", JSON.stringify({ ready: check.ready_for_3d, confidence: check.confidence, issues: check.issues, object: check.detected_object }));
-
-            if (!check.ready_for_3d) {
-              // Photo pas OK → demande une meilleure photo au client, ne lance PAS Meshy
-              const askMsg = check.suggested_message_ptbr
-                || `A foto tá com uns pontos que dificultam gerar uma boa prévia 3D (${check.issue_labels_ptbr || "qualidade insuficiente"}). Você consegue mandar outra foto do ${check.detected_object || "objeto"} com fundo branco/neutro, vista de frente, sem cortes? Assim eu gero uma prévia bem mais fiel! 📸`;
-              await sendMetaMessage({ phone: conv.phone, text: askMsg });
-              conv.status = "aguardando_melhor_foto";
-              console.log("[wa-labo3d-ai] photo rejected, asking better photo");
-            } else {
-              // Photo OK → upload de la ref + build prompt Nano + génération inline
-              // en fire-and-forget (Nano prend ~5-10s, le webhook rend 200 à Meta
-              // sans attendre grâce à la promesse détachée).
-              const buf = Buffer.from(lastInboundImage.base64, "base64");
-              const publicUrl = await uploadImageForMeshy({ buffer: buf, filename: `${conv.id}.jpg`, mimeType: lastInboundImage.mimeType });
-              const nanoPrompts = await buildNanoPromptFromConv(conv);
-              console.log("[wa-labo3d-ai] Nano prompt built:", nanoPrompts.prompt.slice(0, 140));
-
-              // Enregistre l'état "génération en cours" avant le fire-and-forget
-              conv.pending_meshy = {
-                started_at: new Date().toISOString(),
-                input_url: publicUrl,
-                precheck: check,
-                prompt: nanoPrompts.prompt,
-                backend: "nano",
-              };
-              conv.status = "gerando_preview";
-
-              // Fire-and-forget : Nano + upload + watermark + send Meta + save state,
-              // sans bloquer la réponse au webhook Meta (20s max).
-              runNanoPreviewBackground({ convId: conv.id, phone: conv.phone, image_url: publicUrl, prompt: nanoPrompts.prompt })
-                .catch((e) => console.error("[wa-labo3d-ai] nano background failed:", e.message));
-
-              console.log("[wa-labo3d-ai] Nano preview dispatched", convId, "preview_count=", currentCount);
-            }
-          } catch (renderErr) {
-            console.error("[wa-labo3d-ai] Nano pre-check/dispatch failed:", renderErr.message);
-            await sendMetaMessage({ phone: conv.phone, text: "Tô com um problema técnico gerando a prévia agora 😅 O Anthony vai te ajudar pessoalmente, é só um instante!" });
-          }
-        }
-      }
+      // 2b. Queue nano déjà faite en amont (avant approval workflow) — voir plus haut
 
       // 2. Si tag PIX présent → envoie 2 messages supplémentaires (EMV + QR)
       if (pixMatch) {
@@ -701,9 +760,130 @@ export async function processAiResponses(convIds) {
   }
 }
 
+function sendHtml(res, code, title, message, color) {
+  res.status(code).setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(approvalHtmlPage(code, title, message, color));
+}
+
+async function handleApprovalLink(req, res) {
+  const { conv: convId, action, sig, newPrice } = req.query || {};
+  if (!convId || !action || !sig) return sendHtml(res, 400, "❌ Lien invalide", "Paramètres manquants.", "#ef4444");
+  if (!["ok", "take", "price"].includes(action)) return sendHtml(res, 400, "❌ Action inconnue", `Action « ${action} » non supportée.`, "#ef4444");
+  if (!verifySig(convId, action, sig)) return sendHtml(res, 403, "❌ Signature invalide", "Ce lien n'est pas authentique ou a été modifié.", "#ef4444");
+
+  const state = await loadWaLabo3d();
+  const conv = (state.conversations || []).find(c => c.id === convId);
+  if (!conv) return sendHtml(res, 404, "❌ Conversation introuvable", "Cette conv n'existe plus dans le CRM.", "#ef4444");
+  const pending = conv.pending_quote;
+  if (!pending) return sendHtml(res, 200, "ℹ️ Aucun devis en attente", "Ce devis a peut-être déjà été traité ou annulé.", "#f59e0b");
+  if (pending.resolved_at) {
+    return sendHtml(res, 200, "⚠️ Déjà traité", `Ce devis a déjà été traité par <strong>${pending.resolved_by || "quelqu'un"}</strong> (${pending.resolved_action || "?"}).`, "#f59e0b");
+  }
+
+  const now = new Date().toISOString();
+  const clientLabel = conv.contact_name || conv.phone;
+  const source = (req.headers["x-forwarded-for"] || "email-link").toString().split(",")[0].trim();
+
+  // Action "price" : formulaire si pas de newPrice, sinon applique et envoie
+  if (action === "price") {
+    if (!newPrice) {
+      // Affiche le form avec le devis courant + input prix
+      const currentPrice = (pending.text || "").match(/R\$\s*[\d.,]+/i)?.[0] || "R$ ?";
+      const escapedText = (pending.text || "").replace(/</g, "&lt;");
+      const formHtml = `
+        <p style="color:#666;margin:0 0 8px;font-size:14px">Devis IA courant (prix ${currentPrice}) :</p>
+        <div style="background:#ecfeff;padding:12px;border-radius:8px;border-left:3px solid #0ea5e9;white-space:pre-wrap;font-size:13px;max-height:200px;overflow:auto">${escapedText}</div>
+        <form method="GET" action="/api/wa-labo3d-webhook" style="margin-top:20px">
+          <input type="hidden" name="approve" value="1">
+          <input type="hidden" name="conv" value="${convId}">
+          <input type="hidden" name="action" value="price">
+          <input type="hidden" name="sig" value="${sig}">
+          <label style="display:block;font-weight:600;margin-bottom:6px;font-size:14px">Nouveau prix (R$) :</label>
+          <input type="number" step="1" min="10" name="newPrice" required autofocus
+                 style="width:100%;padding:12px 14px;font-size:18px;border:2px solid #0ea5e9;border-radius:8px;margin-bottom:16px" placeholder="ex: 95">
+          <button type="submit" style="width:100%;padding:14px;background:#0ea5e9;color:white;border:none;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer">
+            Envoyer au client avec ce prix
+          </button>
+        </form>`;
+      return sendHtml(res, 200, `✏️ Modifier le prix — ${clientLabel}`, formHtml, "#0ea5e9");
+    }
+    // newPrice fourni → applique et envoie
+    const priceNum = parseFloat(String(newPrice).replace(",", "."));
+    if (isNaN(priceNum) || priceNum < 10) return sendHtml(res, 400, "❌ Prix invalide", `« ${newPrice} » n'est pas un prix valide (min R$ 10).`, "#ef4444");
+    const finalText = replacePriceInQuote(pending.text, priceNum);
+    let metaMessageId = null;
+    try {
+      metaMessageId = await sendMetaMessage({ phone: conv.phone, text: finalText });
+    } catch (e) {
+      return sendHtml(res, 500, "❌ Erreur envoi client", `Impossible d'envoyer via Meta : ${String(e.message || e).slice(0, 200)}`, "#ef4444");
+    }
+    const newMsg = {
+      id: newId("msg"), direction: "outbound", type: "text", content: finalText,
+      timestamp: now, meta_id: metaMessageId, sender_email: `email-price:${source}`,
+      approval_action: "price_override", delivery_status: "sent",
+    };
+    conv.messages = conv.messages || [];
+    conv.messages.push(newMsg);
+    conv.last_message_at = now;
+    conv.unread = false;
+    const resolvedFields = { resolved_at: now, resolved_by: `email:${source}`, resolved_action: "price_override", final_text: finalText, override_price: priceNum };
+    Object.assign(pending, resolvedFields);
+    if (isWaLocking3dEnabled()) {
+      try { await resolvePendingQuoteAtomic(conv.id, resolvedFields, newMsg, now); }
+      catch (e) { console.error("[price-link] atomic resolve failed:", e.message); }
+    }
+    await saveWaLabo3d(state);
+    return sendHtml(res, 200, "✅ Devis envoyé avec nouveau prix", `Prix modifié à <strong>R$ ${priceNum}</strong> et envoyé à <strong>${clientLabel}</strong> (${conv.phone}) sur WhatsApp.`, "#22c55e");
+  }
+
+  if (action === "take") {
+    conv.ai_auto = false;
+    conv.escalated_at = now;
+    conv.status = "escalado_humano";
+    const resolvedFields = { resolved_at: now, resolved_by: `email:${source}`, resolved_action: "take_over", final_text: null };
+    Object.assign(pending, resolvedFields);
+    if (isWaLocking3dEnabled()) {
+      try { await resolvePendingQuoteAtomic(conv.id, resolvedFields, null, now); }
+      catch (e) { console.error("[approve-link] atomic resolve failed:", e.message); }
+    }
+    await saveWaLabo3d(state);
+    return sendHtml(res, 200, "🖐 Tu as pris la main", `Le bot est <strong>désactivé</strong> sur la conv de <strong>${clientLabel}</strong>. Aucun message n'a été envoyé au client. Réponds-lui directement depuis AMIGO CRM.`, "#f59e0b");
+  }
+
+  // action === "ok"
+  const finalText = pending.text;
+  let metaMessageId = null;
+  try {
+    metaMessageId = await sendMetaMessage({ phone: conv.phone, text: finalText });
+  } catch (e) {
+    return sendHtml(res, 500, "❌ Erreur envoi client", `Impossible d'envoyer via Meta : ${String(e.message || e).slice(0, 200)}`, "#ef4444");
+  }
+  const newMsg = {
+    id: newId("msg"), direction: "outbound", type: "text", content: finalText,
+    timestamp: now, meta_id: metaMessageId, sender_email: `email-approve:${source}`,
+    approval_action: "approved", delivery_status: "sent",
+  };
+  conv.messages = conv.messages || [];
+  conv.messages.push(newMsg);
+  conv.last_message_at = now;
+  conv.unread = false;
+
+  const resolvedFields = { resolved_at: now, resolved_by: `email:${source}`, resolved_action: "approved", final_text: finalText };
+  Object.assign(pending, resolvedFields);
+  if (isWaLocking3dEnabled()) {
+    try { await resolvePendingQuoteAtomic(conv.id, resolvedFields, newMsg, now); }
+    catch (e) { console.error("[approve-link] atomic resolve failed:", e.message); }
+  }
+  await saveWaLabo3d(state);
+  return sendHtml(res, 200, "✅ Devis envoyé", `Le devis a été envoyé à <strong>${clientLabel}</strong> (${conv.phone}) sur WhatsApp.`, "#22c55e");
+}
+
 export default async function handler(req, res) {
-  // GET : Meta verify webhook subscription
+  // GET : Meta verify webhook OU magic-link d'approbation devis pending
   if (req.method === "GET") {
+    if (req.query.approve === "1") {
+      return handleApprovalLink(req, res);
+    }
     const mode = req.query["hub.mode"];
     const token = req.query["hub.verify_token"];
     const challenge = req.query["hub.challenge"];
@@ -775,9 +955,10 @@ export default async function handler(req, res) {
 // pipeline AI response — ne doit jamais bloquer la réponse au webhook.
 async function runNanoPreviewBackground({ convId, phone, image_url, prompt }) {
   const t0 = Date.now();
+  console.log("[nano-bg] START conv=", convId, "phone=", phone, "image_url=", image_url?.slice(0, 80), "prompt_len=", prompt?.length);
   try {
     const out = await nanoRenderPrintedFigurine({ image_url, prompt });
-    console.log("[nano-bg] nano done in", Date.now() - t0, "ms, out size=", out.base64.length);
+    console.log("[nano-bg] nano done in", Date.now() - t0, "ms, out size=", out.base64?.length || 0, "mime=", out.mimeType);
 
     // Upload output raw sur Supabase
     const rawBuf = Buffer.from(out.base64, "base64");
@@ -825,7 +1006,8 @@ async function runNanoPreviewBackground({ convId, phone, image_url, prompt }) {
       console.log("[nano-bg] sent conv=", convId, "count=", conv.meshy_preview_count);
     }
   } catch (e) {
-    console.error("[nano-bg] failed conv=", convId, e.message);
+    const errStack = (e.stack || "").split("\n").slice(0, 8).join("\n");
+    console.error("[nano-bg] failed conv=", convId, "elapsed=", Date.now() - t0, "ms err=", e.message, "stack:", errStack);
     try {
       const state = await loadWaLabo3d();
       const conv = (state.conversations || []).find((c) => c.id === convId);
@@ -834,6 +1016,8 @@ async function runNanoPreviewBackground({ convId, phone, image_url, prompt }) {
           ...(conv.pending_meshy || {}),
           completed_at: new Date().toISOString(),
           error: e.message,
+          error_stack: errStack,
+          elapsed_ms: Date.now() - t0,
           backend: "nano",
         };
         conv.ai_auto = false;
@@ -841,9 +1025,34 @@ async function runNanoPreviewBackground({ convId, phone, image_url, prompt }) {
         conv.escalated_at = new Date().toISOString();
         await saveWaLabo3d(state);
         try {
-          await sendMetaMessage({ phone, text: "Opa, tive um problema técnico gerando a prévia 😅 Vou passar direto pro Anthony que te ajuda pessoalmente em minutos!" });
+          // Debug direct : sur le numéro perso Anthony, envoie l'erreur complète pour diagnostic
+          const isAnthonyDebug = String(phone).replace(/\D/g, "") === "33688852587";
+          const clientText = isAnthonyDebug
+            ? `🔧 DEBUG NANO FAIL\n\nErreur: ${(e.message || "").slice(0, 500)}\n\nStack (first 3 lines):\n${errStack.split("\n").slice(0, 3).join("\n")}\n\nPrompt used (200 chars):\n${(prompt || "").slice(0, 200)}\n\nImage URL: ${image_url?.slice(0, 100)}\n\nElapsed: ${Date.now() - t0}ms`
+            : "Opa, tive um problema técnico gerando a prévia 😅 Vou passar direto pro Anthony que te ajuda pessoalmente em minutos!";
+          await sendMetaMessage({ phone, text: clientText });
         } catch {}
-        await notifyHumanEscalation({ conv, lastMessage: "🎨 Nano prévia FAILED — passer en manuel" });
+        // Email détaillé avec la vraie erreur nano — permet de débug sans dépendre des logs Vercel
+        try {
+          await notifyTeam({
+            subject: `🚨 [LABO 3D] Prévia IA FAILED — ${conv.contact_name || conv.phone}`,
+            html: `<div style="font-family:system-ui,sans-serif;max-width:640px;margin:20px auto">
+              <h2 style="color:#ef4444">🎨 Nano prévia FAILED</h2>
+              <p><strong>Conv:</strong> ${conv.contact_name || conv.phone} (${conv.phone})</p>
+              <p><strong>Elapsed:</strong> ${Date.now() - t0}ms</p>
+              <p><strong>Prompt utilisé:</strong></p>
+              <pre style="background:#f4f4f5;padding:10px;border-radius:6px;white-space:pre-wrap;font-size:12px">${(prompt || "").replace(/</g, "&lt;").slice(0, 800)}</pre>
+              <p><strong>Image URL:</strong> <a href="${image_url}">${image_url}</a></p>
+              <p><strong>Erreur:</strong></p>
+              <pre style="background:#fee;padding:10px;border-radius:6px;color:#991b1b;white-space:pre-wrap;font-size:12px">${(e.message || "").replace(/</g, "&lt;")}</pre>
+              <p><strong>Stack:</strong></p>
+              <pre style="background:#f4f4f5;padding:10px;border-radius:6px;white-space:pre-wrap;font-size:11px">${errStack.replace(/</g, "&lt;")}</pre>
+              <p>Bot désactivé sur cette conv, escalade auto en cours.</p>
+            </div>`,
+          });
+        } catch (mailErr) {
+          console.error("[nano-bg] email fail:", mailErr.message);
+        }
         try {
           await pushToAllSubscribers({
             title: `🚨 PRÉVIA IA FAIL — ${conv.contact_name || conv.phone}`,
