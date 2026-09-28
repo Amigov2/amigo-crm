@@ -3810,8 +3810,17 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     }, 30);
   };
 
+  // Fallback : si last_message_at est absent (conv créée manuellement, migration partielle,
+  // etc.) on retombe sur le timestamp du dernier message puis sur created_at. Sans ça,
+  // new Date(null) renvoie 1970 et la conv finit tout en bas → invisible en pratique.
+  const convSortTs = (c) => {
+    if (c.last_message_at) return new Date(c.last_message_at).getTime();
+    const msgs = c.messages || [];
+    if (msgs.length) return new Date(msgs[msgs.length - 1].timestamp || 0).getTime();
+    return c.created_at ? new Date(c.created_at).getTime() : 0;
+  };
   const conversations = (waLabo3d?.conversations || []).slice().sort(
-    (a,b) => new Date(b.last_message_at||0) - new Date(a.last_message_at||0)
+    (a,b) => convSortTs(b) - convSortTs(a)
   );
   const selected = conversations.find(c => c.id === selectedId) || null;
 
@@ -4029,24 +4038,30 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
       const jwt = session?.access_token;
       if (!jwt) throw new Error("Session expirée, reconnecte-toi");
 
-      let imageUrl = null;
+      let uploadedUrl = null;
+      const isPdf = hasImage && attachedFile.type === "application/pdf";
       if (hasImage) {
         setUploading(true);
-        const ext = (attachedFile.name.split(".").pop() || "jpg").toLowerCase();
+        const ext = (attachedFile.name.split(".").pop() || (isPdf ? "pdf" : "jpg")).toLowerCase();
         const path = `wa-labo3d/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
         const { error: upErr } = await supabase.storage.from("meshy-inputs").upload(path, attachedFile, {
-          contentType: attachedFile.type || "image/jpeg",
+          contentType: attachedFile.type || (isPdf ? "application/pdf" : "image/jpeg"),
           upsert: false,
         });
         if (upErr) throw new Error("Upload échoué: " + upErr.message);
         const { data: pub } = supabase.storage.from("meshy-inputs").getPublicUrl(path);
-        imageUrl = pub.publicUrl;
+        uploadedUrl = pub.publicUrl;
         setUploading(false);
       }
 
       const body = { conversation_id: selected.id };
       if (hasImage) {
-        body.image_url = imageUrl;
+        if (isPdf) {
+          body.document_url = uploadedUrl;
+          body.document_filename = attachedFile.name;
+        } else {
+          body.image_url = uploadedUrl;
+        }
         if (hasText) body.caption = text.trim();
       } else {
         body.text = text.trim();
@@ -4200,17 +4215,21 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const onFileSelected = (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (f.size > 8 * 1024 * 1024) {
-      setError("Photo trop grosse (max 8 MB)");
+    const isImage = f.type.startsWith("image/");
+    const isPdf = f.type === "application/pdf";
+    if (!isImage && !isPdf) {
+      setError("Photo ou PDF uniquement");
       return;
     }
-    if (!f.type.startsWith("image/")) {
-      setError("Uniquement des images");
+    // Meta accepte jusqu'à 100 MB pour un PDF, 5 MB pour image ; on garde 16 MB conservateur.
+    const maxMb = isPdf ? 16 : 8;
+    if (f.size > maxMb * 1024 * 1024) {
+      setError(`${isPdf ? "PDF" : "Photo"} trop gros (max ${maxMb} MB)`);
       return;
     }
     setAttachedFile(f);
     if (attachedPreview) URL.revokeObjectURL(attachedPreview);
-    setAttachedPreview(URL.createObjectURL(f));
+    setAttachedPreview(isImage ? URL.createObjectURL(f) : null);
     setError("");
   };
 
@@ -4861,7 +4880,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,application/pdf"
                 style={{display:"none"}}
                 onChange={onFileSelected}
               />
