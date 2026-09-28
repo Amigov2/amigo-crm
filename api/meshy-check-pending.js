@@ -268,7 +268,17 @@ export default async function handler(req, res) {
   for (const conv of state.conversations || []) {
     if (conv.status === "perdido" || conv.status === "ganho") continue;
     if (conv.ai_auto === false) continue; // escalade humaine, humain gère
-    if (conv.pending_quote && !conv.pending_quote.resolved_at) continue; // devis en attente d'approbation
+    // Si un pending_quote est en attente d'approbation depuis < 48h : on ne relance pas
+    // le client (l'admin doit encore valider). Passé 48h, l'admin a probablement oublié
+    // et le client attend dans le vide → on autorise la relance générique (le prochain
+    // message client fera re-générer un devis frais et repartira le workflow).
+    if (conv.pending_quote && !conv.pending_quote.resolved_at) {
+      const pqAt = conv.pending_quote.ai_generated_at
+        ? new Date(conv.pending_quote.ai_generated_at).getTime()
+        : 0;
+      const pqAgeMs = pqAt ? nowMs - pqAt : 0;
+      if (pqAgeMs < 48 * MS_H) continue;
+    }
     const msgs = conv.messages || [];
     if (!msgs.length) continue;
     const lastMsg = msgs[msgs.length - 1];
