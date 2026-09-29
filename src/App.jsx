@@ -4036,13 +4036,24 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
       if (!jwt) throw new Error("Session expirée, reconnecte-toi");
 
       let uploadedUrl = null;
-      const isPdf = hasImage && attachedFile.type === "application/pdf";
+      // Classification du fichier attaché. GLB tombe dans "document" (type binaire non-média WhatsApp).
+      const rawType = (attachedFile?.type || "").toLowerCase();
+      const rawName = (attachedFile?.name || "").toLowerCase();
+      const isImage = hasImage && rawType.startsWith("image/");
+      const isVideo = hasImage && rawType.startsWith("video/");
+      const isPdf = hasImage && rawType === "application/pdf";
+      const isGlb = hasImage && (rawType === "model/gltf-binary" || rawName.endsWith(".glb"));
+      const isDoc = hasImage && (isPdf || isGlb);
       if (hasImage) {
         setUploading(true);
-        const ext = (attachedFile.name.split(".").pop() || (isPdf ? "pdf" : "jpg")).toLowerCase();
+        const ext = (rawName.split(".").pop() || (isPdf ? "pdf" : isVideo ? "mp4" : isGlb ? "glb" : "jpg")).toLowerCase();
         const path = `wa-labo3d/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+        const fallbackMime = isPdf ? "application/pdf"
+          : isVideo ? "video/mp4"
+          : isGlb ? "model/gltf-binary"
+          : "image/jpeg";
         const { error: upErr } = await supabase.storage.from("meshy-inputs").upload(path, attachedFile, {
-          contentType: attachedFile.type || (isPdf ? "application/pdf" : "image/jpeg"),
+          contentType: rawType || fallbackMime,
           upsert: false,
         });
         if (upErr) throw new Error("Upload échoué: " + upErr.message);
@@ -4053,9 +4064,12 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
 
       const body = { conversation_id: selected.id };
       if (hasImage) {
-        if (isPdf) {
+        if (isDoc) {
           body.document_url = uploadedUrl;
           body.document_filename = attachedFile.name;
+          body.document_mime = rawType || (isGlb ? "model/gltf-binary" : "application/pdf");
+        } else if (isVideo) {
+          body.video_url = uploadedUrl;
         } else {
           body.image_url = uploadedUrl;
         }
@@ -4209,25 +4223,35 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
 
   const pickFile = () => fileInputRef.current?.click();
 
-  const onFileSelected = (e) => {
-    const f = e.target.files?.[0];
+  // Attache un fichier après validation type + taille. Partagé entre input file et drop.
+  const attachFile = (f) => {
     if (!f) return;
-    const isImage = f.type.startsWith("image/");
-    const isPdf = f.type === "application/pdf";
-    if (!isImage && !isPdf) {
-      setError("Photo ou PDF uniquement");
+    const t = (f.type || "").toLowerCase();
+    const n = (f.name || "").toLowerCase();
+    const isImage = t.startsWith("image/");
+    const isVideo = t.startsWith("video/");
+    const isPdf = t === "application/pdf";
+    const isGlb = t === "model/gltf-binary" || n.endsWith(".glb");
+    if (!isImage && !isVideo && !isPdf && !isGlb) {
+      setError("Photo, vidéo (MP4), PDF ou modèle 3D (.glb) uniquement");
       return;
     }
-    // Meta accepte jusqu'à 100 MB pour un PDF, 5 MB pour image ; on garde 16 MB conservateur.
-    const maxMb = isPdf ? 16 : 8;
+    // Limites Meta WhatsApp : vidéo 16MB via URL, image ~5MB, doc jusqu'à 100MB. Marge conservatrice.
+    const maxMb = isVideo ? 16 : (isPdf || isGlb ? 16 : 8);
     if (f.size > maxMb * 1024 * 1024) {
-      setError(`${isPdf ? "PDF" : "Photo"} trop gros (max ${maxMb} MB)`);
+      const label = isVideo ? "Vidéo" : isPdf ? "PDF" : isGlb ? "GLB" : "Photo";
+      setError(`${label} trop gros (max ${maxMb} MB)`);
       return;
     }
     setAttachedFile(f);
     if (attachedPreview) URL.revokeObjectURL(attachedPreview);
-    setAttachedPreview(isImage ? URL.createObjectURL(f) : null);
+    setAttachedPreview(isImage || isVideo ? URL.createObjectURL(f) : null);
     setError("");
+  };
+
+  const onFileSelected = (e) => {
+    const f = e.target.files?.[0];
+    attachFile(f);
   };
 
   const clearAttachment = () => {
@@ -4235,6 +4259,37 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     setAttachedFile(null);
     setAttachedPreview(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  // ── Drag & drop sur la colonne chat ─────────────────────────────────────
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepthRef = useRef(0);
+  const onChatDragEnter = (e) => {
+    if (!selected) return;
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setDragOver(true);
+  };
+  const onChatDragOver = (e) => {
+    if (!selected) return;
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+  const onChatDragLeave = (e) => {
+    if (!selected) return;
+    e.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDragOver(false);
+  };
+  const onChatDrop = (e) => {
+    if (!selected) return;
+    e.preventDefault();
+    dragDepthRef.current = 0;
+    setDragOver(false);
+    const f = e.dataTransfer?.files?.[0];
+    if (f) attachFile(f);
   };
 
   const patchConv = async (convId, patch) => {
@@ -4395,7 +4450,24 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
       </div>
 
       {/* ═══ COLONNE CENTRALE : CHAT ═══ */}
-      <div style={{flex:1,display:showChat?"flex":"none",flexDirection:"column",minWidth:0}}>
+      <div
+        style={{flex:1,display:showChat?"flex":"none",flexDirection:"column",minWidth:0,position:"relative"}}
+        onDragEnter={onChatDragEnter}
+        onDragOver={onChatDragOver}
+        onDragLeave={onChatDragLeave}
+        onDrop={onChatDrop}
+      >
+        {dragOver && selected && (
+          <div style={{
+            position:"absolute",inset:0,zIndex:10,pointerEvents:"none",
+            background:"rgba(37, 99, 235, 0.18)",border:`3px dashed ${accent}`,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:18,fontWeight:600,color:"#dbeafe",
+            backdropFilter:"blur(2px)"
+          }}>
+            📎 Déposer le fichier pour l'attacher
+          </div>
+        )}
         {!selected ? (
           <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"#4b5563",fontSize:13}}>
             Sélectionne une conversation à gauche
@@ -4865,9 +4937,17 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                 </div>
               )}
 
-              {attachedPreview && (
+              {attachedFile && (
                 <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"#0b0d16",border:"1px solid #1a2030",borderRadius:6,marginBottom:6}}>
-                  <img src={attachedPreview} alt="preview" style={{width:44,height:44,objectFit:"cover",borderRadius:4}} />
+                  {attachedPreview && attachedFile.type?.startsWith("video/") ? (
+                    <video src={attachedPreview} muted playsInline style={{width:44,height:44,objectFit:"cover",borderRadius:4}} />
+                  ) : attachedPreview ? (
+                    <img src={attachedPreview} alt="preview" style={{width:44,height:44,objectFit:"cover",borderRadius:4}} />
+                  ) : (
+                    <div style={{width:44,height:44,borderRadius:4,background:"#1a2030",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>
+                      {attachedFile.type === "application/pdf" ? "📄" : (attachedFile.name?.toLowerCase().endsWith(".glb") ? "🧊" : "📎")}
+                    </div>
+                  )}
                   <div style={{flex:1,fontSize:12,color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                     📎 {attachedFile?.name} · {Math.round((attachedFile?.size||0)/1024)} KB
                   </div>
@@ -4877,7 +4957,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,application/pdf"
+                accept="image/*,application/pdf,video/mp4,video/quicktime,.glb,model/gltf-binary"
                 style={{display:"none"}}
                 onChange={onFileSelected}
               />

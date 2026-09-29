@@ -1,5 +1,5 @@
 import { getSupabase, loadWaLabo3d, saveWaLabo3d, isWaLocking3dEnabled, resolvePendingQuoteAtomic } from "./_lib/supabase.js";
-import { sendMetaImageByUrl, sendMetaTemplate, sendMetaImageByMediaId, uploadMetaMedia, sendMetaDocumentByUrl } from "./_lib/meta-send.js";
+import { sendMetaImageByUrl, sendMetaTemplate, sendMetaImageByMediaId, uploadMetaMedia, sendMetaDocumentByUrl, sendMetaVideoByUrl } from "./_lib/meta-send.js";
 import { replacePriceInQuote } from "./_lib/quote-approval.js";
 import { pixPayload, pixQrCodeUrl } from "./_lib/pix.js";
 
@@ -87,13 +87,14 @@ export default async function handler(req, res) {
     return handlePixSend(req, res, userEmail, body);
   }
 
-  let { conversation_id, phone, text, template_name, variables, image_url, document_url, document_filename, caption, meta_template } = body;
+  let { conversation_id, phone, text, template_name, variables, image_url, document_url, document_filename, document_mime, video_url, caption, meta_template } = body;
 
   const hasImage = !!image_url;
   const hasDocument = !!document_url;
+  const hasVideo = !!video_url;
   const hasMetaTemplate = !!meta_template?.name;
-  if (!text && !template_name && !hasImage && !hasDocument && !hasMetaTemplate) {
-    return res.status(400).json({ error: "text, template_name, meta_template, image_url or document_url required" });
+  if (!text && !template_name && !hasImage && !hasDocument && !hasVideo && !hasMetaTemplate) {
+    return res.status(400).json({ error: "text, template_name, meta_template, image_url, video_url or document_url required" });
   }
   if (!conversation_id && !phone) {
     return res.status(400).json({ error: "conversation_id or phone required" });
@@ -162,6 +163,12 @@ export default async function handler(req, res) {
         filename: document_filename || "document.pdf",
         caption: caption || finalText || "",
       });
+    } else if (hasVideo) {
+      metaMessageId = await sendMetaVideoByUrl({
+        phone: conv.phone,
+        videoUrl: video_url,
+        caption: caption || finalText || "",
+      });
     } else {
       metaMessageId = await sendMetaMessage({ phone: conv.phone, text: finalText });
     }
@@ -171,17 +178,19 @@ export default async function handler(req, res) {
 
   // Enregistre côté AMIGO
   const now = new Date().toISOString();
-  const msgType = hasMetaTemplate ? "template" : (hasImage ? "image" : (hasDocument ? "document" : "text"));
+  const msgType = hasMetaTemplate ? "template" : (hasImage ? "image" : (hasVideo ? "video" : (hasDocument ? "document" : "text")));
   const msg = {
     id: newId("msg"),
     direction: "outbound",
     type: msgType,
     content: hasMetaTemplate
       ? (meta_template.preview_text || `[template ${meta_template.name}]`)
-      : (hasImage ? (caption || finalText || "[image]") : (hasDocument ? (caption || finalText || `📎 ${document_filename || "document.pdf"}`) : finalText)),
-    media_url: hasImage ? image_url : (hasDocument ? document_url : undefined),
-    doc_filename: hasDocument ? (document_filename || "document.pdf") : undefined,
-    mime_type: hasDocument ? "application/pdf" : undefined,
+      : (hasImage ? (caption || finalText || "[image]")
+        : (hasVideo ? (caption || finalText || "[vidéo]")
+        : (hasDocument ? (caption || finalText || `📎 ${document_filename || "document"}`) : finalText))),
+    media_url: hasImage ? image_url : (hasVideo ? video_url : (hasDocument ? document_url : undefined)),
+    doc_filename: hasDocument ? (document_filename || "document") : undefined,
+    mime_type: hasDocument ? (document_mime || "application/pdf") : (hasVideo ? "video/mp4" : undefined),
     timestamp: now,
     meta_id: metaMessageId,
     sender_email: userEmail,
