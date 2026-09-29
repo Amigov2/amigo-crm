@@ -1956,9 +1956,6 @@ const ALLOWED_EMAILS = [
   "anthony.donzel@gmail.com",
   "harold.grenouilleau@gmail.com",
   "jade.investissement@gmail.com",
-  "3abresil@gmail.com",
-  "labo3drio@gmail.com",
-  "formationcarnaval@gmail.com",
 ];
 
 const emailToUser = email => {
