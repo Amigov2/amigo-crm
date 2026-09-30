@@ -4018,11 +4018,28 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
       setPixMode(false);
       setPixAmount("");
       setJustSentPixConvIds(prev => new Set(prev).add(selected.id));
+      await forceRefreshWa();
     } catch (err) {
       setPixError(err.message);
     } finally {
       setPixBusy(false);
     }
+  };
+
+  // Force refresh du state wa_labo3d après une action côté serveur (send, template,
+  // PIX, approbation...). Ne pas dépendre du Realtime Supabase qui peut rester
+  // subscribed sans livrer les changes, ni du polling 15s qui laisse une fenêtre
+  // pendant laquelle Anthony/Harold ne voient pas ce qu'ils viennent d'envoyer.
+  const forceRefreshWa = async () => {
+    try {
+      const r = await storage.get("wa_labo3d");
+      if (!r) return;
+      const parsed = typeof r.value === "string" ? JSON.parse(r.value) : r.value;
+      onSaveLocal({
+        conversations: parsed?.conversations || [],
+        templates: parsed?.templates || []
+      });
+    } catch (_) {}
   };
 
   const send = async () => {
@@ -4087,6 +4104,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
       if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
       setText("");
       clearAttachment();
+      await forceRefreshWa();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -4126,6 +4144,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      await forceRefreshWa();
     } catch (err) {
       setTemplateError(err.message);
     } finally {
