@@ -5819,8 +5819,8 @@ export default function AmigoCRM() {
         console.log("Realtime:", status);
       });
 
-    // Poll de secours (15s) — sera remplacé par Realtime quand activé côté Supabase
-    pollRef.current = setInterval(load, 15000);
+    // Poll de secours (5 min) — filet de sécurité si Realtime se déconnecte, pas la source primaire
+    pollRef.current = setInterval(load, 300000);
 
     return () => {
       supabase.removeChannel(channel);
@@ -5850,7 +5850,7 @@ export default function AmigoCRM() {
         () => loadWa()
       )
       .subscribe();
-    const waPoll = setInterval(loadWa, 15000);
+    const waPoll = setInterval(loadWa, 300000);
     return () => {
       supabase.removeChannel(waChannel);
       clearInterval(waPoll);
