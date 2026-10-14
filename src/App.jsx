@@ -14,6 +14,32 @@ const supabase = createClient(
   }
 );
 
+// Fetch helper qui injecte le JWT fresh depuis Supabase et déconnecte auto en cas de 401.
+// Évite les faux "ça marche pas" quand le token expire silencieusement.
+async function authFetch(url, options = {}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    alert("Session expirée. Reconnecte-toi.");
+    await supabase.auth.signOut();
+    window.location.reload();
+    throw new Error("no session");
+  }
+  const resp = await fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      "Authorization": `Bearer ${session.access_token}`,
+    },
+  });
+  if (resp.status === 401) {
+    alert("Session expirée. Reconnecte-toi.");
+    await supabase.auth.signOut();
+    window.location.reload();
+    throw new Error("session expired (401)");
+  }
+  return resp;
+}
+
 const storage = {
   async get(key) {
     const { data, error } = await supabase.from("amigo_data").select("value").eq("key", key).single();
@@ -3967,12 +3993,9 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     setApprovalBusy(true);
     setApprovalError("");
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const jwt = session?.access_token;
-      if (!jwt) throw new Error("Session expirée, reconnecte-toi");
-      const resp = await fetch("/api/wa-labo3d-send", {
+      const resp = await authFetch("/api/wa-labo3d-send", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${jwt}`, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ approval_action: action, conv_id: selected.id, value }),
       });
       const data = await resp.json();
@@ -4005,12 +4028,9 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     if (!confirm(`Envoyer PIX R$ ${amount.toFixed(2)} à ${selected.contact_name || selected.phone} ?\n\n(2 messages : PIX Copia-e-Cola + QR code)`)) return;
     setPixBusy(true); setPixError("");
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const jwt = session?.access_token;
-      if (!jwt) throw new Error("Session expirée, reconnecte-toi");
-      const resp = await fetch("/api/wa-labo3d-send", {
+      const resp = await authFetch("/api/wa-labo3d-send", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${jwt}`, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pix_amount: amount, conversation_id: selected.id }),
       });
       const data = await resp.json();
@@ -4048,10 +4068,6 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     if ((!hasText && !hasImage) || !selected || sending) return;
     setSending(true); setError("");
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const jwt = session?.access_token;
-      if (!jwt) throw new Error("Session expirée, reconnecte-toi");
-
       let uploadedUrl = null;
       // Classification du fichier attaché. GLB tombe dans "document" (type binaire non-média WhatsApp).
       const rawType = (attachedFile?.type || "").toLowerCase();
@@ -4095,9 +4111,9 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
         body.text = text.trim();
       }
 
-      const resp = await fetch("/api/wa-labo3d-send", {
+      const resp = await authFetch("/api/wa-labo3d-send", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${jwt}`, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const data = await resp.json();
@@ -4119,9 +4135,6 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     if (!selected || sendingTemplate) return;
     setSendingTemplate(true); setTemplateError("");
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const jwt = session?.access_token;
-      if (!jwt) throw new Error("Session expirée, reconnecte-toi");
 
       // Prénom du contact : premier mot de contact_name ou wa_display_name, fallback "amigo"
       const displayName = selected.contact_name || selected.wa_display_name || "";
@@ -4129,9 +4142,9 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
 
       const previewText = `Olá ${firstName}! 👋 Aqui é o pessoal do LABO 3D. Você ainda tem interesse na sua peça 3D personalizada? Se sim, é só me responder que a gente continua daqui!`;
 
-      const resp = await fetch("/api/wa-labo3d-send", {
+      const resp = await authFetch("/api/wa-labo3d-send", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${jwt}`, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversation_id: selected.id,
           meta_template: {
@@ -4199,12 +4212,9 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     setBroadcasting(true);
     setBroadcastResult(null);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const jwt = session?.access_token;
-      if (!jwt) throw new Error("Session expirée");
-      const resp = await fetch("/api/wa-labo3d-broadcast", {
+      const resp = await authFetch("/api/wa-labo3d-broadcast", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${jwt}`, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conv_ids: ids }),
       });
       const data = await resp.json();
@@ -4223,12 +4233,8 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     setRefreshingMedia(true);
     setRefreshMediaResult(null);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const jwt = session?.access_token;
-      if (!jwt) throw new Error("Session expirée");
-      const resp = await fetch("/api/wa-labo3d-refresh-media", {
+      const resp = await authFetch("/api/wa-labo3d-refresh-media", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${jwt}` },
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
@@ -4522,9 +4528,9 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                     if (!confirm("Marquer le sinal comme reçu et envoyer confirmation au client ?")) return;
                     const msg = "Sinal recebido ✅ Começando o modelo 3D agora! Te aviso quando o preview estiver pronto. 🚀";
                     try {
-                      await fetch("/api/wa-labo3d-send", {
+                      await authFetch("/api/wa-labo3d-send", {
                         method: "POST",
-                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
+                        headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ conversation_id: selected.id, text: msg }),
                       });
                       await patchConv(selected.id, { status: "em_producao", sinal_received_at: new Date().toISOString() });
@@ -4548,9 +4554,9 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                       const msg = `${greeting} 👋\n\nAqui é o Anthony da LABO 3D. Espero que você tenha curtido sua peça! 🎨\n\nSe puder deixar uma avaliação rápida no Google (30 segundos), ajuda muito o atelier a crescer:\n\n👉 ${LABO3D_GOOGLE_REVIEW_URL}\n\nObrigado! 🙏`;
                       if (!confirm(`Envoyer la demande d'avis Google à ${firstName || selected.phone} ?\n\n(À faire uniquement quand la peça a bien été livrée / retirée)`)) return;
                       try {
-                        const resp = await fetch("/api/wa-labo3d-send", {
+                        const resp = await authFetch("/api/wa-labo3d-send", {
                           method: "POST",
-                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
+                          headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ conversation_id: selected.id, text: msg }),
                         });
                         if (!resp.ok) {
