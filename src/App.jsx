@@ -5163,6 +5163,290 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// NFSeLabo3D — vue émission NFS-e via Portal Nacional (3A IMPORT)
+// Génère passo-a-passo + bookmarklet autofill. 0 R$/mois, 100% gratuit.
+// Setup validé 2026-10-20, voir CLAUDE.md et docs/nfse/
+// ═══════════════════════════════════════════════════════════════════
+const NFSE_FIXED = {
+  cnpjEmitente: "21.496.846/0001-34",
+  razaoSocial: "3A IMPORT LTDA",
+  imRio: "1.625.219-0",
+  endereco: "Rua Riachuelo 44, andar 3, Centro, Rio de Janeiro/RJ, CEP 20230-014",
+  simples: "Optante - Microempresa ou Empresa de Pequeno Porte (ME/EPP)",
+  regimeApuracao: "Regime de apuração dos tributos federais e municipal pelo Simples Nacional",
+  municipio: "Rio de Janeiro - RJ",
+  codTributacaoNacional: "13.05.01",
+  codComplementarMun: "13.05.01.007",
+  itemNBS: "121012200",
+  codIndicadorOp: "030101",
+  pisCofinsSit: "49",
+  pisCofinsRet: "0",
+  ibsCbsSit: "000",
+  ibsCbsClass: "000001",
+  aliquotaSimples: "6,00",
+};
+
+function NFSeLabo3D({ data, user, accent, save }) {
+  const [cpfCnpj, setCpfCnpj] = useState("");
+  const [nome, setNome] = useState("");
+  const [logradouro, setLogradouro] = useState("");
+  const [numero, setNumero] = useState("");
+  const [complemento, setComplemento] = useState("");
+  const [bairro, setBairro] = useState("");
+  const [cep, setCep] = useState("");
+  const [municipio, setMunicipio] = useState("");
+  const [uf, setUf] = useState("");
+  const [valor, setValor] = useState("");
+  const [descricao, setDescricao] = useState("");
+  const [feedback, setFeedback] = useState("");
+  const [showHistorico, setShowHistorico] = useState(false);
+
+  const history = data?.nfse_labo3d || [];
+  const canSubmit = cpfCnpj && nome && valor && descricao;
+
+  const addToHistory = async () => {
+    const entry = {
+      id: uid(), ts: Date.now(), by: user,
+      cpfCnpj, nome,
+      endereco: { logradouro, numero, complemento, bairro, cep, municipio, uf },
+      valor, descricao,
+    };
+    const next = [entry, ...history].slice(0, 100);
+    await save("nfse_labo3d", next);
+  };
+
+  const flash = (msg) => { setFeedback(msg); setTimeout(() => setFeedback(""), 4000); };
+
+  const copyText = async (text, msg) => {
+    try { await navigator.clipboard.writeText(text); flash(msg); }
+    catch (e) { alert("Erreur copie : " + e.message); }
+  };
+
+  const genPassoAPasso = () => {
+    const F = NFSE_FIXED;
+    return `🧾 NFS-E LABO 3D — Portal Nacional
+URL: https://www.nfse.gov.br/EmissorNacional/Login
+Login: Certif Digital → 3A IMPORT
+
+══ ÉTAPE 1 — PESSOAS ══
+IBS/CBS: Não
+Data Competência: ${new Date().toLocaleDateString("pt-BR")}
+Emitente: Prestador/Fornecedor ✓
+Município: ${F.municipio}
+CNPJ: ${F.cnpjEmitente}
+Opção Simples: ${F.simples}
+Regime Apuração: ${F.regimeApuracao}
+Compra Governamental: Não
+
+TOMADOR:
+  Localização: Brasil
+  CPF/CNPJ: ${cpfCnpj}
+  Nome: ${nome}
+  ☑ Informar endereço:
+    Logradouro: ${logradouro}
+    Número: ${numero}
+    Complemento: ${complemento}
+    Bairro: ${bairro}
+    CEP: ${cep}
+    Município: ${municipio}
+    UF: ${uf}
+
+Destinatário IBS/CBS = adquirente: Sim
+Intermediário: Não informado
+
+══ ÉTAPE 2 — SERVIÇO ══
+Local Prestação: Brasil / Rio de Janeiro - RJ
+Cód. Tributação Nacional: ${F.codTributacaoNacional}
+Cód. Complementar Municipal: ${F.codComplementarMun} (Impressão)
+Imunidade/Exportação: Não
+Município ISSQN: Rio de Janeiro/RJ (auto)
+Item NBS: ${F.itemNBS} (Serviços relacionados à impressão)
+Cód. Indicador Operação: ${F.codIndicadorOp}
+Descrição: ${descricao}
+
+══ ÉTAPE 3 — VALORES ══
+Valor: R$ ${valor}
+Trib. ISSQN: Operação Tributável
+Regime Especial: Nenhum
+Exigibilidade suspensa: Não
+Retenção ISSQN: Não
+Benefício municipal: Não
+PIS/COFINS Situação: ${F.pisCofinsSit} - Outras Operações de Saída
+PIS/COFINS Tipo Retenção: ${F.pisCofinsRet} - Não Retidos
+IBS/CBS Cód. Situação: ${F.ibsCbsSit} - Tributação integral
+IBS/CBS Cód. Classificação: ${F.ibsCbsClass} - Tributadas integralmente
+Valor Aproximado Tributos: ☑ Informar alíquota Simples Nacional = ${F.aliquotaSimples}%
+
+══ ÉTAPE 4 — EMITIR ══
+→ Vérifier récap → Emitir → Baixar DANFSe (PDF) + XML
+`;
+  };
+
+  const genBookmarklet = () => {
+    const F = NFSE_FIXED;
+    const payload = { cpfCnpj, nome, logradouro, numero, complemento, bairro, cep, municipio, uf, valor, descricao, F };
+    const code = `(function(){
+      var D=${JSON.stringify(payload)};
+      var count=0,fails=[];
+      function setVal(el,v){
+        if(!el||v==null)return false;
+        var proto=Object.getPrototypeOf(el);
+        var setter=Object.getOwnPropertyDescriptor(proto,"value");
+        if(setter&&setter.set){setter.set.call(el,v);}else{el.value=v;}
+        el.dispatchEvent(new Event("input",{bubbles:true}));
+        el.dispatchEvent(new Event("change",{bubbles:true}));
+        el.dispatchEvent(new Event("blur",{bubbles:true}));
+        count++;return true;
+      }
+      function byLabel(labelText){
+        var labels=Array.from(document.querySelectorAll("label"));
+        var l=labels.find(function(x){return x.textContent&&x.textContent.trim().toLowerCase().indexOf(labelText.toLowerCase())!==-1;});
+        if(!l)return null;
+        var p=l.parentElement;
+        for(var i=0;i<4&&p;i++){
+          var f=p.querySelector("input,select,textarea");
+          if(f)return f;
+          p=p.parentElement;
+        }
+        return null;
+      }
+      function fill(label,val){
+        var el=byLabel(label);
+        if(el){setVal(el,val);}else{fails.push(label);}
+      }
+      // VARIABLES tomador
+      fill("CPF/CNPJ",D.cpfCnpj);
+      fill("Nome/Razão Social",D.nome);
+      fill("Logradouro",D.logradouro);
+      fill("Número",D.numero);
+      fill("Complemento",D.complemento);
+      fill("Bairro",D.bairro);
+      fill("CEP",D.cep);
+      // VARIABLES serviço + valor
+      fill("Descrição do Serviço",D.descricao);
+      fill("Valor da operação",D.valor);
+      // Alíquota Simples
+      fill("Alíquota no Simples",D.F.aliquotaSimples);
+      var msg="✅ Labo 3D: "+count+" campos preenchidos.";
+      if(fails.length)msg+="\\n⚠️ Não encontrados: "+fails.join(", ")+"\\n(preencha estes manualmente + os dropdowns/selects)";
+      alert(msg);
+    })();`.replace(/\\s{2,}/g, " ").trim();
+    return "javascript:" + encodeURI(code);
+  };
+
+  const inputStyle = {width:"100%",padding:"8px 9px",borderRadius:7,fontSize:12,outline:"none",background:"#080a0f",border:"1px solid #1a2035",color:"#e2e8f0",fontFamily:"inherit"};
+  const btnStyle = (bg) => ({padding:"10px 16px",background:bg,color:"white",border:"none",borderRadius:7,fontSize:12,fontWeight:600,cursor:canSubmit?"pointer":"not-allowed",opacity:canSubmit?1:0.4});
+
+  const prefillFromHistory = (h) => {
+    setCpfCnpj(h.cpfCnpj||""); setNome(h.nome||"");
+    setLogradouro(h.endereco?.logradouro||""); setNumero(h.endereco?.numero||"");
+    setComplemento(h.endereco?.complemento||""); setBairro(h.endereco?.bairro||"");
+    setCep(h.endereco?.cep||""); setMunicipio(h.endereco?.municipio||"");
+    setUf(h.endereco?.uf||"");
+    setValor(h.valor||""); setDescricao(h.descricao||"");
+    setShowHistorico(false);
+  };
+
+  return (
+    <div style={{maxWidth:900,margin:"0 auto",padding:"4px 8px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div>
+          <p style={{fontSize:16,fontWeight:700,color:"#f1f5f9"}}>🧾 NFS-e Labo 3D</p>
+          <p style={{fontSize:11,color:"#64748b",marginTop:2}}>3A IMPORT LTDA · CNPJ 21.496.846/0001-34 · Portal Nacional</p>
+        </div>
+        <a href="https://www.nfse.gov.br/EmissorNacional/Login" target="_blank" rel="noopener"
+           style={{padding:"8px 14px",background:`${accent}18`,border:`1px solid ${accent}40`,borderRadius:7,color:accent,fontSize:12,fontWeight:600,textDecoration:"none"}}>
+          Ouvrir Portal Nacional →
+        </a>
+      </div>
+
+      <div style={{background:"#0d1020",border:"1px solid #1a2035",borderRadius:10,padding:16,marginBottom:14}}>
+        <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:12}}>Dados variables da NFS-e</p>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10,marginBottom:10}}>
+          <div><p style={{fontSize:10,color:"#4b5563",marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>CPF/CNPJ</p>
+            <input value={cpfCnpj} onChange={e=>setCpfCnpj(e.target.value)} placeholder="368.763.608-90" style={inputStyle}/></div>
+          <div><p style={{fontSize:10,color:"#4b5563",marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Nome / Razão Social</p>
+            <input value={nome} onChange={e=>setNome(e.target.value)} placeholder="Douglas de Freitas Rodrigues" style={inputStyle}/></div>
+        </div>
+
+        <p style={{fontSize:10,color:"#64748b",marginBottom:6,marginTop:4}}>Endereço (obrigatório para PF) :</p>
+        <div style={{display:"grid",gridTemplateColumns:"3fr 1fr 1fr",gap:8,marginBottom:8}}>
+          <input value={logradouro} onChange={e=>setLogradouro(e.target.value)} placeholder="Logradouro (Rua, Av…)" style={inputStyle}/>
+          <input value={numero} onChange={e=>setNumero(e.target.value)} placeholder="Nº" style={inputStyle}/>
+          <input value={complemento} onChange={e=>setComplemento(e.target.value)} placeholder="Compl." style={inputStyle}/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 2fr 60px",gap:8,marginBottom:10}}>
+          <input value={bairro} onChange={e=>setBairro(e.target.value)} placeholder="Bairro" style={inputStyle}/>
+          <input value={cep} onChange={e=>setCep(e.target.value)} placeholder="CEP" style={inputStyle}/>
+          <input value={municipio} onChange={e=>setMunicipio(e.target.value)} placeholder="Município" style={inputStyle}/>
+          <input value={uf} onChange={e=>setUf(e.target.value.toUpperCase())} placeholder="UF" maxLength={2} style={inputStyle}/>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 3fr",gap:10,marginBottom:10}}>
+          <div><p style={{fontSize:10,color:"#4b5563",marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Valor (R$)</p>
+            <input value={valor} onChange={e=>setValor(e.target.value)} placeholder="350,00" style={inputStyle}/></div>
+          <div><p style={{fontSize:10,color:"#4b5563",marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Descrição do serviço</p>
+            <textarea value={descricao} onChange={e=>setDescricao(e.target.value)} placeholder="Impressão 3D de 1 peça personalizada com acabamento em pintura…" style={{...inputStyle,minHeight:50,resize:"vertical",fontFamily:"inherit"}}/></div>
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+        <button disabled={!canSubmit} onClick={async()=>{await addToHistory();copyText(genPassoAPasso(),"📋 Passo-a-passo copié ! Ouvre le Portal Nacional et suis les étapes");}}
+                style={btnStyle("#3b82f6")}>
+          📋 Copier Passo-a-passo (texte)
+        </button>
+        <button disabled={!canSubmit} onClick={async()=>{await addToHistory();copyText(genBookmarklet(),"🔖 Bookmarklet copié ! Va sur le Portal Nacional, colle dans la barre d'adresse (ou enregistre comme favori) et clique à l'étape voulue");}}
+                style={btnStyle("#22c55e")}>
+          🚀 Copier Bookmarklet (auto-fill)
+        </button>
+        <button onClick={()=>setShowHistorico(s=>!s)}
+                style={{padding:"10px 16px",background:"transparent",color:"#94a3b8",border:"1px solid #1a2035",borderRadius:7,fontSize:12,fontWeight:600,cursor:"pointer"}}>
+          🗂 Histórico ({history.length})
+        </button>
+      </div>
+
+      {feedback && (
+        <div style={{padding:"10px 14px",background:"#22c55e18",border:"1px solid #22c55e40",borderRadius:7,color:"#86efac",fontSize:12,marginBottom:14,whiteSpace:"pre-wrap"}}>{feedback}</div>
+      )}
+
+      {showHistorico && (
+        <div style={{background:"#0d1020",border:"1px solid #1a2035",borderRadius:10,padding:14,marginBottom:14}}>
+          <p style={{fontSize:12,fontWeight:600,color:"#f1f5f9",marginBottom:10}}>Historique récent (clic pour pré-remplir)</p>
+          {history.length === 0 && <p style={{fontSize:11,color:"#64748b"}}>Aucun historique pour l'instant.</p>}
+          {history.slice(0,20).map(h => (
+            <div key={h.id} onClick={()=>prefillFromHistory(h)}
+                 style={{padding:"8px 10px",borderRadius:6,marginBottom:4,background:"#080a0f",border:"1px solid #0f1520",cursor:"pointer",display:"flex",justifyContent:"space-between",fontSize:11}}>
+              <span style={{color:"#e2e8f0"}}>{h.nome} <span style={{color:"#64748b"}}>· {h.cpfCnpj}</span></span>
+              <span style={{color:"#94a3b8"}}>R$ {h.valor} · {new Date(h.ts).toLocaleDateString("fr-FR")}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <details style={{background:"#0d1020",border:"1px solid #1a2035",borderRadius:10,padding:"12px 14px",fontSize:11,color:"#94a3b8"}}>
+        <summary style={{cursor:"pointer",fontWeight:600,color:"#f1f5f9"}}>Rappel : valeurs FIXES (identiques à chaque NFS-e)</summary>
+        <ul style={{marginTop:10,paddingLeft:18,lineHeight:1.8}}>
+          <li>Emetteur CNPJ : <code>{NFSE_FIXED.cnpjEmitente}</code> (3A IMPORT LTDA)</li>
+          <li>IM Rio : <code>{NFSE_FIXED.imRio}</code></li>
+          <li>Município prestation : {NFSE_FIXED.municipio}</li>
+          <li>Simples : {NFSE_FIXED.simples}</li>
+          <li>Cód. Tributação Nacional : <code>{NFSE_FIXED.codTributacaoNacional}</code></li>
+          <li>Cód. Complementar Municipal : <code>{NFSE_FIXED.codComplementarMun}</code> (Impressão)</li>
+          <li>Item NBS : <code>{NFSE_FIXED.itemNBS}</code> (Serviços relacionados à impressão)</li>
+          <li>Cód. Indicador Operação : <code>{NFSE_FIXED.codIndicadorOp}</code></li>
+          <li>PIS/COFINS Situação : <code>{NFSE_FIXED.pisCofinsSit}</code> (Outras Operações de Saída)</li>
+          <li>PIS/COFINS Tipo Retenção : <code>{NFSE_FIXED.pisCofinsRet}</code> (Não Retidos)</li>
+          <li>IBS/CBS Situação : <code>{NFSE_FIXED.ibsCbsSit}</code> · Classificação : <code>{NFSE_FIXED.ibsCbsClass}</code></li>
+          <li>Alíquota Simples (Valor Aproximado Tributos) : <code>{NFSE_FIXED.aliquotaSimples}%</code></li>
+        </ul>
+        <p style={{marginTop:10,color:"#64748b",fontSize:10}}>Setup validé 2026-10-20 · Source : PDF cabinet Eduardo (<code>docs/nfse/</code>)</p>
+      </details>
+    </div>
+  );
+}
+
 export default function AmigoCRM() {
   // Routes publiques devis — pas besoin d'auth
   const hashMatch = window.location.hash.match(/^#\/quote\/([^?]+)/);
@@ -6490,7 +6774,7 @@ export default function AmigoCRM() {
         </div>
 
         <div style={{display:"flex",gap:2,background:"#0b0d16",borderRadius:7,padding:2,border:"1px solid #0f1520"}}>
-          {[["dashboard","Dashboard"],["kanban","Pipeline"],["commandes","Commandes"],["finance","Finance"],...(projId==="print3d"?[["stock","Stock"],["blender","🎨 3D Studio"],["chat","💬 Chat"]]:[]),["emails","Emails"],["agenda","Agenda"],["activite","Activité"],...(projId==="vin"?[["carte","🗺 Carte"]]:[]),["idees","💡"]]
+          {[["dashboard","Dashboard"],["kanban","Pipeline"],["commandes","Commandes"],["finance","Finance"],...(projId==="print3d"?[["stock","Stock"],["blender","🎨 3D Studio"],["chat","💬 Chat"],["nfse","🧾 NF"]]:[]),["emails","Emails"],["agenda","Agenda"],["activite","Activité"],...(projId==="vin"?[["carte","🗺 Carte"]]:[]),["idees","💡"]]
           .map(([v,l])=>(
             <button key={v} onClick={()=>setView(v)} className="btn"
               style={{padding:"4px 11px",borderRadius:5,fontSize:12,fontWeight:500,background:view===v?`${accent}18`:"transparent",color:view===v?accent:"#94a3b8",border:view===v?`1px solid ${accent}22`:"1px solid transparent",cursor:"pointer"}}>
@@ -7644,6 +7928,9 @@ export default function AmigoCRM() {
 
         {/* ══ CHAT WHATSAPP LABO 3D ══ */}
         {view==="chat"&&projId==="print3d"&&<WhatsAppInbox waLabo3d={waLabo3d} user={user} accent={accent} onSaveLocal={setWaLabo3d}/>}
+
+        {/* ══ NFS-E LABO 3D (3A IMPORT) ══ */}
+        {view==="nfse"&&projId==="print3d"&&<NFSeLabo3D data={data} user={user} accent={accent} save={save}/>}
 
         {/* ══ CARTE VIN ══ */}
         {view==="carte"&&projId==="vin"&&<CarteVin prospects={prospects} onOpenProspect={setDetailProspect} onAddProspect={()=>setShowAddProspect(true)}/>}
