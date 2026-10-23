@@ -3950,7 +3950,30 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   // Son "yeah!" quand un nouveau message inbound WhatsApp arrive.
   // Compare le total de messages inbound entre renders : si augmentation → joue.
   // Pas de son au 1er render (ref=0 → skip première comparaison).
+  //
+  // Chrome bloque AudioContext sans gesture utilisateur préalable. On crée
+  // un AudioContext partagé au mount et on le resume() au premier click/key
+  // sur la page pour l'unlock.
   const prevInboundCountRef = useRef(0);
+  const audioCtxRef = useRef(null);
+  useEffect(() => {
+    try {
+      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    } catch(_) {}
+    const unlock = () => {
+      const ctx = audioCtxRef.current;
+      if (ctx && ctx.state === "suspended") ctx.resume().catch(()=>{});
+    };
+    // Unlock aussi dès que l'utilisateur fait n'importe quoi dans la page
+    window.addEventListener("click", unlock, { once: false });
+    window.addEventListener("keydown", unlock, { once: false });
+    window.addEventListener("touchstart", unlock, { once: false });
+    return () => {
+      window.removeEventListener("click", unlock);
+      window.removeEventListener("keydown", unlock);
+      window.removeEventListener("touchstart", unlock);
+    };
+  }, []);
   useEffect(() => {
     const currentCount = (waLabo3d?.conversations || []).reduce(
       (sum, c) => sum + (c.messages || []).filter(m => m.direction === "inbound").length,
@@ -3958,7 +3981,8 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     );
     if (prevInboundCountRef.current > 0 && currentCount > prevInboundCountRef.current) {
       try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)();
+        if (ctx.state === "suspended") ctx.resume().catch(()=>{});
         const now = ctx.currentTime;
         // "Yeah!" = 3 notes ascendantes rapides (Lá-Ré-Mi = triade joyeuse)
         [440, 554, 659].forEach((freq, i) => {
@@ -3968,14 +3992,17 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
           osc.frequency.value = freq;
           const t = now + i * 0.08;
           g.gain.setValueAtTime(0, t);
-          g.gain.linearRampToValueAtTime(0.18, t + 0.02);
+          g.gain.linearRampToValueAtTime(0.35, t + 0.02);
           g.gain.linearRampToValueAtTime(0, t + 0.14);
           osc.connect(g);
           g.connect(ctx.destination);
           osc.start(t);
           osc.stop(t + 0.14);
         });
-      } catch(_) {}
+        console.log("[wa-labo3d] 🔊 yeah! new inbound msg", prevInboundCountRef.current, "→", currentCount);
+      } catch(e) {
+        console.error("[wa-labo3d] sound failed:", e.message);
+      }
     }
     prevInboundCountRef.current = currentCount;
   }, [waLabo3d?.conversations]);
