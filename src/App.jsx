@@ -3947,6 +3947,39 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     if (stillPending.size !== justResolvedConvIds.size) setJustResolvedConvIds(stillPending);
   }, [waLabo3d?.conversations, justResolvedConvIds]);
 
+  // Son "yeah!" quand un nouveau message inbound WhatsApp arrive.
+  // Compare le total de messages inbound entre renders : si augmentation → joue.
+  // Pas de son au 1er render (ref=0 → skip première comparaison).
+  const prevInboundCountRef = useRef(0);
+  useEffect(() => {
+    const currentCount = (waLabo3d?.conversations || []).reduce(
+      (sum, c) => sum + (c.messages || []).filter(m => m.direction === "inbound").length,
+      0
+    );
+    if (prevInboundCountRef.current > 0 && currentCount > prevInboundCountRef.current) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const now = ctx.currentTime;
+        // "Yeah!" = 3 notes ascendantes rapides (Lá-Ré-Mi = triade joyeuse)
+        [440, 554, 659].forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.value = freq;
+          const t = now + i * 0.08;
+          g.gain.setValueAtTime(0, t);
+          g.gain.linearRampToValueAtTime(0.18, t + 0.02);
+          g.gain.linearRampToValueAtTime(0, t + 0.14);
+          osc.connect(g);
+          g.connect(ctx.destination);
+          osc.start(t);
+          osc.stop(t + 0.14);
+        });
+      } catch(_) {}
+    }
+    prevInboundCountRef.current = currentCount;
+  }, [waLabo3d?.conversations]);
+
   const broadcastTyping = () => {
     if (!selected || !currentEmail) return;
     const now = Date.now();
