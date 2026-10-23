@@ -4420,7 +4420,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
             const unreadCount = (c.messages || []).filter(m => m.direction === "inbound" && new Date(m.timestamp).getTime() > lastReadAt).length;
             const hasUnread = c.unread || unreadCount > 0;
             return (
-              <div key={c.id} onClick={()=>{ setSelectedId(c.id); markAsRead(c); loadWaRef.current && loadWaRef.current(); }}
+              <div key={c.id} onClick={()=>{ setSelectedId(c.id); markAsRead(c); }}
                 style={{padding:"10px 14px",borderBottom:"1px solid #0f1520",cursor:"pointer",background:isSel?`${accent}15`:hasUnread?"#0d1a12":"transparent",borderLeft:isSel?`3px solid ${accent}`:hasUnread?"3px solid #22c55e":"3px solid transparent"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
                   {hasUnread && <span style={{width:8,height:8,borderRadius:"50%",background:"#22c55e",flexShrink:0,boxShadow:"0 0 6px #22c55e"}}/>}
@@ -6120,9 +6120,8 @@ export default function AmigoCRM() {
 
   // ── Load + Realtime pour wa_labo3d (WhatsApp Labo 3D) ─────────────────────
   // Fix 2026-10-21: payload wa_labo3d > 1 Mo → Realtime peut perdre des events,
-  // polling fallback réduit à 15s + loadWa exposé via ref pour force refresh
-  // quand on ouvre une conv (Fix 2 : combler le gap email → chat UI).
-  const loadWaRef = useRef(null);
+  // polling fallback réduit de 300s à 15s (Fix 1 only — Fix 2 loadWaRef reverted
+  // car scope React incompatible: loadWaRef undefined dans onClick de la liste)
   useEffect(() => {
     const WA_KEY = "wa_labo3d";
     const loadWa = async () => {
@@ -6136,7 +6135,6 @@ export default function AmigoCRM() {
         });
       } catch (e) { console.error("wa_labo3d load failed:", e); }
     };
-    loadWaRef.current = loadWa;
     loadWa();
 
     const waChannel = supabase.channel("wa-labo3d-sync")
