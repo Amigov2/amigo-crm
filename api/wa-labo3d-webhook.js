@@ -117,6 +117,21 @@ async function handleIncomingMessage(state, msg, contact, metadata) {
     conv.wa_display_name = contactName;
   }
 
+  // Si la conv était clôturée (perdido) et le client revient → on la rouvre
+  // automatiquement en "novo" pour que le bot reprenne et que le prospect
+  // réapparaisse dans l'inbox active. Trace garde l'historique de clôture.
+  if (conv.status === "perdido" && conv.wa_window_closed_at) {
+    const prev = conv.wa_window_closed_at;
+    conv.status = "novo";
+    conv.wa_window_reopened_at = ts;
+    conv.wa_window_previously_closed_at = prev;
+    delete conv.wa_window_closed_at;
+    delete conv.wa_window_closed_reason;
+    delete conv.wa_window_reminder_sent_at;
+    delete conv.wa_window_reminder_for_inbound;
+    console.log(`[wa-labo3d-webhook] conv ${conv.id.slice(-6)} reopened (was perdido)`);
+  }
+
   // Déduplique sur meta_id (Meta peut renvoyer un webhook en cas de timeout)
   if (conv.messages.some(m => m.meta_id === msg.id)) return;
 
