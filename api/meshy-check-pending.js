@@ -262,7 +262,13 @@ export default async function handler(req, res) {
   const WINDOW_MIN_MS = 21 * MS_H;
   const WINDOW_MAX_MS = 23.5 * MS_H;
   const MIN_OUTBOUND_AGE_MS = 6 * MS_H; // laisse au moins 6h après notre dernier envoi
-  const WINDOW_REMINDER_TEXT = "Ei! 👋 Ainda tá por aí? Se quiser retomar seu projeto 3D, é só responder por aqui — tô aqui pra ajudar! 🎨";
+  // Message avec deadline claire : prévient que le projet va être fermé si silence
+  // continue. Objectif : récupérer la fenêtre WhatsApp 24h en provoquant une réponse
+  // (même "sim"/"ok") du client. Si pas de réponse après ça → clôture auto plus tard.
+  const WINDOW_REMINDER_TEXT = "Ei! 👋 Como não tive retorno, vou precisar pausar seu projeto por aqui nas próximas horas. Se ainda quiser avançar, me responde qualquer coisa (um 'sim', 'ok', emoji) que eu reabro na hora! 🎨";
+  // Clôture auto : 72h après la relance de fenêtre sans réponse → marquer "perdido"
+  const WINDOW_CLOSE_AFTER_REMINDER_MS = 72 * MS_H;
+  const WINDOW_CLOSE_MESSAGE = "Beleza! Pausei seu projeto por aqui pra não te encher 😊 Quando quiser retomar, é só me chamar — tá tudo salvo! 🙌";
   const windowResults = [];
 
   for (const conv of state.conversations || []) {
@@ -318,6 +324,43 @@ export default async function handler(req, res) {
     }
   }
 
+  // ═══ CLÔTURE AUTO FENÊTRE ═══
+  // Si on a envoyé une relance window (voir boucle précédente) ET qu'il n'y
+  // a toujours pas eu de réponse client X heures après, on marque la conv
+  // comme "perdido" et on envoie une dernière phrase courtoise.
+  // Hors fenêtre 24h donc on peut PAS envoyer librement → on marque juste
+  // comme perdido et on log. Le client peut toujours revenir plus tard.
+  const closedResults = [];
+  for (const conv of state.conversations || []) {
+    if (conv.ai_auto === false) continue;
+    if (conv.status === "perdido" || conv.status === "ganho") continue;
+    const reminderSentAt = conv.wa_window_reminder_sent_at;
+    if (!reminderSentAt) continue;
+    // Si pas de réponse client depuis la relance → clôture
+    const reminderMs = new Date(reminderSentAt).getTime();
+    const msgs = conv.messages || [];
+    const inboundAfterReminder = msgs.some(m =>
+      m.direction === "inbound" && new Date(m.timestamp).getTime() > reminderMs
+    );
+    if (inboundAfterReminder) continue; // client a répondu, pas de clôture
+    const sinceReminderMs = nowMs - reminderMs;
+    if (sinceReminderMs < WINDOW_CLOSE_AFTER_REMINDER_MS) continue;
+    if (conv.wa_window_closed_at) continue; // déjà clôturé
+
+    conv.status = "perdido";
+    conv.wa_window_closed_at = new Date().toISOString();
+    conv.wa_window_closed_reason = "silence 72h après relance fenêtre";
+    dirty = true;
+    closedResults.push({ conv_id: conv.id, phone: conv.phone });
+    console.log("[labo3d-window] CLOSED (silence 72h):", conv.phone);
+  }
+
   if (dirty) await saveWaLabo3d(state);
-  return res.status(200).json({ reminders: reminderResults, window_reminders: windowResults, stuck_previews: stuckPreviewResults, nano: nanoResults });
+  return res.status(200).json({
+    reminders: reminderResults,
+    window_reminders: windowResults,
+    window_closed: closedResults,
+    stuck_previews: stuckPreviewResults,
+    nano: nanoResults,
+  });
 }
