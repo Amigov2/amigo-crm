@@ -12,6 +12,8 @@ import { sendMetaMessage, sendMetaImageByUrl } from "./_lib/meta-send.js";
 import { nanoRenderPrintedFigurine } from "./_lib/nano-render.js";
 import { uploadImageForMeshy } from "./_lib/supabase-storage.js";
 import { watermarkImageAndUpload } from "./_lib/watermark.js";
+import { pushToAllSubscribers } from "./_lib/push.js";
+import { notifyTeam } from "./_lib/notify.js";
 
 export const config = { maxDuration: 60 };
 
@@ -328,10 +330,87 @@ export default async function handler(req, res) {
     }
   }
 
+  // ═══ RELANCE INTERNE (Anthony/Harold) — nous reveiller quand on tarde à répondre ═══
+  // Scanne les convs où le CLIENT attend NOTRE réponse (dernier msg = inbound).
+  // Statuts cibles : escalado_humano, aguardando_aprovacao_preview, aguardando_pagamento.
+  // Notifie équipe via push + email à intervalles croissants : 3h, 6h, 12h, 24h.
+  const internalResults = [];
+  const INTERNAL_REMINDER_INTERVALS = [3, 6, 12, 24]; // heures
+  const INTERNAL_TARGET_STATUSES = new Set(["escalado_humano", "aguardando_aprovacao_preview", "aguardando_pagamento"]);
+  for (const conv of state.conversations || []) {
+    if (!INTERNAL_TARGET_STATUSES.has(conv.status)) continue;
+    const msgs = conv.messages || [];
+    if (!msgs.length) continue;
+    const lastMsg = msgs[msgs.length - 1];
+    if (lastMsg.direction !== "inbound") continue; // on a déjà répondu
+
+    const inboundAgeMs = nowMs - new Date(lastMsg.timestamp).getTime();
+    const inboundAgeH = inboundAgeMs / MS_H;
+    // Trouver le prochain palier à notifier
+    const alreadyNotified = conv.internal_reminder_count || 0;
+    if (alreadyNotified >= INTERNAL_REMINDER_INTERVALS.length) continue; // épuisé
+    const nextInterval = INTERNAL_REMINDER_INTERVALS[alreadyNotified];
+    if (inboundAgeH < nextInterval) continue;
+
+    // Anti-spam : au moins 2h depuis la dernière notif interne
+    const lastInternalAt = conv.internal_reminder_last_sent_at;
+    if (lastInternalAt && (nowMs - new Date(lastInternalAt).getTime()) < 2 * MS_H) continue;
+
+    const contactLabel = conv.contact_name || conv.wa_display_name || conv.phone;
+    const lastInText = (lastMsg.content || "").slice(0, 200);
+    const title = `⏰ ${contactLabel} attend depuis ${inboundAgeH.toFixed(1)}h`;
+    const body = lastInText || `[${lastMsg.type || "msg"}]`;
+    const url = `https://amigo-crm-gamma.vercel.app/#/print3d/chat?conv=${conv.id}`;
+
+    // Push mobile (Chrome/PWA iOS)
+    try {
+      await pushToAllSubscribers({ title, body, url, badgeCount: 1 });
+    } catch (e) {
+      console.error("[internal-reminder] push failed", conv.id, e.message);
+    }
+
+    // Email à l'équipe (palier 6h+ seulement, pour éviter trop d'emails sur les < 6h)
+    if (nextInterval >= 6) {
+      try {
+        const safeText = (s) => (s || "").replace(/</g, "&lt;").replace(/\n/g, "<br>");
+        const html = `<div style="font-family:system-ui,sans-serif;max-width:600px;margin:20px auto;color:#111">
+          <h2 style="color:#f59e0b;margin-bottom:4px">⏰ Prospect en attente — ${safeText(contactLabel)}</h2>
+          <p style="color:#666;margin-top:0;font-size:14px">Statut: <strong>${conv.status}</strong> · Silence de notre côté depuis <strong>${inboundAgeH.toFixed(1)}h</strong></p>
+          <div style="background:#fef3c7;padding:14px;border-radius:8px;border-left:3px solid #f59e0b;white-space:pre-wrap;margin:16px 0;font-size:14px"><strong>Dernier message client:</strong><br>${safeText(lastInText)}</div>
+          <p style="margin-top:20px">
+            <a href="${url}" style="display:inline-block;padding:12px 20px;background:#f59e0b;color:white;border-radius:6px;text-decoration:none;font-weight:600">Ouvrir la conv</a>
+          </p>
+          <p style="font-size:11px;color:#999;margin-top:20px">— AMIGO CRM · Relance interne auto (palier ${nextInterval}h)</p>
+        </div>`;
+        await notifyTeam({ subject: `⏰ [LABO 3D] ${contactLabel} attend depuis ${inboundAgeH.toFixed(1)}h`, html });
+      } catch (e) {
+        console.error("[internal-reminder] email failed", conv.id, e.message);
+      }
+    }
+
+    conv.internal_reminder_count = alreadyNotified + 1;
+    conv.internal_reminder_last_sent_at = new Date().toISOString();
+    dirty = true;
+    internalResults.push({ conv_id: conv.id, phone: conv.phone, status: conv.status, age_h: inboundAgeH.toFixed(1), interval_h: nextInterval });
+    console.log(`[internal-reminder] notified for ${conv.phone} status=${conv.status} age=${inboundAgeH.toFixed(1)}h (palier ${nextInterval}h)`);
+  }
+  // Reset du compteur quand on répond (dernier msg devient outbound)
+  for (const conv of state.conversations || []) {
+    const msgs = conv.messages || [];
+    if (!msgs.length) continue;
+    const lastMsg = msgs[msgs.length - 1];
+    if (lastMsg.direction === "outbound" && (conv.internal_reminder_count || 0) > 0) {
+      conv.internal_reminder_count = 0;
+      conv.internal_reminder_last_sent_at = null;
+      dirty = true;
+    }
+  }
+
   if (dirty) await saveWaLabo3d(state);
   return res.status(200).json({
     reminders: reminderResults,
     window_reminders: windowResults,
+    internal_reminders: internalResults,
     stuck_previews: stuckPreviewResults,
     nano: nanoResults,
   });
