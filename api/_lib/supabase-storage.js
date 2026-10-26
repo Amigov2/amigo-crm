@@ -47,12 +47,14 @@ export async function uploadImageForMeshy({ buffer, filename, mimeType = "image/
 // { url, mime_type, size, sha256, filename }
 // Utilisé par le webhook pour recycler image/video/audio/document dès leur
 // arrivée, et par le refresh-media pour rattraper les vieux messages.
+//
+// Perf 2026-10-26: skipBase64:true → on utilise le buffer brut au lieu de
+// faire buffer→base64→buffer (économie ~1.3x RAM pour les gros fichiers STL/vidéo).
 export async function downloadAndUploadMedia({ media_id, hint_filename, prefix = "wa" }) {
-  const bin = await downloadMetaMedia(media_id);
-  const buf = Buffer.from(bin.base64, "base64");
+  const bin = await downloadMetaMedia(media_id, { skipBase64: true });
   const ext = extFromMime(bin.mimeType);
   const safeName = hint_filename ? hint_filename.replace(/[^A-Za-z0-9._-]/g, "_") : `${prefix}-${media_id}.${ext}`;
-  const url = await uploadImageForMeshy({ buffer: buf, filename: safeName, mimeType: bin.mimeType });
+  const url = await uploadImageForMeshy({ buffer: bin.buffer, filename: safeName, mimeType: bin.mimeType });
   return {
     url,
     mime_type: bin.mimeType,
