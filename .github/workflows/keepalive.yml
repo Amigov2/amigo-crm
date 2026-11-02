@@ -1,0 +1,38 @@
+name: Keepalive Supabase
+
+# Ping Supabase 1x/jour pour éviter la pause auto après 7j d'inactivité
+# du plan gratuit AMIGO CRM.
+#
+# V2 2026-11-02 : Supabase a durci sa politique fin oct 2026, les pings REST
+# sans auth qui retournent 401 ne comptent plus comme activity.
+# On fait maintenant une query authentifiée sur table amigo_data pour
+# forcer une vraie activity DB.
+
+on:
+  schedule:
+    # Tous les jours à 06:00 UTC = 03:00 Rio
+    - cron: '0 6 * * *'
+  workflow_dispatch: # bouton manuel pour tester
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query authentifiée amigo_data (vraie activity DB)
+        env:
+          ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "apikey: $ANON_KEY" \
+            -H "Authorization: Bearer $ANON_KEY" \
+            "https://vfpfrcjpiximnnnomfly.supabase.co/rest/v1/amigo_data?limit=1" \
+            --max-time 20)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          STATUS=$(echo "$RESPONSE" | tail -n1)
+          echo "HTTP $STATUS"
+          echo "Body: $BODY"
+          # 200/206 = OK, 401 = auth fail, 000/5xx = projet pausé
+          if [ "$STATUS" = "000" ] || [ "$STATUS" -ge "500" ]; then
+            echo "::error::Supabase project may be paused (HTTP $STATUS)"
+            exit 1
+          fi
