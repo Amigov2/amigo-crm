@@ -6182,6 +6182,13 @@ export default function AmigoCRM() {
   // Fix 2026-10-21: payload wa_labo3d > 1 Mo → Realtime peut perdre des events,
   // polling fallback réduit de 300s à 15s (Fix 1 only — Fix 2 loadWaRef reverted
   // car scope React incompatible: loadWaRef undefined dans onClick de la liste)
+  //
+  // Fix 2026-11-07: Harold ouvre l'app via notif push mais ne voit pas la conv
+  // qui vient d'arriver (fenêtre de 0-15s entre arrivée message et prochain
+  // polling). Ajout de 3 triggers de refresh immédiat :
+  //   - window focus  → Harold revient sur l'onglet AMIGO
+  //   - visibilitychange → onglet redevient visible (iOS/Android PWA)
+  //   - pageshow → navigation back/forward ou retour depuis la notif push
   useEffect(() => {
     const WA_KEY = "wa_labo3d";
     const loadWa = async () => {
@@ -6204,9 +6211,21 @@ export default function AmigoCRM() {
       )
       .subscribe();
     const waPoll = setInterval(loadWa, 15000);
+
+    // Triggers de refresh immédiat quand l'utilisateur revient dans l'app
+    const onFocus = () => loadWa();
+    const onVisibility = () => { if (document.visibilityState === "visible") loadWa(); };
+    const onPageshow = (e) => { if (e.persisted || document.visibilityState === "visible") loadWa(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", onPageshow);
+
     return () => {
       supabase.removeChannel(waChannel);
       clearInterval(waPoll);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", onPageshow);
     };
   }, []);
 
