@@ -318,15 +318,22 @@ async function handleAdminApprovalReply(state, adminPhone, adminText, adminMetaI
 
 async function handleStatusUpdate(state, status) {
   // status.status: sent | delivered | read | failed
+  // Returns true if a message was found and updated, false otherwise.
+  // CRITICAL: if the meta_id is NOT found, it most likely means /api/wa-labo3d-send
+  // is currently in the middle of saving that message to Supabase (race condition —
+  // Meta fires the webhook immediately after our POST returns, before our save
+  // completes). In that case, returning false tells the caller to NOT save,
+  // because our state is stale and would overwrite the in-flight save.
   const wamid = status.id;
   for (const conv of state.conversations) {
     const m = conv.messages?.find(x => x.meta_id === wamid);
     if (m) {
       m.delivery_status = status.status;
       if (status.status === "failed") m.error = status.errors?.[0]?.title || "failed";
-      return;
+      return true;
     }
   }
+  return false;
 }
 
 async function processWebhook(body) {
@@ -346,6 +353,8 @@ async function processWebhook(body) {
 
   const convIdsWithNewInbound = new Set();
   let messagesProcessed = 0;
+  let statusesMatched = 0;
+  let statusesUnmatched = 0;
   for (const entry of body.entry || []) {
     for (const change of entry.changes || []) {
       if (change.field !== "messages") continue;
@@ -364,11 +373,24 @@ async function processWebhook(body) {
         messagesProcessed++;
       }
       for (const status of value.statuses || []) {
-        await handleStatusUpdate(state, status);
+        const matched = await handleStatusUpdate(state, status);
+        if (matched) statusesMatched++;
+        else statusesUnmatched++;
       }
     }
   }
-  console.log("[wa-labo3d] messages processed:", messagesProcessed, "final conversations count=", state.conversations.length);
+  console.log("[wa-labo3d] messages processed:", messagesProcessed, "statuses matched:", statusesMatched, "unmatched:", statusesUnmatched, "final conversations count=", state.conversations.length);
+
+  // CRITICAL race-condition guard: if the webhook only received status updates
+  // AND none of them matched a known meta_id, our in-memory state is stale
+  // (the message is being inserted right now by /api/wa-labo3d-send). Saving
+  // would overwrite that in-flight insert and the message would disappear
+  // from the chat. Skip the save in that case.
+  const hasDirtyChange = messagesProcessed > 0 || statusesMatched > 0;
+  if (!hasDirtyChange) {
+    console.log("[wa-labo3d] nothing to save (no inbound + no matched statuses) — skipping save to avoid stale overwrite");
+    return { convIdsWithNewInbound: [...convIdsWithNewInbound] };
+  }
 
   try {
     await saveWaLabo3d(state);
