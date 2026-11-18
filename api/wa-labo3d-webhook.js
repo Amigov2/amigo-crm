@@ -426,6 +426,14 @@ export async function processAiResponses(convIds) {
       console.log("[wa-labo3d-ai] skip", convId, "reason=ai_auto_off");
       continue;
     }
+    // FIX 18/11 : gel du bot tant qu'un devis attend la validation d'un admin.
+    // Avant, l'IA continuait de répondre au client pendant que le devis pending
+    // n'était pas traité (cas Gabriel Tech : R$380 en attente + 3 messages IA
+    // envoyés après). L'IA se taît jusqu'à approve/override/custom/take.
+    if (conv.pending_quote && !conv.pending_quote.resolved_at) {
+      console.log("[wa-labo3d-ai] skip", convId, "reason=pending_quote_awaiting_approval");
+      continue;
+    }
     try {
       // Récupère la DERNIÈRE IMAGE de l'historique inbound (pas le dernier inbound tout court)
       // — le client peut envoyer une photo puis confirmer par texte "sim", il faut quand même

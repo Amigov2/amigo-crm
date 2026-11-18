@@ -24,21 +24,36 @@ export function isAdminPhone(phone) {
   return getAdminPhones().includes(p);
 }
 
-// Est-ce que ce texte contient un devis (prix >= seuil) ?
+// Parse un prix au format brésilien : "19", "19,90", "1.330", "1.330,50"
+// ("1.330" = mille trois cent trente — le point est un séparateur de milliers)
+function parsePriceBR(str) {
+  let s = String(str).trim().replace(/R\$/i, "").replace(/\s/g, "");
+  if (!s) return NaN;
+  const hasComma = s.includes(","), hasDot = s.includes(".");
+  if (hasComma && hasDot) s = s.replace(/\./g, "").replace(",", ".");
+  else if (hasComma) s = s.replace(",", ".");
+  else if (hasDot && /^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
+  return parseFloat(s);
+}
+
+// Est-ce que ce texte contient un devis (N'IMPORTE QUEL prix >= seuil) ?
+// FIX 18/11 : avant, seul le PREMIER prix était vérifié → un prix unitaire bas
+// masquait le total (ex: "R$ 19/un = R$ 1.330 total" passait inaperçu et le
+// devis partait au client SANS validation). On scanne désormais tous les prix.
 export function containsQuote(text) {
-  const m = String(text).match(PRICE_RE);
-  if (!m) return false;
-  const numStr = m[0].replace(/R\$\s*/i, "").replace(",", ".");
-  const price = parseFloat(numStr);
-  return !isNaN(price) && price >= MIN_PRICE_TO_REVIEW;
+  const matches = String(text).match(new RegExp(PRICE_RE.source, "gi")) || [];
+  for (const m of matches) {
+    const price = parsePriceBR(m);
+    if (!isNaN(price) && price >= MIN_PRICE_TO_REVIEW) return true;
+  }
+  return false;
 }
 
 // Extrait le prix numérique du texte (le premier trouvé)
 export function extractPrice(text) {
   const m = String(text).match(PRICE_RE);
   if (!m) return null;
-  const numStr = m[0].replace(/R\$\s*/i, "").replace(",", ".");
-  const n = parseFloat(numStr);
+  const n = parsePriceBR(m[0]);
   return isNaN(n) ? null : n;
 }
 
