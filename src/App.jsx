@@ -3753,6 +3753,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const [attachedPreview, setAttachedPreview] = useState(null); // blob URL
   const [uploading, setUploading] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [composerToolsOpen, setComposerToolsOpen] = useState(false);
   const [refreshingMedia, setRefreshingMedia] = useState(false);
   const [refreshMediaResult, setRefreshMediaResult] = useState(null);
   const [webhookHealth, setWebhookHealth] = useState(null); // {healthy, status}
@@ -5143,40 +5144,42 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
                 onChange={onFileSelected}
               />
               <div style={{display:"flex",gap:8,alignItems:"stretch"}}>
-                <button
-                  onClick={()=>setTemplatesOpen(v=>!v)}
-                  title="Templates de devis"
-                  style={{padding:"0 12px",background:templatesOpen?`${accent}33`:"#0b0d16",color:templatesOpen?accent:"#94a3b8",border:`1px solid ${templatesOpen?accent+"55":"#1a2030"}`,borderRadius:6,fontSize:16,cursor:"pointer",fontFamily:"inherit"}}>
-                  📋
-                </button>
-                <button
-                  onClick={pickFile}
-                  disabled={sending}
-                  title="Joindre une image"
-                  style={{padding:"0 12px",background:attachedFile?`${accent}33`:"#0b0d16",color:attachedFile?accent:"#94a3b8",border:`1px solid ${attachedFile?accent+"55":"#1a2030"}`,borderRadius:6,fontSize:16,cursor:sending?"not-allowed":"pointer",fontFamily:"inherit"}}>
-                  📎
-                </button>
                 <div style={{position:"relative"}}>
                   <button
-                    onClick={()=>setEmojiOpen(v=>!v)}
-                    title="Emojis"
-                    style={{padding:"0 12px",background:emojiOpen?`${accent}33`:"#0b0d16",color:emojiOpen?accent:"#94a3b8",border:`1px solid ${emojiOpen?accent+"55":"#1a2030"}`,borderRadius:6,fontSize:16,cursor:"pointer",fontFamily:"inherit",height:"100%"}}>
-                    😀
+                    onClick={()=>setComposerToolsOpen(v=>!v)}
+                    title="Emojis · Templates · Pièce jointe"
+                    style={{padding:"0 12px",background:composerToolsOpen?`${accent}33`:"#0b0d16",color:composerToolsOpen?accent:"#94a3b8",border:`1px solid ${composerToolsOpen?accent+"55":"#1a2030"}`,borderRadius:6,fontSize:16,cursor:"pointer",fontFamily:"inherit",height:"100%"}}>
+                    🧰
                   </button>
-                  {emojiOpen && (
-                    <div style={{position:"absolute",bottom:"calc(100% + 6px)",left:0,zIndex:20,background:"#0b0d16",border:"1px solid #1a2030",borderRadius:10,padding:6,display:"grid",gridTemplateColumns:"repeat(8,1fr)",gap:2,width:280,boxShadow:"0 6px 24px rgba(0,0,0,0.5)"}}>
-                      {EMOJI_QUICK_PICKS.map(e => (
-                        <button key={e}
-                          onClick={()=>{ setText(t=>t+e); textareaRef.current?.focus(); }}
-                          style={{background:"transparent",border:"1px solid transparent",borderRadius:6,padding:6,fontSize:18,cursor:"pointer",fontFamily:"inherit"}}
-                          onMouseEnter={e2=>{e2.currentTarget.style.background="#1a2030"; e2.currentTarget.style.borderColor="#334155";}}
-                          onMouseLeave={e2=>{e2.currentTarget.style.background="transparent"; e2.currentTarget.style.borderColor="transparent";}}
-                        >{e}</button>
-                      ))}
+                  {composerToolsOpen && (
+                    <div style={{position:"absolute",bottom:"calc(100% + 6px)",left:0,zIndex:20,background:"#0b0d16",border:"1px solid #1a2030",borderRadius:10,padding:8,width:296,boxShadow:"0 6px 24px rgba(0,0,0,0.5)"}}>
+                      <div style={{display:"flex",gap:6,marginBottom:8}}>
+                        <button
+                          onClick={()=>{ setTemplatesOpen(v=>!v); setComposerToolsOpen(false); }}
+                          style={{flex:1,padding:"7px 0",background:`${accent}22`,border:`1px solid ${accent}44`,borderRadius:6,color:accent,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                          📋 Templates
+                        </button>
+                        <button
+                          onClick={()=>{ pickFile(); setComposerToolsOpen(false); }}
+                          disabled={sending}
+                          style={{flex:1,padding:"7px 0",background:"#1a2030",border:"1px solid #334155",borderRadius:6,color:"#94a3b8",fontSize:12,fontWeight:600,cursor:sending?"not-allowed":"pointer",fontFamily:"inherit"}}>
+                          📎 Joindre
+                        </button>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(8,1fr)",gap:2}}>
+                        {EMOJI_QUICK_PICKS.map(e => (
+                          <button key={e}
+                            onClick={()=>{ setText(t=>t+e); textareaRef.current?.focus(); }}
+                            style={{background:"transparent",border:"1px solid transparent",borderRadius:6,padding:6,fontSize:18,cursor:"pointer",fontFamily:"inherit"}}
+                            onMouseEnter={e2=>{e2.currentTarget.style.background="#1a2030"; e2.currentTarget.style.borderColor="#334155";}}
+                            onMouseLeave={e2=>{e2.currentTarget.style.background="transparent"; e2.currentTarget.style.borderColor="transparent";}}
+                          >{e}</button>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
-                <textarea ref={textareaRef} value={text}
+                <textarea ref={textareaRef} className="chat-compose" value={text}
                   onChange={e=>{ setText(e.target.value); broadcastTyping(); }}
                   onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();} }}
                   placeholder={attachedFile ? "Légende optionnelle…" : "Écris ton message… (Enter pour envoyer, Shift+Enter pour saut de ligne)"}

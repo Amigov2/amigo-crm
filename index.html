@@ -19,6 +19,13 @@
         nav input { font-size: 11px !important; min-width: 0 !important; flex: 1 1 150px !important; }
         .btn { font-size: 10px !important; padding: 3px 8px !important; }
         table th, table td { font-size: 10px !important; padding: 5px 6px !important; }
+        /* Zone de rédaction du chat : plus grande sur mobile + pas de zoom auto iOS (16px) */
+        textarea.chat-compose {
+          min-height: 150px !important;
+          font-size: 16px !important;
+          line-height: 1.5 !important;
+          resize: vertical !important;
+        }
       }
     </style>
   </head>
