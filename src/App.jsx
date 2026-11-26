@@ -3764,6 +3764,12 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const [selectedConvIds, setSelectedConvIds] = useState(() => new Set()); // conv IDs cochées dans la modale broadcast
   const [sendingTemplate, setSendingTemplate] = useState(false);
   const [templateError, setTemplateError] = useState("");
+  const [newContactOpen, setNewContactOpen] = useState(false);
+  const [ncPhone, setNcPhone] = useState("");
+  const [ncName, setNcName] = useState("");
+  const [ncText, setNcText] = useState("");
+  const [ncBusy, setNcBusy] = useState(false);
+  const [ncMsg, setNcMsg] = useState(null); // {type:'ok'|'template'|'err', text}
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [approvalError, setApprovalError] = useState("");
   const [approvalMode, setApprovalMode] = useState(null); // null | "price" | "custom"
@@ -4225,6 +4231,59 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     }
   };
 
+  // Nouveau contact : envoie un message WhatsApp à un numéro qui n'a pas de conversation.
+  // Si la fenêtre 24h Meta est fermée (erreur 131047), bascule automatiquement sur
+  // le template approuvé _labo3d_reengagement_ptbr pour ouvrir la conversation.
+  const sendNewContact = async () => {
+    const phone = ncPhone.replace(/[^\d+]/g, "");
+    if (!phone || ncBusy) return;
+    setNcBusy(true); setNcMsg(null);
+    const firstName = (ncName.trim() || "amigo").split(/\s+/)[0].slice(0, 40);
+    try {
+      if (ncText.trim()) {
+        const resp = await authFetch("/api/wa-labo3d-send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone, text: ncText }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+        setNcMsg({ type: "ok", text: "✅ Message envoyé — la conversation apparaît dans la liste." });
+        await forceRefreshWa();
+      } else {
+        throw new Error("__template_only__");
+      }
+    } catch (err) {
+      if (/131047|re-?engage/i.test(err.message) || err.message === "__template_only__") {
+        try {
+          const resp2 = await authFetch("/api/wa-labo3d-send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              phone,
+              meta_template: {
+                name: "_labo3d_reengagement_ptbr",
+                language: "pt_BR",
+                variables_ordered: [firstName],
+                preview_text: `Olá ${firstName}! 👋 Aqui é o pessoal do LABO 3D. Você ainda tem interesse na sua peça 3D personalizada?`,
+              },
+            }),
+          });
+          const d2 = await resp2.json();
+          if (!resp2.ok) throw new Error(d2.error || `HTTP ${resp2.status}`);
+          setNcMsg({ type: "template", text: "📩 Fenêtre 24h fermée → le template de relance a été envoyé à la place. Dès que la personne répond, réouvre cette conversation pour écrire librement." });
+          await forceRefreshWa();
+        } catch (err2) {
+          setNcMsg({ type: "err", text: "❌ " + err2.message });
+        }
+      } else {
+        setNcMsg({ type: "err", text: "❌ " + err.message });
+      }
+    } finally {
+      setNcBusy(false);
+    }
+  };
+
   // Calcul du nombre de conv dans la fenêtre 24h Meta où le bot peut répondre
   // = dernier message = inbound + dans les 24h
   const now = Date.now();
@@ -4439,6 +4498,12 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
           <PushNotifButton accent={accent} userEmail={currentEmail}/>
           <span style={{fontSize:11,color:"#4b5563"}}>{conversations.length}</span>
           <button
+            onClick={()=>{ setNewContactOpen(true); setNcMsg(null); }}
+            title="Envoyer un message WhatsApp à un nouveau numéro — crée la conversation. Fenêtre 24h fermée → template de relance automatique."
+            style={{padding:"3px 8px",background:`${accent}22`,border:`1px solid ${accent}44`,borderRadius:4,color:accent,fontSize:10,fontWeight:600,cursor:"pointer"}}>
+            ➕ Novo contato
+          </button>
+          <button
             onClick={refreshMedia}
             disabled={refreshingMedia}
             title="Retélécharger les médias manquants depuis Meta (images, vidéos, audios, documents, stickers)"
@@ -4466,6 +4531,37 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
             <span style={{fontSize:10,color:"#ef4444",flexBasis:"100%",marginTop:2}}>❌ {refreshMediaResult.error}</span>
           )}
         </div>
+        {newContactOpen && (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setNewContactOpen(false)}>
+            <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:12,padding:20,width:380,maxWidth:"92vw",color:"#e2e8f0"}} onClick={e=>e.stopPropagation()}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <strong style={{fontSize:14}}>➕ Novo contato WhatsApp</strong>
+                <button onClick={()=>setNewContactOpen(false)} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:16,lineHeight:1}}>✕</button>
+              </div>
+              <label style={{fontSize:11,color:"#94a3b8",display:"block",marginBottom:4}}>Telefone (55 + DDD + número)</label>
+              <input value={ncPhone} onChange={e=>setNcPhone(e.target.value)} placeholder="5521999999999"
+                style={{width:"100%",padding:"8px 10px",background:"#020617",border:"1px solid #1e293b",borderRadius:6,color:"#e2e8f0",fontSize:13,marginBottom:10,outline:"none"}}/>
+              <label style={{fontSize:11,color:"#94a3b8",display:"block",marginBottom:4}}>Primeiro nome (usado no template de relance)</label>
+              <input value={ncName} onChange={e=>setNcName(e.target.value)} placeholder="Ex: João"
+                style={{width:"100%",padding:"8px 10px",background:"#020617",border:"1px solid #1e293b",borderRadius:6,color:"#e2e8f0",fontSize:13,marginBottom:10,outline:"none"}}/>
+              <label style={{fontSize:11,color:"#94a3b8",display:"block",marginBottom:4}}>Mensagem (opcional — vazio = template só)</label>
+              <textarea value={ncText} onChange={e=>setNcText(e.target.value)} rows={4} placeholder="Olá! Aqui é o LABO 3D…"
+                style={{width:"100%",padding:"8px 10px",background:"#020617",border:"1px solid #1e293b",borderRadius:6,color:"#e2e8f0",fontSize:13,resize:"vertical",outline:"none"}}/>
+              {ncMsg && (
+                <div style={{fontSize:11,marginTop:10,lineHeight:1.5,color:ncMsg.type==='ok'?"#22c55e":ncMsg.type==='template'?"#f59e0b":"#f87171"}}>
+                  {ncMsg.text}
+                </div>
+              )}
+              <button onClick={sendNewContact} disabled={ncBusy || !ncPhone.trim()}
+                style={{width:"100%",marginTop:14,padding:"10px",background:ncBusy?"#1a2030":"#f97316",border:"none",borderRadius:8,color:"white",fontWeight:600,fontSize:13,cursor:ncBusy?"wait":"pointer"}}>
+                {ncBusy ? "Envoi…" : "Enviar"}
+              </button>
+              <div style={{fontSize:10,color:"#64748b",marginTop:8,lineHeight:1.4}}>
+                Se a janela de 24h Meta estiver fechada (número que nunca te escreveu), o template de relance <b>_labo3d_reengagement_ptbr</b> é enviado automaticamente no lugar.
+              </div>
+            </div>
+          </div>
+        )}
         <div style={{flex:1,overflowY:"auto"}}>
           {conversations.length === 0 && (
             <div style={{padding:24,textAlign:"center",color:"#4b5563",fontSize:12}}>
