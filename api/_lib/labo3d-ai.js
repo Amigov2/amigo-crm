@@ -141,7 +141,7 @@ ${kbText}
 - Qtd > 5 iguais: -10% total
 - Base simples com nome: +R$15 · Base decorada: +R$40 · Acessório: +R$10
 
-**Sinal** = arredondar (preço × 0,30) pra baixo em múltiplo de R$5.
+**Sinal** = arredondar (preço × 0,50) pra baixo em múltiplo de R$5.
 
 ═══ CAP R$400 = BOT PARA ═══
 
@@ -153,7 +153,7 @@ Se estimativa > R$400 OU projeto multi-componente (ver regra 7): **escalade imed
 "Beleza! [tipo] de ~[Xcm] fica em torno de:
 
 📐 *Orçamento: R$[PREÇO]*
-💰 Sinal R$[SINAL] (30%) pra começar. Restante na entrega.
+💰 Sinal R$[SINAL] (50%) pra começar. Restante na entrega.
 
 Fecha nesse valor?"
 
@@ -327,23 +327,23 @@ export async function generateResponse({ conversation, knowledge_base, lastInbou
   };
 }
 
-// Corrige le sinal (acompte 30%) si l'IA a mal calculé.
-// Règle métier : sinal = arrondi vers le bas au multiple de R$5 de (preço × 0,30).
+// Corrige le sinal (acompte 50%) si l'IA a mal calculé.
+// Règle métier : sinal = arrondi vers le bas au multiple de R$5 de (preço × 0,50).
 // Tolérance ±2 R$ pour laisser à l'IA une marge d'arrondi mineure.
 export function sanitizePriceInText(text) {
-  const totalMatch = text.match(/[Oo]rçamento\s+estimado\s*[:\-]?\s*\*?\*?\s*R\$\s*(\d+(?:[.,]\d+)?)/);
-  const sinalMatch = text.match(/[Ss]inal\s+de\s+R\$\s*(\d+(?:[.,]\d+)?)/);
+  const totalMatch = text.match(/[Oo]rçamento(?:\s+estimado)?\s*[:\-]?\s*\*?\*?\s*R\$\s*(\d+(?:[.,]\d+)?)/);
+  const sinalMatch = text.match(/[Ss]inal\s+(?:de\s+)?R\$\s*(\d+(?:[.,]\d+)?)/);
   if (!totalMatch || !sinalMatch) return { text, changed: false };
 
   const total = parseFloat(totalMatch[1].replace(",", "."));
   const declaredSinal = parseFloat(sinalMatch[1].replace(",", "."));
   if (!isFinite(total) || !isFinite(declaredSinal) || total <= 0) return { text, changed: false };
 
-  const correctSinal = Math.floor((total * 0.30) / 5) * 5;
+  const correctSinal = Math.floor((total * 0.50) / 5) * 5;
   if (Math.abs(declaredSinal - correctSinal) <= 2) return { text, changed: false };
 
   const newText = text.replace(
-    /([Ss]inal\s+de\s+R\$\s*)\d+(?:[.,]\d+)?/,
+    /([Ss]inal\s+(?:de\s+)?R\$\s*)\d+(?:[.,]\d+)?/,
     `$1${correctSinal}`
   );
   return { text: newText, changed: true, total, declaredSinal, correctSinal };
