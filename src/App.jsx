@@ -3759,6 +3759,12 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
   const [webhookHealth, setWebhookHealth] = useState(null); // {healthy, status}
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [hotFilterOn, setHotFilterOn] = useState(false);
+  const [quoteFilterOn, setQuoteFilterOn] = useState(false);
+  const [unansweredFilterOn, setUnansweredFilterOn] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchResult, setBatchResult] = useState(null);
+  const NUDGE_TEXT = "Oi! 👋 Só passando pra saber se ficou alguma dúvida sobre o que enviamos. Estamos por aqui — a gente fecha rapidinho!";
   const [broadcastText, setBroadcastText] = useState("");
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastResult, setBroadcastResult] = useState(null);
@@ -4323,7 +4329,89 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
     return HOT_KEYWORDS_RE.test(last.content || "");
   };
   const hotLeads = conversations.filter(isHotLead);
-  const filteredConversations = hotFilterOn ? hotLeads : conversations;
+
+  // Dédupliquage par numéro : plusieurs fils peuvent exister pour un même téléphone
+  // (créations concurrentes). On garde le fil le plus récent pour l'affichage.
+  const dedupedConversations = (() => {
+    const seen = new Set();
+    const out = [];
+    for (const c of conversations) {
+      const p = String(c.phone || "");
+      if (p && seen.has(p)) continue;
+      if (p) seen.add(p);
+      out.push(c);
+    }
+    return out;
+  })();
+  const dupMergedCount = conversations.length - dedupedConversations.length;
+
+  // Devis IA en attente de validation d'un admin
+  const pendingQuoteConvs = dedupedConversations.filter(c => c.pending_quote && !c.pending_quote.resolved_at);
+
+  // Sans réponse : dernier message = à nous, et la fenêtre 24h Meta est encore
+  // ouverte (dernier inbound < 24h) → relance gratuite possible avant fermeture.
+  const unansweredConvs = dedupedConversations.filter(c => {
+    const msgs = c.messages || [];
+    const last = msgs[msgs.length - 1];
+    if (!last || last.direction !== "outbound") return false;
+    const lastInbound = [...msgs].reverse().find(m => m.direction === "inbound");
+    if (!lastInbound) return false;
+    const age = Date.now() - new Date(lastInbound.timestamp || 0).getTime();
+    return age >= 0 && age < 24 * 3600 * 1000;
+  });
+
+  // Stats devis : en attente / validés (gagnés) / refusés.
+  // Prix = valeur MAX trouvée dans le texte (le prix unitaire bas ne masque plus le total).
+  const quoteStats = (() => {
+    const parseBR = (s) => { let t = String(s).replace(/[^\d.,]/g, ""); if (!t) return null;
+      if (t.includes(",") && t.includes(".")) t = t.replace(/\./g, "").replace(",", ".");
+      else if (t.includes(",")) t = t.replace(",", ".");
+      else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
+      const n = parseFloat(t); return isFinite(n) ? n : null; };
+    const maxPrice = (txt) => {
+      const vals = (String(txt || "").match(/R\$\s*[\d.,]+/g) || [])
+        .map(m => parseBR(m.replace(/\s/g, "")))
+        .filter(n => n && n >= 30);
+      return vals.length ? Math.max(...vals) : null;
+    };
+    let pend = [], won = [], lost = [];
+    for (const c of conversations) {
+      const pq = c.pending_quote; if (!pq) continue;
+      if (!pq.resolved_at) pend.push({ c, v: maxPrice(pq.text) });
+      else if (pq.resolved_action === "approved" || pq.resolved_action === "price_override") won.push({ c, v: maxPrice(pq.final_text) || maxPrice(pq.text) });
+      else if (pq.resolved_action === "rejected") lost.push({ c });
+    }
+    const sum = (a) => a.reduce((t, x) => t + (x.v || 0), 0);
+    return { pend, won, lost, pendVal: sum(pend), wonVal: sum(won) };
+  })();
+
+  const filteredConversations = unansweredFilterOn ? unansweredConvs
+    : quoteFilterOn ? pendingQuoteConvs
+    : hotFilterOn ? hotLeads
+    : dedupedConversations;
+
+  // Relance groupée des conversations sans réponse, fenêtre encore ouverte.
+  const batchRelance = async () => {
+    if (batchBusy) return;
+    setBatchBusy(true); setBatchResult(null);
+    let ok = 0, skip = 0, fail = 0;
+    for (const c of unansweredConvs) {
+      const last = (c.messages || [])[(c.messages || []).length - 1];
+      if (!last || last.direction !== "outbound") { skip++; continue; }
+      if ((last.content || "").includes("Só passando pra saber")) { skip++; continue; }
+      try {
+        const resp = await authFetch("/api/wa-labo3d-send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ conversation_id: c.id, text: NUDGE_TEXT }),
+        });
+        if (resp.ok) ok++; else fail++;
+      } catch { fail++; }
+    }
+    setBatchResult(`✅ ${ok} relance(s) · ${skip} déjà relancé(s)/ignoré(s) · ${fail} échec(s)`);
+    setBatchBusy(false);
+    await forceRefreshWa();
+  };
 
   const runBroadcast = async () => {
     if (broadcasting) return;
@@ -4497,7 +4585,7 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
             </span>
           )}
           <PushNotifButton accent={accent} userEmail={currentEmail}/>
-          <span style={{fontSize:11,color:"#4b5563"}}>{conversations.length}</span>
+          <span style={{fontSize:11,color:"#4b5563"}} title={dupMergedCount>0?`${dupMergedCount} fil(s) doublon(s) masqué(s) — même numéro`:undefined}>{dedupedConversations.length}</span>
           <button
             onClick={()=>{ setNewContactOpen(true); setNcMsg(null); }}
             title="Envoyer un message WhatsApp à un nouveau numéro — crée la conversation. Fenêtre 24h fermée → template de relance automatique."
@@ -4518,7 +4606,37 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
             🤖 Bot répond ({eligibleForBroadcast.length})
           </button>
           <button
-            onClick={()=>setHotFilterOn(v=>!v)}
+            onClick={()=>{ setUnansweredFilterOn(v=>!v); setQuoteFilterOn(false); setHotFilterOn(false); }}
+            title="Conversations où c'est à eux de répondre — fenêtre 24h encore ouverte, relance gratuite possible"
+            style={{padding:"3px 8px",background:unansweredFilterOn?"#3b82f6":"#3b82f622",border:`1px solid ${unansweredFilterOn?"#3b82f6":"#3b82f644"}`,borderRadius:4,color:unansweredFilterOn?"white":"#3b82f6",fontSize:10,fontWeight:600,cursor:"pointer"}}>
+            ⏳ Sans réponse ({unansweredConvs.length})
+          </button>
+          {unansweredFilterOn && (
+            <button
+              onClick={batchRelance}
+              disabled={batchBusy}
+              title={`Envoie un rappel amical à ${unansweredConvs.length} conversation(s) — gratuit tant que la fenêtre 24h est ouverte`}
+              style={{padding:"3px 8px",background:batchBusy?"#1a2030":"#3b82f6",border:"1px solid #3b82f6",borderRadius:4,color:"white",fontSize:10,fontWeight:600,cursor:batchBusy?"wait":"pointer",flexBasis:"100%",marginTop:2}}>
+              {batchBusy ? "⏳ Relance en cours…" : `📩 Relancer tous (${unansweredConvs.length})`}
+            </button>
+          )}
+          {batchResult && (
+            <span style={{fontSize:10,color:"#22c55e",flexBasis:"100%",marginTop:2}}>{batchResult}</span>
+          )}
+          <button
+            onClick={()=>{ setQuoteFilterOn(v=>!v); setUnansweredFilterOn(false); setHotFilterOn(false); }}
+            title="Conversations avec un devis IA en attente de validation"
+            style={{padding:"3px 8px",background:quoteFilterOn?"#f59e0b":"#f59e0b22",border:`1px solid ${quoteFilterOn?"#f59e0b":"#f59e0b44"}`,borderRadius:4,color:quoteFilterOn?"white":"#f59e0b",fontSize:10,fontWeight:600,cursor:"pointer"}}>
+            💰 Devis ({pendingQuoteConvs.length})
+          </button>
+          <button
+            onClick={()=>setStatsOpen(true)}
+            title="Pipeline devis : en attente, gagnés, refusés"
+            style={{padding:"3px 8px",background:"#a78bfa22",border:"1px solid #a78bfa44",borderRadius:4,color:"#a78bfa",fontSize:10,fontWeight:600,cursor:"pointer"}}>
+            📊 Gagnés
+          </button>
+          <button
+            onClick={()=>{ setHotFilterOn(v=>!v); setQuoteFilterOn(false); setUnansweredFilterOn(false); }}
             title={hotFilterOn ? "Retour à toutes les conversations" : "Filtrer les conv où on a proposé devis/PIX/fermeture et le client n'a pas encore répondu"}
             style={{padding:"3px 8px",background:hotFilterOn?"#ef4444":"#ef444422",border:`1px solid ${hotFilterOn?"#ef4444":"#ef444444"}`,borderRadius:4,color:hotFilterOn?"white":"#ef4444",fontSize:10,fontWeight:600,cursor:"pointer"}}>
             🔥 Hot ({hotLeads.length})
@@ -4532,6 +4650,49 @@ function WhatsAppInbox({ waLabo3d, user, accent, onSaveLocal }) {
             <span style={{fontSize:10,color:"#ef4444",flexBasis:"100%",marginTop:2}}>❌ {refreshMediaResult.error}</span>
           )}
         </div>
+        {statsOpen && (() => {
+          const totalDone = quoteStats.won.length + quoteStats.lost.length;
+          const pct = totalDone > 0 ? Math.round(100 * quoteStats.won.length / totalDone) : 0;
+          const brl = (n) => "R$ " + (n || 0).toLocaleString("pt-BR");
+          const cell = { background:"#020617", border:"1px solid #1e293b", borderRadius:8, padding:"12px 14px" };
+          const lab = { fontSize:10, color:"#94a3b8", textTransform:"uppercase", letterSpacing:".08em", marginBottom:4 };
+          const val = { fontSize:24, fontWeight:600, fontVariantNumeric:"tabular-nums" };
+          return (
+            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setStatsOpen(false)}>
+              <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:12,padding:20,width:420,maxWidth:"92vw",color:"#e2e8f0"}} onClick={e=>e.stopPropagation()}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                  <strong style={{fontSize:14}}>📊 Pipeline devis — LABO 3D</strong>
+                  <button onClick={()=>setStatsOpen(false)} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:16,lineHeight:1}}>✕</button>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div style={cell}>
+                    <div style={lab}>En attente de validation</div>
+                    <div style={{...val,color:"#f59e0b"}}>{quoteStats.pend.length}</div>
+                    <div style={{fontSize:11,color:"#64748b"}}>{brl(quoteStats.pendVal)} en jeu</div>
+                  </div>
+                  <div style={cell}>
+                    <div style={lab}>Validés (gagnés)</div>
+                    <div style={{...val,color:"#22c55e"}}>{quoteStats.won.length}</div>
+                    <div style={{fontSize:11,color:"#64748b"}}>{brl(quoteStats.wonVal)} cumulés</div>
+                  </div>
+                  <div style={cell}>
+                    <div style={lab}>Refusés</div>
+                    <div style={{...val,color:"#f87171"}}>{quoteStats.lost.length}</div>
+                    <div style={{fontSize:11,color:"#64748b"}}>sur {totalDone} traités</div>
+                  </div>
+                  <div style={cell}>
+                    <div style={lab}>Taux de validation</div>
+                    <div style={{...val,color:"#a78bfa"}}>{pct}%</div>
+                    <div style={{fontSize:11,color:"#64748b"}}>gagnés / traités</div>
+                  </div>
+                </div>
+                <div style={{fontSize:10,color:"#64748b",marginTop:12,lineHeight:1.4}}>
+                  Prix estimé = valeur max trouvée dans le texte du devis (le prix unitaire ne masque pas le total). Estimation non contractuelle.
+                </div>
+              </div>
+            </div>
+          );
+        })()}
         {newContactOpen && (
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setNewContactOpen(false)}>
             <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:12,padding:20,width:380,maxWidth:"92vw",color:"#e2e8f0"}} onClick={e=>e.stopPropagation()}>
