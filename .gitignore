@@ -11,3 +11,4 @@ dist/
 *.pem
 certs/
 .env*.local
+.tmp-*
