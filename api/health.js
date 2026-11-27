@@ -7,6 +7,7 @@
 import { getSupabase, loadWaLabo3d } from "./_lib/supabase.js";
 import { sendMetaMessage } from "./_lib/meta-send.js";
 import { processAiResponses } from "./wa-labo3d-webhook.js";
+import { getAdminPhones } from "./quote-approval.js";
 
 const MS_24H = 24 * 60 * 60 * 1000;
 
@@ -248,6 +249,93 @@ async function sendStuckAlert(stuckList) {
   return { stuck_alert_sent: results };
 }
 
+// ─── AUTO-SEND devis propres + NAG devis à risque ───────────────────────────
+// Un devis marqué auto=true (scope-clean, ≤R$400) est envoyé au client après
+// 8h sans validation humaine, tant que la fenêtre 24h Meta est ouverte → envoi
+// gratuit, client encore chaud. Les devis à risque (auto=false) naguent l'admin
+// une fois par jour jusqu'à traitement.
+
+function newId(prefix) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+const AUTO_GRACE_MS = 8 * 60 * 60 * 1000; // 8h avant auto-envoi
+
+async function autoSendCleanQuotes(state, base) {
+  const now = Date.now();
+  let sent = 0, fails = 0, skipped_window = 0;
+  for (const c of state.conversations) {
+    const pq = c.pending_quote;
+    if (!pq || pq.resolved_at) continue;
+    if (pq.auto !== true) continue; // devis à risque ou anciens (sans flag) → humain
+    const age = now - new Date(pq.ai_generated_at || 0).getTime();
+    if (age < AUTO_GRACE_MS) continue;
+    const lastInbound = [...(c.messages || [])].reverse().find(m => m.direction === "inbound");
+    if (!lastInbound) continue;
+    const inAge = now - new Date(lastInbound.timestamp || 0).getTime();
+    if (inAge >= 24 * 60 * 60 * 1000) { skipped_window++; continue; } // fenêtre fermée → nag au lieu de payer
+    try {
+      const metaId = await sendMetaMessage({ phone: c.phone, text: pq.text });
+      const nowIso = new Date().toISOString();
+      c.messages = c.messages || [];
+      c.messages.push({
+        id: newId("msg"),
+        direction: "outbound",
+        type: "text",
+        content: pq.text,
+        timestamp: nowIso,
+        meta_id: metaId,
+        sender_email: "auto:scopeclean",
+        approval_action: "auto_sent",
+        delivery_status: "sent",
+      });
+      c.last_message_at = nowIso;
+      c.unread = false;
+      Object.assign(pq, {
+        resolved_at: nowIso,
+        resolved_by: "auto:scopeclean",
+        resolved_action: "approved",
+        final_text: pq.text,
+      });
+      sent++;
+    } catch (e) {
+      fails++;
+      console.error("[auto-send] failed", c.id, e.message);
+    }
+  }
+  if (sent > 0) base.auto_sent = sent;
+  if (fails > 0) base.auto_failed = fails;
+  if (skipped_window > 0) base.auto_skipped_window = skipped_window;
+  return sent + fails > 0;
+}
+
+async function nagRiskyQuotes(state, base) {
+  const now = Date.now();
+  const riskyPend = (state.conversations || []).filter(c => {
+    const pq = c.pending_quote;
+    return pq && !pq.resolved_at && pq.auto === false &&
+      (now - new Date(pq.ai_generated_at || 0).getTime()) > 24 * 60 * 60 * 1000;
+  });
+  if (!riskyPend.length) return;
+  const lastNag = state.nag_risky_at ? now - new Date(state.nag_risky_at).getTime() : Infinity;
+  if (lastNag < 24 * 60 * 60 * 1000) { base.risky_nag = "throttled_24h"; return; }
+
+  const lines = riskyPend.slice(0, 5).map(c => {
+    const pq = c.pending_quote;
+    const dias = Math.floor((now - new Date(pq.ai_generated_at).getTime()) / 864e5);
+    const price = (String(pq.text || "").match(/R\$\s*[\d.,]+/g) || ["?"])[0];
+    return `• ${c.contact_name || c.phone} — ${price} (${dias}j, risque: ${pq.risk || "scope"})`;
+  });
+  const text = `⚠️ *${riskyPend.length} devis à risque* attendent TA validation (hors scope auto):\n\n${lines.join("\n")}\n\nOuvre AMIGO → bandeau orange sur chaque conv → valide ✏️ ou rejette 🖐.`;
+  for (const phone of getAdminPhones()) {
+    try { await sendMetaMessage({ phone, text }); } catch (e) {
+      console.error("[risky-nag] failed", phone, e.message);
+    }
+  }
+  state.nag_risky_at = new Date().toISOString();
+  base.risky_nag = riskyPend.length;
+}
+
 export default async function handler(req, res) {
   const isCheck = req.query?.check === "1";
   const isStuck = req.query?.check === "stuck";
@@ -307,6 +395,21 @@ export default async function handler(req, res) {
           base.retry_healed = stuckInitial.length;
         }
       }
+
+      // Auto-envoi devis propres (>8h sans validation humaine, fenêtre 24h ouverte
+      // → envoi gratuit, client encore chaud) + nag quotidien des devis à risque.
+      // Recharge l'état : processAiResponses ci-dessus a pu le modifier/sauver.
+      if (canAlertWhenDown) {
+        try {
+          const stateAuto = await loadWaLabo3d();
+          const changed = await autoSendCleanQuotes(stateAuto, base);
+          await nagRiskyQuotes(stateAuto, base);
+          if (changed) await saveWaLabo3d(stateAuto);
+        } catch (e) {
+          console.error("[auto-send] failed:", e.message);
+        }
+      }
+
       return res.status(200).json(base);
     } catch (e) {
       return res.status(500).json({ ...base, error: String(e.message || e).slice(0, 300) });

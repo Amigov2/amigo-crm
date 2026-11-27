@@ -578,11 +578,23 @@ export async function processAiResponses(convIds) {
       // Ne PAS envoyer au client — sauvegarde comme pending_quote + WA aux admins.
       // L'admin approuve/modifie/personnalise via WA, la réponse est ensuite envoyée au client.
       if (containsQuote(cleanText) && getAdminPhones().length > 0) {
+        // Scope-check automatique : détecte ce qu'on ne sait pas faire (peinture,
+        // finitions métalliques, trop de couleurs) → ces devis exigent TOUJOURS
+        // une validation humaine. Les devis propres partent seuls via le cron
+        // health (auto-sent) si l'humain n'a pas répondu sous 8h.
+        const RISKY_RE = /pint[ua]\w*|pintad[oa]\b|met[aá]lic[oa]?\b|cromad\w*|metalizad\w*|\bouro\b|\bprata\b|mais de 4 cores|multicolor/gi;
+        const risky = RISKY_RE.test(cleanText);
+        const maxPrice = (String(cleanText).match(/R\$\s*[\d.,]+/g) || [])
+          .map(m => parseFloat(m.replace(/[^\d.,]/g, "").replace(/\.(?=\d{3}\b)/g, "").replace(",", ".")))
+          .filter(n => isFinite(n));
+        const overCap = maxPrice.length && Math.max(...maxPrice) > 400;
         const pendingObj = {
           text: cleanText,
           ai_generated_at: now,
           ai_usage: result.usage,
           image_media_id: lastImageMsg?.media_id || null,
+          auto: !risky && !overCap,
+          risk: risky ? "scope_keywords" : (overCap ? "over_cap_400" : null),
         };
         conv.pending_quote = pendingObj;
         // Persistance atomique côté DB via RPC pg (verrou row-level, à l'abri d'un save
