@@ -7,7 +7,7 @@
 import { getSupabase, loadWaLabo3d } from "./_lib/supabase.js";
 import { sendMetaMessage } from "./_lib/meta-send.js";
 import { processAiResponses } from "./wa-labo3d-webhook.js";
-import { getAdminPhones } from "./quote-approval.js";
+import { getAdminPhones } from "./_lib/quote-approval.js";
 
 const MS_24H = 24 * 60 * 60 * 1000;
 
